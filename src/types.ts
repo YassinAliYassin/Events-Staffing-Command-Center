@@ -65,6 +65,10 @@ export interface BackendEvent {
   date: string;
   duration: number;
   staff_assigned: string;
+  staff_phone?: string;
+  staff_email?: string;
+  client_phone?: string;
+  client_email?: string;
   dress_code: string;
   arrival_time: string;
   created_at?: string;

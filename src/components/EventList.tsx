@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, User, Shirt, Clock, Trash2 } from 'lucide-react';
+import { Calendar } from 'lucide-react';
 import { BackendEvent } from '../types';
+import EventCard from './EventCard';
 
 const EventList: React.FC<{ refreshKey: number }> = ({ refreshKey }) => {
   const [events, setEvents] = useState<BackendEvent[]>([]);
@@ -49,39 +50,7 @@ const EventList: React.FC<{ refreshKey: number }> = ({ refreshKey }) => {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {events.map(event => (
-            <div key={event.id} className="bg-gray-800 p-5 rounded-lg border border-gray-700 hover:border-blue-500 transition-colors">
-              <div className="flex justify-between items-start mb-2">
-                <span className="text-xs font-mono text-blue-400">{event.id}</span>
-                <button
-                  onClick={() => deleteEvent(event.id)}
-                  className="text-red-400 hover:text-red-300 p-2 -m-2"
-                  title="Delete event"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-
-              <h3 className="font-medium mb-2 text-base">{event.title}</h3>
-
-              <div className="space-y-2 text-sm text-gray-400">
-                <div className="flex items-center gap-1">
-                  <Calendar className="w-3 h-3" />
-                  {new Date(event.date).toLocaleString()}
-                </div>
-                <div className="flex items-center gap-1">
-                  <User className="w-3 h-3" />
-                  {event.staff_assigned}
-                </div>
-                <div className="flex items-center gap-1">
-                  <Shirt className="w-3 h-3" />
-                  {event.dress_code}
-                </div>
-                <div className="flex items-center gap-1">
-                  <Clock className="w-3 h-3" />
-                  {event.duration}hr (Arrive: {new Date(event.arrival_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
-                </div>
-              </div>
-            </div>
+            <EventCard key={event.id} event={event} onDelete={deleteEvent} />
           ))}
         </div>
       )}
