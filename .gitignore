@@ -13,3 +13,7 @@ pnpm-workspace.yaml
 
 # Temp DB migration scripts
 add-*-column.js
+
+# Temp migration scripts
+add-*.js
+rename-*.js

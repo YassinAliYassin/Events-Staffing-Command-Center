@@ -14,7 +14,7 @@ app.use(cors());
 // CREATE event
 app.post('/api/events', (req, res) => {
   const { id, title, date, duration, staffName, dressCode, uniformType, arrivalTime, staffPhone, staffEmail, clientName, clientPhone, clientEmail } = req.body;
-  const sql = `INSERT INTO events (id, title, date, duration, staff_assigned, dress_code, uniform_type, arrival_time, staff_phone, staff_email, clientName, clientPhone, clientEmail) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+  const sql = `INSERT INTO events (id, title, date, duration, staffName, dressCode, uniformType, arrivalTime, staffPhone, staffEmail, clientName, clientPhone, clientEmail) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
   db.run(sql, [
     id,
     title,
@@ -39,36 +39,42 @@ app.post('/api/events', (req, res) => {
 
 // READ all events
 app.get('/api/events', (req, res) => {
-  db.all(`SELECT 
-    id, title, date, duration, 
-    staff_assigned as staffName, 
-    staff_phone as staffPhone, 
-    staff_email as staffEmail,
-    clientName,
-    clientPhone,
-    clientEmail,
-    dress_code as dressCode, 
-    uniform_type as uniformType,
-    arrival_time as arrivalTime, 
-    created_at as createdAt
-  FROM events ORDER BY date DESC`, [], (err, rows) => {
+  db.all(`SELECT * FROM events ORDER BY date DESC`, [], (err, rows) => {
     if (err) {
       return res.status(500).json({ error: err.message });
     }
-    res.json({ events: rows });
+    // Map DB rows to camelCase for frontend
+    const events = rows.map(row => ({
+      id: row.id,
+      title: row.title,
+      date: row.date,
+      duration: row.duration,
+      staffName: row.staffName,
+      staffPhone: row.staffPhone,
+      staffEmail: row.staffEmail,
+      clientName: row.clientName,
+      clientPhone: row.clientPhone,
+      clientEmail: row.clientEmail,
+      dressCode: row.dressCode,
+      uniformType: row.uniform_type,
+      arrivalTime: row.arrivalTime,
+      createdAt: row.created_at
+    }));
+    res.json({ events });
   });
 });
 
 // UPDATE event
 app.put('/api/events/:id', (req, res) => {
-  const { title, date, duration, staffName, dressCode, arrivalTime, staffPhone, staffEmail, clientName, clientPhone, clientEmail } = req.body;
-  const sql = `UPDATE events SET title = ?, date = ?, duration = ?, staff_assigned = ?, dress_code = ?, arrival_time = ?, staff_phone = ?, staff_email = ?, clientName = ?, clientPhone = ?, clientEmail = ? WHERE id = ?`;
+  const { title, date, duration, staffName, dressCode, uniformType, arrivalTime, staffPhone, staffEmail, clientName, clientPhone, clientEmail } = req.body;
+  const sql = `UPDATE events SET title = ?, date = ?, duration = ?, staffName = ?, dressCode = ?, uniformType = ?, arrivalTime = ?, staffPhone = ?, staffEmail = ?, clientName = ?, clientPhone = ?, clientEmail = ? WHERE id = ?`;
   db.run(sql, [
     title,
     date,
     duration,
     staffName || '',
     dressCode || '',
+    uniformType || '',
     arrivalTime || '',
     staffPhone || '',
     staffEmail || '',
