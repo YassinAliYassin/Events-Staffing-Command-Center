@@ -12,25 +12,25 @@ const EventCard: React.FC<EventCardProps> = ({ event, onDelete }) => {
   const formatTime = (dateStr: string) => new Date(dateStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
   // Check if we have any contact info to show actions
-  const hasContactInfo = event.staff_assigned || event.client_email || event.client_phone;
-  const hasWhatsApp = event.staff_phone || event.client_phone;
-  const hasEmail = event.staff_email || event.client_email;
+  const hasContactInfo = event.staffName || event.clientName || event.clientEmail || event.clientPhone;
+  const hasWhatsApp = event.staffPhone || event.clientPhone;
+  const hasEmail = event.staffEmail || event.clientEmail;
 
   // Generate WhatsApp link
   const getWhatsAppLink = () => {
-    const phone = event.staff_phone || event.client_phone;
+    const phone = event.staffPhone || event.clientPhone;
     if (!phone) return '#';
-    const staffName = event.staff_assigned || 'Staff';
-    const text = `Hello ${staffName}, regarding the ${event.title} on ${formatDate(event.date)}`;
+    const fullName = event.staffName || event.clientName || 'there';
+    const text = `Hello ${fullName}, regarding the ${event.title} on ${formatDate(event.date)}`;
     return `https://wa.me/${phone.replace(/\D/g, '')}?text=${encodeURIComponent(text)}`;
   };
 
   // Generate Email link
   const getEmailLink = () => {
-    const email = event.staff_email || event.client_email;
+    const email = event.staffEmail || event.clientEmail;
     if (!email) return '#';
     const subject = `Event Details: ${event.title}`;
-    const body = `Hi, checking in on ${event.title} scheduled for ${formatDate(event.date)}`;
+    const body = `Hi ${event.staffName || event.clientName || ''}, checking in on ${event.title} scheduled for ${formatDate(event.date)}`;
     return `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   };
 
@@ -72,15 +72,20 @@ const EventCard: React.FC<EventCardProps> = ({ event, onDelete }) => {
         </div>
         <div className="flex items-center gap-1">
           <User className="w-3 h-3" />
-          {event.staff_assigned || 'Unassigned'}
+          {event.staffName || 'Unassigned'}
         </div>
+        {event.clientName && (
+          <div className="flex items-center gap-1 text-xs text-gray-500">
+            Client: {event.clientName}
+          </div>
+        )}
         <div className="flex items-center gap-1">
           <Shirt className="w-3 h-3" />
-          {event.dress_code}
+          {event.dressCode}
         </div>
         <div className="flex items-center gap-1">
           <Clock className="w-3 h-3" />
-          {event.duration}hr (Arrive: {formatTime(event.arrival_time)})
+          {event.duration}hr (Arrive: {formatTime(event.arrivalTime)})
         </div>
       </div>
 

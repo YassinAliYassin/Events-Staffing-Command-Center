@@ -64,12 +64,13 @@ export interface BackendEvent {
   title: string;
   date: string;
   duration: number;
-  staff_assigned: string;
-  staff_phone?: string;
-  staff_email?: string;
-  client_phone?: string;
-  client_email?: string;
-  dress_code: string;
-  arrival_time: string;
-  created_at?: string;
+  staffName: string;  // Full name (Firstname Surname)
+  staffPhone?: string;
+  staffEmail?: string;
+  clientName?: string;  // Full name (Firstname Surname)
+  clientPhone?: string;
+  clientEmail?: string;
+  dressCode: string;
+  arrivalTime: string;
+  createdAt?: string;
 }
