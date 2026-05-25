@@ -52,11 +52,11 @@ export interface Staff {
   id: number;
   fullName: string;
   phone: string;
-  role?: string;
+  role: 'Bartender' | 'Server' | 'Barista' | 'Mixologist' | 'Barback' | 'Setup Team' | 'Promoter' | 'Usher';
   rate?: number;
+  notes?: string;
+  created_at?: string;
 }
-
-export interface StaffAssignment {
   id: number;
   eventId: string;
   staffId: number;

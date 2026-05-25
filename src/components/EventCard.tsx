@@ -25,13 +25,14 @@ const EventCard: React.FC<EventCardProps> = ({ event, onDelete }) => {
   };
 
   // Generate WhatsApp link
-  const getWhatsAppLink = () => {
+const getWhatsAppLink = () => {
     const primary = getPrimaryContact();
     const phone = primary?.phone || event.staffPhone || event.clientPhone;
     if (!phone) return '#';
     const name = primary?.fullName || event.staffName || event.clientName || 'there';
-    const text = `Hello ${name}, regarding the ${event.title} on ${formatDate(event.date)}`;
-    return `https://wa.me/${phone.replace(/\D/g, '')}?text=${encodeURIComponent(text)}`;
+    const role = primary?.role || '';
+    const text = `Hello ${name}${role ? ` (${role})` : ''}, regarding the ${event.title} on ${formatDate(event.date)}`;
+    return `https://wa.me/${phone.replace(/\\D/g, '')}?text=${encodeURIComponent(text)}`;
   };
 
   // Generate Email link
@@ -90,7 +91,7 @@ const EventCard: React.FC<EventCardProps> = ({ event, onDelete }) => {
               <div className="flex flex-wrap gap-1 mt-1">
                 {event.assignedStaff.map(staff => (
                   <span key={staff.id} className="text-xs bg-gray-700 px-2 py-1 rounded">
-                    {staff.fullName}
+                    {`${staff.fullName} - ${staff.role}`}
                   </span>
                 ))}
               </div>

@@ -83,8 +83,7 @@ const StaffPicker: React.FC<StaffPickerProps> = ({ eventId, assignedStaff, onAss
                   className="flex items-center justify-between bg-gray-700 p-3 rounded-lg hover:bg-gray-600 transition-colors"
                 >
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-white truncate">{staff.fullName}</p>
-                    {staff.role && <p className="text-xs text-gray-400">{staff.role}</p>}
+                    <p className="text-sm font-medium text-white truncate">{`${staff.fullName} - ${staff.role}`}</p>
                   </div>
                   <button
                     onClick={() => onAssign(staff.id)}
@@ -114,8 +113,7 @@ const StaffPicker: React.FC<StaffPickerProps> = ({ eventId, assignedStaff, onAss
                   className="flex items-center justify-between bg-blue-900/30 p-3 rounded-lg border border-blue-800"
                 >
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-white truncate">{staff.fullName}</p>
-                    {staff.role && <p className="text-xs text-gray-400">{staff.role}</p>}
+                    <p className="text-sm font-medium text-white truncate">{`${staff.fullName} - ${staff.role}`}</p>
                     {staff.phone && <p className="text-xs text-gray-500">{staff.phone}</p>}
                   </div>
                   <button
