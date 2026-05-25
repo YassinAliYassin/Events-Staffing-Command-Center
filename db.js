@@ -17,7 +17,13 @@ const db = new sqlite3.Database(dbPath, (err) => {
       date TEXT NOT NULL,
       duration INTEGER DEFAULT 4,
       staff_assigned TEXT,
+      staff_phone TEXT DEFAULT '',
+      staff_email TEXT DEFAULT '',
+      clientName TEXT DEFAULT '',
+      clientPhone TEXT DEFAULT '',
+      clientEmail TEXT DEFAULT '',
       dress_code TEXT DEFAULT 'All Black',
+      uniform_type TEXT DEFAULT 'Formal All Black',
       arrival_time TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`, (err) => {
