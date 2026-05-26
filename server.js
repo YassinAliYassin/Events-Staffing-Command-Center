@@ -91,7 +91,7 @@ app.delete('/api/staff/:id', (req, res) => {
 // GET event assignments with staff details
 app.get('/api/events/:id/assignments', (req, res) => {
   const sql = `
-    SELECT sa.id, sa.eventId, sa.staffId, sa.shift_type,
+    SELECT sa.id, sa.eventId, sa.staffId, sa.shift_type, sa.status,
            s.fullName, s.phone, s.role
     FROM staff_assignments sa
     JOIN staff s ON s.id = sa.staffId
@@ -104,6 +104,7 @@ app.get('/api/events/:id/assignments', (req, res) => {
       eventId: row.eventId,
       staffId: row.staffId,
       shiftType: row.shift_type || 'Full Shift',
+      status: row.status || 'Pending',
       fullName: row.fullName,
       phone: row.phone,
       role: row.role
@@ -155,6 +156,21 @@ app.delete('/api/events/:eventId/assignments/:staffId', (req, res) => {
   });
 });
 
+// UPDATE staff assignment status
+app.patch('/api/events/:eventId/assignments/:staffId', (req, res) => {
+  const { status } = req.body;
+  if (!status || !['Pending', 'Confirmed', 'Unavailable'].includes(status)) {
+    return res.status(400).json({ error: 'Invalid status. Use Pending, Confirmed, or Unavailable' });
+  }
+  
+  const sql = 'UPDATE staff_assignments SET status = ? WHERE eventId = ? AND staffId = ?';
+  db.run(sql, [status, req.params.eventId, req.params.staffId], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    if (this.changes === 0) return res.status(404).json({ error: 'Assignment not found' });
+    res.json({ message: `Status updated to ${status}`, changes: this.changes });
+  });
+});
+
 // ==================
 // EVENTS ENDPOINTS (Updated to include assignments)
 // ==================
@@ -185,9 +201,9 @@ app.get('/api/events', (req, res) => {
           createdAt: row.created_at
         };
         
-        // Fetch assigned staff with shift type
+        // Fetch assigned staff with shift type and status
         const sql = `
-          SELECT s.id, s.fullName, s.phone, s.role, sa.shift_type 
+          SELECT s.id, s.fullName, s.phone, s.role, sa.shift_type, sa.status 
           FROM staff s
           JOIN staff_assignments sa ON s.id = sa.staffId
           WHERE sa.eventId = ?
@@ -199,7 +215,8 @@ app.get('/api/events', (req, res) => {
               fullName: s.fullName,
               phone: s.phone,
               role: s.role,
-              shiftType: s.shift_type || 'Full Shift'
+              shiftType: s.shift_type || 'Full Shift',
+              status: s.status || 'Pending'
             }));
           }
           resolve(event);

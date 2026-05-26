@@ -1,5 +1,5 @@
 import React from 'react';
-import { Calendar, User, Shirt, Clock, Trash2, Mail, MessageCircle, Users } from 'lucide-react';
+import { Calendar, User, Shirt, Clock, Trash2, Mail, MessageCircle, Users, Copy, CheckCircle, XCircle } from 'lucide-react';
 import { BackendEvent } from '../types';
 
 interface EventCardProps {
@@ -25,7 +25,7 @@ const EventCard: React.FC<EventCardProps> = ({ event, onDelete }) => {
   };
 
   // Generate WhatsApp link
-const getWhatsAppLink = () => {
+  const getWhatsAppLink = () => {
     const primary = getPrimaryContact();
     const phone = primary?.phone || event.staffPhone || event.clientPhone;
     if (!phone) return '#';
@@ -45,6 +45,61 @@ const getWhatsAppLink = () => {
     const subject = `Event Details: ${event.title}`;
     const body = `Hi ${name}, checking in on ${event.title} scheduled for ${formatDate(event.date)}`;
     return `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  };
+
+  // Copy Dispatch Script to clipboard
+  const copyDispatchScript = (staff: any) => {
+    const script = `Hello ${staff.fullName},
+
+Hope you're well! I'm confirming your assignment for the upcoming event:
+
+📅 Event: ${event.title}
+📆 Date: ${formatDate(event.date)}
+⏰ Arrival: ${formatTime(event.arrivalTime)}
+👔 Uniform: ${event.uniformType || event.dressCode}
+🎭 Your Role: ${staff.role}${staff.shiftType && staff.shiftType !== 'Full Shift' ? ` (${staff.shiftType})` : ''}
+
+Please confirm your availability by replying to this message.
+
+Looking forward to a great event!
+
+Best regards,
+Fresh People Events Team`;
+
+    navigator.clipboard.writeText(script).then(() => {
+      alert('Dispatch script copied to clipboard!');
+    }).catch(() => {
+      // Fallback for older browsers
+      const textarea = document.createElement('textarea');
+      textarea.value = script;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      alert('Dispatch script copied to clipboard!');
+    });
+  };
+
+  // Update staff status
+  const updateStaffStatus = async (staffId: number, status: 'Confirmed' | 'Unavailable') => {
+    try {
+      const response = await fetch(`http://${window.location.hostname}:3001/api/events/${event.id}/assignments/${staffId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status })
+      });
+      
+      if (response.ok) {
+        alert(`Staff marked as ${status}`);
+        // Reload to reflect changes (simple approach)
+        window.location.reload();
+      } else {
+        alert('Failed to update status');
+      }
+    } catch (err) {
+      console.error('Error updating status:', err);
+      alert('Error updating status');
+    }
   };
 
   // Handle missing phone for WhatsApp
@@ -88,16 +143,46 @@ const getWhatsAppLink = () => {
         {event.assignedStaff && event.assignedStaff.length > 0 ? (
           <div className="flex items-start gap-1">
             <Users className="w-3 h-3 mt-0.5" />
-            <div>
+            <div className="flex-1">
               <p className="font-medium text-gray-300">Staff Roster ({event.assignedStaff.length})</p>
-              <div className="flex flex-wrap gap-1 mt-1">
+              <div className="flex flex-col gap-2 mt-1">
                 {event.assignedStaff.map(staff => (
-                  <span key={staff.id} className="text-xs bg-gray-700 px-2 py-1 rounded">
-                    {`${staff.fullName} - ${staff.role}`}
-                    {staff.shiftType && staff.shiftType !== 'Full Shift' && (
-                      <span className="ml-1 text-blue-400">({staff.shiftType})</span>
-                    )}
-                  </span>
+                  <div key={staff.id} className="bg-gray-700 px-2 py-1 rounded flex items-center justify-between gap-2">
+                    <span className="text-xs">
+                      {`${staff.fullName} - ${staff.role}`}
+                      {staff.shiftType && staff.shiftType !== 'Full Shift' && (
+                        <span className="ml-1 text-blue-400">({staff.shiftType})</span>
+                      )}
+                      {staff.status && staff.status !== 'Pending' && (
+                        <span className={`ml-1 ${staff.status === 'Confirmed' ? 'text-green-400' : 'text-red-400'}`}>
+                          [{staff.status}]
+                        </span>
+                      )}
+                    </span>
+                    <div className="flex gap-1">
+                      <button
+                        onClick={() => copyDispatchScript(staff)}
+                        className="p-1 text-blue-400 hover:text-blue-300 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+                        title="Copy dispatch script"
+                      >
+                        <Copy className="w-3 h-3" />
+                      </button>
+                      <button
+                        onClick={() => updateStaffStatus(staff.id, 'Confirmed')}
+                        className="p-1 text-green-400 hover:text-green-300 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+                        title="Mark as Confirmed"
+                      >
+                        <CheckCircle className="w-3 h-3" />
+                      </button>
+                      <button
+                        onClick={() => updateStaffStatus(staff.id, 'Unavailable')}
+                        className="p-1 text-red-400 hover:text-red-300 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+                        title="Mark as Unavailable"
+                      >
+                        <XCircle className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
                 ))}
               </div>
             </div>

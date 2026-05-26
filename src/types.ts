@@ -66,6 +66,7 @@ export interface StaffAssignment {
   phone: string;
   role: string;
   shiftType: 'Full Shift' | 'Shift A' | 'Shift B' | 'Double Shift';
+  status: 'Pending' | 'Confirmed' | 'Unavailable';
   staff?: Staff;  // Populated when joining
 }
 
