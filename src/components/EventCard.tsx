@@ -1,5 +1,5 @@
-import React from 'react';
-import { Calendar, User, Shirt, Clock, Trash2, Mail, MessageCircle, Users, Copy, CheckCircle, XCircle } from 'lucide-react';
+import React, { useState } from 'react';
+import { Calendar, User, Shirt, Clock, Trash2, Mail, MessageCircle, Users, Copy, CheckCircle, XCircle, FileText, Send } from 'lucide-react';
 import { BackendEvent } from '../types';
 
 interface EventCardProps {
@@ -10,6 +10,11 @@ interface EventCardProps {
 const EventCard: React.FC<EventCardProps> = ({ event, onDelete }) => {
   const formatDate = (dateStr: string) => new Date(dateStr).toLocaleDateString();
   const formatTime = (dateStr: string) => new Date(dateStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  
+  // Timesheet state
+  const [showTimesheet, setShowTimesheet] = useState(false);
+  const [captainReport, setCaptainReport] = useState('');
+  const [parsing, setParsing] = useState(false);
 
   // Check if we have any contact info to show actions
   const hasContactInfo = (event.assignedStaff && event.assignedStaff.length > 0) || event.staffName || event.clientName || event.clientPhone;
@@ -69,7 +74,6 @@ Fresh People Events Team`;
     navigator.clipboard.writeText(script).then(() => {
       alert('Dispatch script copied to clipboard!');
     }).catch(() => {
-      // Fallback for older browsers
       const textarea = document.createElement('textarea');
       textarea.value = script;
       document.body.appendChild(textarea);
@@ -78,6 +82,79 @@ Fresh People Events Team`;
       document.body.removeChild(textarea);
       alert('Dispatch script copied to clipboard!');
     });
+  };
+
+  // Parse Captain's report and update timesheets
+  const parseAndLogTimesheet = async () => {
+    setParsing(true);
+    const lines = captainReport.split('\n').filter(line => line.trim());
+    let updated = 0;
+    let errors = 0;
+
+    for (const line of lines) {
+      // Parse "Name: Start-End" format
+      const match = line.match(/^(.+?):\s*(\d{1,2}:\d{2})-(\d{1,2}:\d{2})$/);
+      if (!match) {
+        errors++;
+        continue;
+      }
+
+      const [, namePart, startTime, endTime] = match;
+      const fullName = namePart.trim();
+
+      // Find matching staff in assignedStaff
+      const staff = event.assignedStaff?.find(s => 
+        s.fullName.toLowerCase() === fullName.toLowerCase()
+      );
+
+      if (!staff) {
+        console.warn(`Staff not found: ${fullName}`);
+        errors++;
+        continue;
+      }
+
+      // Calculate hours
+      const start = new Date(`2000-01-01T${startTime}:00`);
+      const end = new Date(`2000-01-01T${endTime}:00`);
+      let hours = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
+      if (hours < 0) hours += 24; // Handle overnight shifts
+
+      // Find the assignment ID (we need to fetch it)
+      try {
+        const response = await fetch(`http://${window.location.hostname}:3001/api/events/${event.id}/assignments`);
+        const data = await response.json();
+        const assignment = data.assignments?.find((a: any) => a.staffId === staff.id);
+        
+        if (assignment) {
+          // Update timesheet
+          const updateResponse = await fetch(`http://${window.location.hostname}:3001/api/assignments/${assignment.id}/timesheet`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              totalHours: hours,
+              dateWorked: event.date
+            })
+          });
+
+          if (updateResponse.ok) {
+            updated++;
+          } else {
+            errors++;
+          }
+        } else {
+          errors++;
+        }
+      } catch (err) {
+        console.error('Error updating timesheet:', err);
+        errors++;
+      }
+    }
+
+    setParsing(false);
+    alert(`Timesheet logged! Updated: ${updated} staff. Errors: ${errors}`);
+    if (updated > 0) {
+      window.location.reload();
+    }
   };
 
   // Update staff status
@@ -91,7 +168,6 @@ Fresh People Events Team`;
       
       if (response.ok) {
         alert(`Staff marked as ${status}`);
-        // Reload to reflect changes (simple approach)
         window.location.reload();
       } else {
         alert('Failed to update status');
@@ -122,13 +198,22 @@ Fresh People Events Team`;
     <div className="bg-gray-800 p-5 rounded-lg border border-gray-700 hover:border-blue-500 transition-colors">
       <div className="flex justify-between items-start mb-2">
         <span className="text-xs font-mono text-blue-400">{event.id}</span>
-        <button
-          onClick={() => onDelete(event.id)}
-          className="text-red-400 hover:text-red-300 p-2 -m-2"
-          title="Delete event"
-        >
-          <Trash2 className="w-4 h-4" />
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowTimesheet(!showTimesheet)}
+            className="text-blue-400 hover:text-blue-300 p-2 -m-2"
+            title="Log Timesheet"
+          >
+            <FileText className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => onDelete(event.id)}
+            className="text-red-400 hover:text-red-300 p-2 -m-2"
+            title="Delete event"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       <h3 className="font-medium mb-2 text-base">{event.title}</h3>
@@ -138,6 +223,31 @@ Fresh People Events Team`;
           <Calendar className="w-3 h-3" />
           {formatDate(event.date)}
         </div>
+        
+        {/* Timesheet Section */}
+        {showTimesheet && (
+          <div className="bg-gray-700 p-3 rounded-lg space-y-2">
+            <p className="text-xs font-medium text-gray-300">Log Timesheet (Captain's Report)</p>
+            <textarea
+              value={captainReport}
+              onChange={(e) => setCaptainReport(e.target.value)}
+              placeholder={`Paste Captain's report here:\nJohn Doe: 18:00-22:00\nJane Smith: 19:00-23:00`}
+              className="w-full h-24 px-3 py-2 bg-gray-800 border border-gray-600 rounded text-white text-xs placeholder-gray-500 focus:outline-none focus:border-blue-500 resize-none"
+            />
+            <button
+              onClick={parseAndLogTimesheet}
+              disabled={!captainReport.trim() || parsing}
+              className="w-full py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 rounded-lg text-sm transition-colors min-h-[44px] flex items-center justify-center gap-2"
+            >
+              {parsing ? 'Processing...' : (
+                <>
+                  <Send className="w-3 h-3" />
+                  Parse & Log Hours
+                </>
+              )}
+            </button>
+          </div>
+        )}
         
         {/* Staff Roster */}
         {event.assignedStaff && event.assignedStaff.length > 0 ? (
@@ -156,6 +266,11 @@ Fresh People Events Team`;
                       {staff.status && staff.status !== 'Pending' && (
                         <span className={`ml-1 ${staff.status === 'Confirmed' ? 'text-green-400' : 'text-red-400'}`}>
                           [{staff.status}]
+                        </span>
+                      )}
+                      {staff.totalHours > 0 && (
+                        <span className="ml-1 text-green-400">
+                          ({staff.totalHours}hrs / R{staff.earnedAmount?.toFixed(2)})
                         </span>
                       )}
                     </span>

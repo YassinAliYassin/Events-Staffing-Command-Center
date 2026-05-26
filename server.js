@@ -91,7 +91,7 @@ app.delete('/api/staff/:id', (req, res) => {
 // GET event assignments with staff details
 app.get('/api/events/:id/assignments', (req, res) => {
   const sql = `
-    SELECT sa.id, sa.eventId, sa.staffId, sa.shift_type, sa.status,
+    SELECT sa.id, sa.eventId, sa.staffId, sa.shift_type, sa.status, sa.totalHours, sa.earnedAmount, sa.date_worked,
            s.fullName, s.phone, s.role
     FROM staff_assignments sa
     JOIN staff s ON s.id = sa.staffId
@@ -105,6 +105,9 @@ app.get('/api/events/:id/assignments', (req, res) => {
       staffId: row.staffId,
       shiftType: row.shift_type || 'Full Shift',
       status: row.status || 'Pending',
+      totalHours: row.totalHours || 0,
+      earnedAmount: row.earnedAmount || 0,
+      dateWorked: row.date_worked || '',
       fullName: row.fullName,
       phone: row.phone,
       role: row.role
@@ -171,6 +174,81 @@ app.patch('/api/events/:eventId/assignments/:staffId', (req, res) => {
   });
 });
 
+// UPDATE timesheet (hours worked + earnings)
+app.patch('/api/assignments/:id/timesheet', (req, res) => {
+  const { totalHours, dateWorked } = req.body;
+  if (!totalHours || !dateWorked) {
+    return res.status(400).json({ error: 'totalHours and dateWorked required' });
+  }
+  
+  const earnedAmount = totalHours * 40; // R40/hr
+  const sql = 'UPDATE staff_assignments SET totalHours = ?, earnedAmount = ?, date_worked = ? WHERE id = ?';
+  db.run(sql, [totalHours, earnedAmount, dateWorked, req.params.id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    if (this.changes === 0) return res.status(404).json({ error: 'Assignment not found' });
+    res.json({ message: 'Timesheet updated', totalHours, earnedAmount, changes: this.changes });
+  });
+});
+
+// GET payroll data (26th-25th cycle)
+app.get('/api/payroll', (req, res) => {
+  const { cycleStart, cycleEnd } = req.query;
+  
+  // Default to current payroll cycle (26th of last month to 25th of this month)
+  let startDate, endDate;
+  const now = new Date();
+  const currentDay = now.getDate();
+  
+  if (cycleStart && cycleEnd) {
+    startDate = cycleStart;
+    endDate = cycleEnd;
+  } else if (currentDay >= 26) {
+    // After 26th: cycle starts this month on 26th
+    startDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-26`;
+    endDate = `${now.getFullYear()}-${String(now.getMonth() + 2).padStart(2, '0')}-25`;
+  } else {
+    // Before 26th: cycle started last month on 26th
+    const lastMonth = now.getMonth() === 0 ? 11 : now.getMonth() - 1;
+    const year = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
+    startDate = `${year}-${String(lastMonth + 1).padStart(2, '0')}-26`;
+    endDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-25`;
+  }
+  
+  const sql = `
+    SELECT 
+      s.id as staffId,
+      s.fullName,
+      s.phone,
+      s.role,
+      COUNT(sa.id) as assignmentsCount,
+      SUM(sa.totalHours) as totalHours,
+      SUM(sa.earnedAmount) as totalEarned
+    FROM staff s
+    LEFT JOIN staff_assignments sa ON s.id = sa.staffId
+    WHERE sa.date_worked BETWEEN ? AND ?
+    GROUP BY s.id
+    HAVING totalHours > 0
+    ORDER BY totalEarned DESC
+  `;
+  
+  db.all(sql, [startDate, endDate], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({
+      cycleStart: startDate,
+      cycleEnd: endDate,
+      staff: rows.map(r => ({
+        staffId: r.staffId,
+        fullName: r.fullName,
+        phone: r.phone,
+        role: r.role,
+        assignmentsCount: r.assignmentsCount || 0,
+        totalHours: r.totalHours || 0,
+        totalEarned: r.totalEarned || 0
+      }))
+    });
+  });
+});
+
 // ==================
 // EVENTS ENDPOINTS (Updated to include assignments)
 // ==================
@@ -201,9 +279,9 @@ app.get('/api/events', (req, res) => {
           createdAt: row.created_at
         };
         
-        // Fetch assigned staff with shift type and status
+        // Fetch assigned staff with shift type, status, and payroll data
         const sql = `
-          SELECT s.id, s.fullName, s.phone, s.role, sa.shift_type, sa.status 
+          SELECT s.id, s.fullName, s.phone, s.role, sa.shift_type, sa.status, sa.totalHours, sa.earnedAmount, sa.date_worked 
           FROM staff s
           JOIN staff_assignments sa ON s.id = sa.staffId
           WHERE sa.eventId = ?
@@ -216,7 +294,10 @@ app.get('/api/events', (req, res) => {
               phone: s.phone,
               role: s.role,
               shiftType: s.shift_type || 'Full Shift',
-              status: s.status || 'Pending'
+              status: s.status || 'Pending',
+              totalHours: s.totalHours || 0,
+              earnedAmount: s.earnedAmount || 0,
+              dateWorked: s.date_worked || ''
             }));
           }
           resolve(event);

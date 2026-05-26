@@ -67,7 +67,10 @@ export interface StaffAssignment {
   role: string;
   shiftType: 'Full Shift' | 'Shift A' | 'Shift B' | 'Double Shift';
   status: 'Pending' | 'Confirmed' | 'Unavailable';
-  staff?: Staff;  // Populated when joining
+  totalHours?: number;
+  earnedAmount?: number;
+  dateWorked?: string;
+  staff?: Staff;
 }
 
 export interface BackendEvent {
