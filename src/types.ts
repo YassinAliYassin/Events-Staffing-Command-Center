@@ -85,20 +85,20 @@ export interface BackendEvent {
   title: string;
   date: string;
   duration: number;
-  staffName?: string;  // Legacy single-assignment (for migration)
+  staffName?: string;  // Legacy single-assignment
   staffPhone?: string;
   staffEmail?: string;
-  assignedStaff?: StaffAssignment[];  // Many-to-many roster with shift type
-  clientId?: number;  // Foreign key to clients table
-  clientName?: string;  // Populated from join
-  clientBudget?: number;  // Budget allocated by client
+  assignedStaff?: StaffAssignment[];  // Many-to-many roster
+  clientId?: number;
+  clientName?: string;
+  clientBudget?: number;
   clientPhone?: string;
   clientEmail?: string;
-  dressCode: string;
+  dressCode: string;  // From server (camelCase)
   uniformType?: string;
   arrivalTime: string;
-  miscExpenses?: MiscExpense[];  // Miscellaneous expenses for tax reporting
-  totalEventCost?: number;  // Calculated: staff payroll + expenses
-  netProfit?: number;  // Calculated: clientBudget - totalEventCost
+  miscExpenses?: MiscExpense[];
+  totalEventCost?: number;
+  netProfit?: number;
   createdAt?: string;
 }

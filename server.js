@@ -122,7 +122,7 @@ app.get('/api/events/:id/assignments', (req, res) => {
 
 // ASSIGN staff to event
 app.post('/api/events/:id/assignments', (req, res) => {
-  const { staffId, shiftType } = req.body;
+  const { staffId, shiftType, staffPhone } = req.body;
   if (!staffId) return res.status(400).json({ error: 'staffId required' });
   
   // Check if already assigned
@@ -144,6 +144,34 @@ app.post('/api/events/:id/assignments', (req, res) => {
       const insertSql = 'INSERT INTO staff_assignments (eventId, staffId, shift_type) VALUES (?, ?, ?)';
       db.run(insertSql, [req.params.id, staffId, shiftType || 'Full Shift'], function(err) {
         if (err) return res.status(500).json({ error: err.message });
+        
+        // Send WhatsApp notification to staff
+        const token = process.env.WHATSAPP_ACCESS_TOKEN;
+        const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+        const phone = staffPhone || '';
+        
+        if (token && phoneId && phone) {
+          const message = `Hello! You've been assigned to event ${req.params.id}. Shift: ${shiftType || 'Full Shift'}. Reply CONFIRM to accept.`;
+          fetch(`https://graph.facebook.com/v18.0/${phoneId}/messages`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              messaging_product: 'whatsapp',
+              to: phone,
+              text: { body: message }
+            })
+          }).then(response => {
+            if (!response.ok) {
+              console.error('WhatsApp send failed:', response.statusText);
+            } else {
+              console.log(`WhatsApp sent to ${phone}`);
+            }
+          }).catch(err => console.error('WhatsApp send failed:', err));
+        }
+        
         const response = { id: this.lastID, message: 'Staff assigned' };
         if (conflictRow) {
           response.warning = `Shift conflict: Staff already assigned to "${conflictRow.title}" on same day`;
@@ -382,8 +410,69 @@ app.delete('/api/events/:id', (req, res) => {
   });
 });
 
+// ==================
+// WHATSAPP WEBHOOK ENDPOINTS
+// ==================
+
+// Webhook verification (Meta requires this)
+app.get('/webhook', (req, res) => {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+  
+  const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN || 'fresh_people_verify_token';
+  
+  if (mode === 'subscribe' && token === verifyToken) {
+    console.log('WhatsApp webhook verified');
+    res.status(200).send(challenge);
+  } else {
+    res.status(403).send('Verification failed');
+  }
+});
+
+// Receive WhatsApp messages (staff replies)
+app.post('/webhook', (req, res) => {
+  const { object, entry } = req.body;
+  
+  if (object === 'whatsapp_business_account') {
+    entry.forEach(entry => {
+      entry.changes.forEach(change => {
+        if (change.field === 'messages') {
+          const messages = change.value.messages;
+          if (messages) {
+            messages.forEach(message => {
+              const from = message.from;
+              const text = message.text?.body?.toUpperCase() || '';
+              
+              console.log(`WhatsApp from ${from}: ${text}`);
+              
+              // Handle staff confirmation
+              if (text.includes('CONFIRM')) {
+                // Update staff assignment status to 'Confirmed'
+                db.run(
+                  `UPDATE staff_assignments SET status = 'Confirmed' 
+                   WHERE staffId = (SELECT id FROM staff WHERE phone LIKE ?) 
+                   AND status = 'Pending'`,
+                  [`%${from}%`],
+                  function(err) {
+                    if (err) console.error('Status update failed:', err);
+                    else console.log(`Staff ${from} confirmed assignment`);
+                  }
+                );
+              }
+            });
+          }
+        }
+      });
+    });
+  }
+  
+  res.status(200).send('OK');
+});
+
 app.listen(port, () => {
   console.log(`Backend server running on http://localhost:${port}`);
+  console.log(`WhatsApp webhook: http://localhost:${port}/webhook`);
 });
 
 // ==================
