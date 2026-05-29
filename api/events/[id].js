@@ -1,36 +1,26 @@
-import { kv } from '@vercel/kv';
+import { Pool } from 'pg';
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
+});
 
 export default async function handler(req, res) {
   const { id } = req.query;
   
-  if (!id) {
-    return res.status(400).json({ error: 'Event ID is required' });
+  if (req.method === 'PATCH') {
+    const { title, date, duration, staff_assigned, dressCode, arrivalTime } = req.body;
+    await pool.query(
+      'UPDATE events SET title=$1, date=$2, duration=$3, staff_assigned=$4, dressCode=$5, arrivalTime=$6 WHERE id=$7',
+      [title, date, duration, JSON.stringify(staff_assigned), dressCode, arrivalTime, id]
+    );
+    return res.json({ id, message: 'Event updated successfully' });
   }
   
-  try {
-    if (req.method === 'PATCH' || req.method === 'PUT') {
-      // Get existing event
-      const existing = await kv.get(`event:${id}`);
-      
-      if (!existing) {
-        return res.status(404).json({ error: 'Event not found' });
-      }
-      
-      // Merge updates
-      const updated = { ...existing, ...req.body };
-      await kv.set(`event:${id}`, updated);
-      
-      return res.json({ message: 'Event updated successfully' });
-    } 
-    
-    if (req.method === 'DELETE') {
-      await kv.del(`event:${id}`);
-      return res.json({ message: 'Event deleted successfully' });
-    }
-    
-    return res.status(405).json({ error: 'Method not allowed' });
-  } catch (err) {
-    console.error('API error:', err);
-    return res.status(500).json({ error: err.message });
+  if (req.method === 'DELETE') {
+    await pool.query('DELETE FROM events WHERE id=$1', [id]);
+    return res.json({ message: 'Event deleted successfully' });
   }
+  
+  res.status(405).json({ error: 'Method not allowed' });
 }

@@ -1,54 +1,42 @@
-import { kv } from '@vercel/kv';
+import { Pool } from 'pg';
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
+});
+
+// Init table
+async function initDB() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS events (
+      id TEXT PRIMARY KEY,
+      title TEXT,
+      date TEXT,
+      duration INTEGER,
+      staff_assigned TEXT,
+      dressCode TEXT,
+      arrivalTime TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+}
 
 export default async function handler(req, res) {
-  try {
-    if (req.method === 'GET') {
-      // Get all event keys
-      const keys = await kv.keys('event:*');
-      
-      if (keys.length === 0) {
-        return res.json({ events: [] });
-      }
-      
-      // Fetch all events
-      const events = await kv.mget(keys);
-      
-      // Filter out null values and sort by date descending
-      const validEvents = events.filter(e => e !== null).sort((a, b) => 
-        new Date(b.date) - new Date(a.date)
-      );
-      
-      return res.json({ events: validEvents });
-    } 
-    
-    if (req.method === 'POST') {
-      const { id, title, date, duration, staff_assigned, dressCode, arrivalTime } = req.body;
-      
-      if (!title || !date) {
-        return res.status(400).json({ error: 'Title and date are required' });
-      }
-      
-      const eventId = id || `FP-${Date.now()}`;
-      const event = {
-        id: eventId,
-        title,
-        date,
-        duration: duration || 4,
-        staff_assigned: staff_assigned || [],
-        dressCode: dressCode || 'All Black',
-        arrivalTime: arrivalTime || '',
-        created_at: new Date().toISOString()
-      };
-      
-      // Store event
-      await kv.set(`event:${eventId}`, event);
-      
-      return res.json({ id: eventId, message: 'Event created successfully' });
-    }
-    
-    return res.status(405).json({ error: 'Method not allowed' });
-  } catch (err) {
-    console.error('API error:', err);
-    return res.status(500).json({ error: err.message });
+  await initDB();
+  
+  if (req.method === 'GET') {
+    const { rows } = await pool.query('SELECT * FROM events ORDER BY date ASC');
+    return res.json({ events: rows });
   }
+  
+  if (req.method === 'POST') {
+    const { id, title, date, duration, staff_assigned, dressCode, arrivalTime } = req.body;
+    await pool.query(
+      'INSERT INTO events (id, title, date, duration, staff_assigned, dressCode, arrivalTime) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+      [id, title, date, duration, JSON.stringify(staff_assigned), dressCode, arrivalTime]
+    );
+    return res.json({ id, message: 'Event created successfully' });
+  }
+  
+  res.status(405).json({ error: 'Method not allowed' });
 }

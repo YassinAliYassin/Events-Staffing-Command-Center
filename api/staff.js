@@ -1,77 +1,39 @@
-import sqlite3 from 'sqlite3';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import { Pool } from 'pg';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const dbPath = process.env.NODE_ENV === 'production' ? '/tmp/events.db' : path.join(__dirname, '..', 'events.db');
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
+});
 
-function getDB() {
-  return new sqlite3.Database(dbPath, (err) => {
-    if (err) console.error('DB open error:', err);
-  });
-}
-
-function runAsync(db, sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.run(sql, params, function(err) {
-      if (err) reject(err);
-      else resolve(this);
-    });
-  });
-}
-
-function allAsync(db, sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.all(sql, params, (err, rows) => {
-      if (err) reject(err);
-      else resolve(rows);
-    });
-  });
-}
-
-async function initDB(db) {
-  await runAsync(db, `CREATE TABLE IF NOT EXISTS staff (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    fullName TEXT NOT NULL,
-    role TEXT DEFAULT 'Staff',
-    phone TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )`);
+// Init table
+async function initDB() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS staff (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      phone TEXT,
+      role TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
 }
 
 export default async function handler(req, res) {
-  const db = getDB();
+  await initDB();
   
-  try {
-    await initDB(db);
-    
-    if (req.method === 'GET') {
-      const rows = await allAsync(db, 'SELECT * FROM staff ORDER BY fullName');
-      db.close();
-      return res.json({ staff: rows });
-    } else if (req.method === 'POST') {
-      const { fullName, role, phone } = req.body;
-      
-      if (!fullName) {
-        db.close();
-        return res.status(400).json({ error: 'fullName is required' });
-      }
-      
-      await runAsync(db, 
-        `INSERT INTO staff (fullName, role, phone) VALUES (?, ?, ?)`,
-        [fullName, role || 'Staff', phone || '']
-      );
-      
-      db.close();
-      return res.json({ message: 'Staff added successfully' });
-    } else {
-      db.close();
-      return res.status(405).json({ error: 'Method not allowed' });
-    }
-  } catch (err) {
-    db.close();
-    console.error('API error:', err);
-    return res.status(500).json({ error: err.message });
+  if (req.method === 'GET') {
+    const { rows } = await pool.query('SELECT * FROM staff ORDER BY name ASC');
+    return res.json({ staff: rows });
   }
+  
+  if (req.method === 'POST') {
+    const { name, phone, role } = req.body;
+    const { rows } = await pool.query(
+      'INSERT INTO staff (name, phone, role) VALUES ($1, $2, $3) RETURNING *',
+      [name, phone, role]
+    );
+    return res.json({ staff: rows[0], message: 'Staff added successfully' });
+  }
+  
+  res.status(405).json({ error: 'Method not allowed' });
 }

@@ -1,60 +1,40 @@
-import { kv } from '@vercel/kv';
+import { Pool } from 'pg';
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
+});
+
+// Init table
+async function initDB() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS events (
+      id TEXT PRIMARY KEY,
+      title TEXT,
+      date TEXT,
+      duration INTEGER,
+      staff_assigned TEXT,
+      dressCode TEXT,
+      arrivalTime TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+}
 
 export default async function handler(req, res) {
-  // Accept POST requests (webhooks from external platforms)
+  await initDB();
+  
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
-
-  try {
-    const { 
-      platform,        // e.g., 'whatsapp', 'booking-system'
-      title, 
-      date, 
-      duration, 
-      staff_assigned, 
-      dressCode, 
-      arrivalTime,
-      clientName,
-      clientPhone,
-      ...extra 
-    } = req.body;
-
-    // Validate required fields
-    if (!title || !date) {
-      return res.status(400).json({ error: 'Title and date are required' });
-    }
-
-    // Generate event ID with platform prefix
-    const platformPrefix = platform ? platform.substring(0, 3).toUpperCase() : 'EVT';
-    const eventId = `${platformPrefix}-${Date.now()}`;
-
-    const event = {
-      id: eventId,
-      title,
-      date,
-      duration: duration || 4,
-      staff_assigned: staff_assigned || [],
-      dressCode: dressCode || 'All Black',
-      arrivalTime: arrivalTime || '',
-      clientName: clientName || '',
-      clientPhone: clientPhone || '',
-      platform: platform || 'unknown',
-      created_at: new Date().toISOString()
-    };
-
-    // Store event
-    await kv.set(`event:${eventId}`, event);
-
-    console.log(`Event created via webhook from ${platform}:`, eventId);
-
-    return res.status(201).json({ 
-      id: eventId, 
-      message: 'Event created successfully via webhook',
-      event 
-    });
-  } catch (err) {
-    console.error('Webhook error:', err);
-    return res.status(500).json({ error: err.message });
-  }
+  
+  const event = req.body;
+  const id = event.id || `FP-${Date.now()}`;
+  
+  await pool.query(
+    'INSERT INTO events (id, title, date, duration, staff_assigned, dressCode, arrivalTime) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO UPDATE SET title=$2, date=$3, duration=$4, staff_assigned=$5, dressCode=$6, arrivalTime=$7',
+    [id, event.title, event.date, event.duration || 4, JSON.stringify(event.staff_assigned || []), event.dressCode || 'Formal All Black', event.arrivalTime || '1hr before']
+  );
+  
+  return res.json({ id, message: 'Event synced from webhook' });
 }
