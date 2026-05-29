@@ -6,7 +6,6 @@ const pool = new Pool({
 });
 
 export default async function handler(req, res) {
-  // Security check
   const secret = req.query.secret || req.headers['x-sync-secret'];
   if (!secret || secret !== process.env.SYNC_SECRET) {
     return res.status(401).json({ error: 'Unauthorized' });
@@ -16,22 +15,10 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
+  const stats = { imported: 0, updated: 0, failed: 0, total: 0, errors: [] };
+
   try {
-    // Test database connection
-    await pool.query('SELECT NOW()');
-    
-    // Fetch iCloud calendar
-    const response = await fetch(process.env.ICLOUD_CALENDAR_URL, {
-      headers: { 'User-Agent': 'Fresh-People/1.0' }
-    });
-    
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const icsText = await response.text();
-    
-    // Parse events (simple regex-based, no node-ical)
-    const events = parseICSBasic(icsText);
-    
-    // Initialize table
+    // Create table if not exists
     await pool.query(`
       CREATE TABLE IF NOT EXISTS calendar_events (
         uid TEXT PRIMARY KEY,
@@ -45,14 +32,24 @@ export default async function handler(req, res) {
         source TEXT,
         updated_at TIMESTAMPTZ DEFAULT NOW()
       )
-    `).catch(() => {});
+    `).catch(e => console.log('Table may exist:', e.message));
+
+    // Fetch iCloud
+    const response = await fetch(process.env.ICLOUD_CALENDAR_URL, {
+      headers: { 'User-Agent': 'Fresh-People/1.0' }
+    });
     
-    // Upsert events
-    let imported = 0, updated = 0, failed = 0;
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const icsText = await response.text();
     
+    // Parse events
+    const events = parseICSBasic(icsText);
+    stats.total = events.length;
+    
+    // Upsert
     for (const event of events) {
       try {
-        const result = await pool.query(`
+        await pool.query(`
           INSERT INTO calendar_events (uid, title, start_at, end_at, timezone, attendees, description, location, source)
           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
           ON CONFLICT (uid) DO UPDATE SET
@@ -65,7 +62,6 @@ export default async function handler(req, res) {
             location = EXCLUDED.location,
             source = EXCLUDED.source,
             updated_at = NOW()
-          RETURNING (xmax::text = 'INSERT').*
         `, [
           event.uid,
           event.title,
@@ -77,20 +73,17 @@ export default async function handler(req, res) {
           event.location,
           'icloud'
         ]);
-        
-        if (result.rows[0]?.xmax == 0) imported++;
-        else updated++;
+        stats.imported++;
       } catch (e) {
-        failed++;
-        console.error('Upsert error:', e.message);
+        stats.failed++;
+        stats.errors.push({ uid: event.uid, error: e.message });
       }
     }
     
-    return res.json({ imported, updated, failed, total: events.length });
+    return res.json(stats);
     
   } catch (error) {
-    console.error('Sync error:', error);
-    return res.status(500).json({ error: error.message });
+    return res.status(500).json({ error: error.message, stats });
   }
 }
 
@@ -109,15 +102,19 @@ function parseICSBasic(icsText) {
     };
     
     const dtstart = getField('DTSTART');
-    const dtend = getField('DTEND');
-    
     if (!dtstart) continue;
     
+    const uid = getField('UID') || `event-${Date.now()}`;
+    const title = getField('SUMMARY') || 'Untitled';
+    const start_at = parseICalDate(dtstart);
+    const dtend = getField('DTEND');
+    const end_at = dtend ? parseICalDate(dtend) : null;
+    
     events.push({
-      uid: getField('UID') || `event-${Date.now()}`,
-      title: getField('SUMMARY') || 'Untitled',
-      start_at: parseICalDate(dtstart),
-      end_at: dtend ? parseICalDate(dtend) : null,
+      uid,
+      title,
+      start_at,
+      end_at,
       timezone: 'Africa/Johannesburg',
       attendees: [],
       description: getField('DESCRIPTION') || '',
@@ -129,7 +126,6 @@ function parseICSBasic(icsText) {
 }
 
 function parseICalDate(icalDate) {
-  // Simple parser for YYYYMMDDTHHMMSS or YYYYMMDD
   const clean = icalDate.replace(/[TZ:]/g, '');
   if (clean.length >= 8) {
     const year = clean.substring(0, 4);
