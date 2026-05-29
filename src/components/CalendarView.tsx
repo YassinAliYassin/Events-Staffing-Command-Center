@@ -83,7 +83,7 @@ const CalendarView = () => {
   useEffect(() => {
     const fetchEvents = async () => {
       try {
-        const res = await fetch(`http://${window.location.hostname}:3001/api/events`);
+        const res = await fetch('/api/events');
         const data = await res.json();
         const calendarEvents = data.events.map((event) => {
           const start = new Date(event.date);
