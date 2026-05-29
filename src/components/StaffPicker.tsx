@@ -19,7 +19,7 @@ const StaffPicker: React.FC<StaffPickerProps> = ({ eventId, assignedStaff, onAss
 
   // Fetch all staff
   useEffect(() => {
-    fetch(`http://${window.location.hostname}:3001/api/staff`)
+    fetch('/api/staff')
       .then(res => res.json())
       .then(data => {
         setAllStaff(data.staff || []);
