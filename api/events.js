@@ -26,7 +26,11 @@ export default async function handler(req, res) {
   
   if (req.method === 'GET') {
     const { rows } = await pool.query('SELECT * FROM events ORDER BY date ASC');
-    return res.json({ events: rows });
+    const events = rows.map(row => ({
+      ...row,
+      staff_assigned: typeof row.staff_assigned === 'string' ? JSON.parse(row.staff_assigned) : row.staff_assigned
+    }));
+    return res.json({ events });
   }
   
   if (req.method === 'POST') {
