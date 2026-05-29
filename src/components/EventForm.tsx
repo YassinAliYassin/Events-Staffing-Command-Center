@@ -15,8 +15,8 @@ const EventForm: React.FC<{ onEventCreated?: () => void }> = ({ onEventCreated }
   const [event, setEvent] = useState<Partial<BackendEvent>>({
     id: generateEventId(),
     duration: 4,
-    dress_code: 'All Black',
-    arrival_time: ''
+    dressCode: 'All Black',
+    arrivalTime: ''
   });
   const [staffAssigned, setStaffAssigned] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -24,10 +24,10 @@ const EventForm: React.FC<{ onEventCreated?: () => void }> = ({ onEventCreated }
   const [successMsg, setSuccessMsg] = useState('');
 
   useEffect(() => {
-    if (event.date && !event.arrival_time) {
+    if (event.date && !event.arrivalTime) {
       const eventDate = new Date(event.date);
       eventDate.setHours(eventDate.getHours() - 1);
-      setEvent(prev => ({ ...prev, arrival_time: eventDate.toISOString().slice(0, 16) }));
+      setEvent(prev => ({ ...prev, arrivalTime: eventDate.toISOString().slice(0, 16) }));
     }
   }, [event.date]);
 
@@ -41,14 +41,14 @@ const EventForm: React.FC<{ onEventCreated?: () => void }> = ({ onEventCreated }
     setError('');
 
     try {
-      const res = await fetch(`http://${window.location.hostname}:3001/api/events`, {
+      const res = await fetch('/api/events', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...event, staff_assigned: staffAssigned })
       });
       if (!res.ok) throw new Error('Failed to create event');
       setSuccessMsg('Event created successfully!');
-      setEvent({ id: generateEventId(), duration: 4, dress_code: 'All Black', arrival_time: '' });
+      setEvent({ id: generateEventId(), duration: 4, dressCode: 'All Black', arrivalTime: '' });
       setStaffAssigned([]);
       setTimeout(() => setSuccessMsg(''), 3000);
       if (onEventCreated) onEventCreated();
@@ -157,8 +157,8 @@ const EventForm: React.FC<{ onEventCreated?: () => void }> = ({ onEventCreated }
           <label className="block text-sm font-medium text-gray-400 mb-1">Dress Code</label>
           <input
             type="text"
-            value={event.dress_code || 'All Black'}
-            onChange={e => handleChange('dress_code', e.target.value)}
+            value={event.dressCode || 'All Black'}
+            onChange={e => handleChange('dressCode', e.target.value)}
             className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
@@ -167,8 +167,8 @@ const EventForm: React.FC<{ onEventCreated?: () => void }> = ({ onEventCreated }
           <label className="block text-sm font-medium text-gray-400 mb-1">Arrival Time (1hr before)</label>
           <input
             type="datetime-local"
-            value={event.arrival_time || ''}
-            onChange={e => handleChange('arrival_time', e.target.value)}
+            value={event.arrivalTime || ''}
+            onChange={e => handleChange('arrivalTime', e.target.value)}
             className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
