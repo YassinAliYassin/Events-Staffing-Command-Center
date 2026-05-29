@@ -87,7 +87,7 @@ async function handleDispatchStaff(req, res) {
         INSERT INTO staff_confirmations (event_id, staff_name, staff_phone, status)
         VALUES ($1, $2, $3, 'pending')
         ON CONFLICT (event_id, staff_phone)
-        DO UPDATE SET status = 'pending', updated_at = NOW()
+        DO UPDATE SET status = EXCLUDED.status
       `, [event_id, staffName, staffPhone]);
       
       // Log WhatsApp message
