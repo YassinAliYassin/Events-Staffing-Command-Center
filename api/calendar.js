@@ -12,6 +12,37 @@ function getDB() {
   });
 }
 
+function runAsync(db, sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.run(sql, params, function(err) {
+      if (err) reject(err);
+      else resolve(this);
+    });
+  });
+}
+
+function allAsync(db, sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.all(sql, params, (err, rows) => {
+      if (err) reject(err);
+      else resolve(rows);
+    });
+  });
+}
+
+async function initDB(db) {
+  await runAsync(db, `CREATE TABLE IF NOT EXISTS events (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    date TEXT NOT NULL,
+    duration INTEGER DEFAULT 4,
+    staff_assigned TEXT,
+    dressCode TEXT DEFAULT 'All Black',
+    arrivalTime TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`);
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -19,14 +50,15 @@ export default async function handler(req, res) {
   
   const db = getDB();
   
-  db.all('SELECT * FROM events ORDER BY date', [], (err, events) => {
+  try {
+    await initDB(db);
+    
+    const events = await allAsync(db, 'SELECT * FROM events ORDER BY date');
     db.close();
-    if (err) return res.status(500).json({ error: err.message });
     
     let ics = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Fresh People//Events//EN\r\n';
     
     events.forEach(event => {
-      // Parse date from ISO string (e.g., "2026-05-29T10:00")
       const startDate = new Date(event.date);
       const endDate = new Date(startDate.getTime() + (event.duration || 4) * 60 * 60 * 1000);
       
@@ -48,5 +80,9 @@ export default async function handler(req, res) {
     res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="FreshPeople-Events.ics"');
     res.send(ics);
-  });
+  } catch (err) {
+    db.close();
+    console.error('API error:', err);
+    return res.status(500).json({ error: err.message });
+  }
 }

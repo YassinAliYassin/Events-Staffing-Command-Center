@@ -4,12 +4,43 @@ import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const dbPath = process.env.NODE_ENV === 'production' ? '/tmp/events.db' : path.join(__dirname, '..', '..', 'events.db');
+const dbPath = process.env.NODE_ENV === 'production' ? '/tmp/events.db' : path.join(__dirname, '..', 'events.db');
 
 function getDB() {
   return new sqlite3.Database(dbPath, (err) => {
     if (err) console.error('DB open error:', err);
   });
+}
+
+function runAsync(db, sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.run(sql, params, function(err) {
+      if (err) reject(err);
+      else resolve(this);
+    });
+  });
+}
+
+function allAsync(db, sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.all(sql, params, (err, rows) => {
+      if (err) reject(err);
+      else resolve(rows);
+    });
+  });
+}
+
+async function initDB(db) {
+  await runAsync(db, `CREATE TABLE IF NOT EXISTS events (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    date TEXT NOT NULL,
+    duration INTEGER DEFAULT 4,
+    staff_assigned TEXT,
+    dressCode TEXT DEFAULT 'All Black',
+    arrivalTime TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`);
 }
 
 export default async function handler(req, res) {
@@ -21,38 +52,34 @@ export default async function handler(req, res) {
   
   const db = getDB();
   
-  if (req.method === 'PATCH' || req.method === 'PUT') {
-    const updates = req.body;
+  try {
+    await initDB(db);
     
-    // Build dynamic UPDATE query
-    const fields = [];
-    const values = [];
-    
-    Object.keys(updates).forEach(key => {
-      fields.push(`${key} = ?`);
-      values.push(updates[key]);
-    });
-    
-    if (fields.length === 0) {
+    if (req.method === 'PATCH' || req.method === 'PUT') {
+      const updates = req.body;
+      
+      if (Object.keys(updates).length === 0) {
+        db.close();
+        return res.status(400).json({ error: 'No fields to update' });
+      }
+      
+      const fields = Object.keys(updates).map(k => `${k} = ?`).join(', ');
+      const values = [...Object.values(updates), id];
+      
+      await runAsync(db, `UPDATE events SET ${fields} WHERE id = ?`, values);
       db.close();
-      return res.status(400).json({ error: 'No fields to update' });
+      return res.json({ message: 'Event updated successfully' });
+    } else if (req.method === 'DELETE') {
+      await runAsync(db, 'DELETE FROM events WHERE id = ?', [id]);
+      db.close();
+      return res.json({ message: 'Event deleted successfully' });
+    } else {
+      db.close();
+      return res.status(405).json({ error: 'Method not allowed' });
     }
-    
-    values.push(id); // For WHERE clause
-    
-    db.run(`UPDATE events SET ${fields.join(', ')} WHERE id = ?`, values, function(err) {
-      db.close();
-      if (err) return res.status(500).json({ error: err.message });
-      res.json({ updated: this.changes, message: 'Event updated successfully' });
-    });
-  } else if (req.method === 'DELETE') {
-    db.run('DELETE FROM events WHERE id = ?', [id], function(err) {
-      db.close();
-      if (err) return res.status(500).json({ error: err.message });
-      res.json({ deleted: this.changes, message: 'Event deleted successfully' });
-    });
-  } else {
+  } catch (err) {
     db.close();
-    res.status(405).json({ error: 'Method not allowed' });
+    console.error('API error:', err);
+    return res.status(500).json({ error: err.message });
   }
 }

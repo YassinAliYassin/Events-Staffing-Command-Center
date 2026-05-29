@@ -12,45 +12,66 @@ function getDB() {
   });
 }
 
-function initDB(db) {
-  db.run(`CREATE TABLE IF NOT EXISTS staff (
+function runAsync(db, sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.run(sql, params, function(err) {
+      if (err) reject(err);
+      else resolve(this);
+    });
+  });
+}
+
+function allAsync(db, sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.all(sql, params, (err, rows) => {
+      if (err) reject(err);
+      else resolve(rows);
+    });
+  });
+}
+
+async function initDB(db) {
+  await runAsync(db, `CREATE TABLE IF NOT EXISTS staff (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     fullName TEXT NOT NULL,
     role TEXT DEFAULT 'Staff',
     phone TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )`, (err) => {
-    if (err) console.error('Staff table init error:', err);
-  });
+  )`);
 }
 
 export default async function handler(req, res) {
   const db = getDB();
-  initDB(db);
   
-  if (req.method === 'GET') {
-    db.all('SELECT * FROM staff ORDER BY fullName', [], (err, rows) => {
-      db.close();
-      if (err) return res.status(500).json({ error: err.message });
-      res.json({ staff: rows });
-    });
-  } else if (req.method === 'POST') {
-    const { fullName, role, phone } = req.body;
+  try {
+    await initDB(db);
     
-    if (!fullName) {
+    if (req.method === 'GET') {
+      const rows = await allAsync(db, 'SELECT * FROM staff ORDER BY fullName');
       db.close();
-      return res.status(400).json({ error: 'fullName is required' });
-    }
-    
-    db.run(`INSERT INTO staff (fullName, role, phone) VALUES (?, ?, ?)`,
-      [fullName, role || 'Staff', phone || ''],
-      function(err) {
+      return res.json({ staff: rows });
+    } else if (req.method === 'POST') {
+      const { fullName, role, phone } = req.body;
+      
+      if (!fullName) {
         db.close();
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ id: this.lastID, message: 'Staff added successfully' });
-      });
-  } else {
+        return res.status(400).json({ error: 'fullName is required' });
+      }
+      
+      await runAsync(db, 
+        `INSERT INTO staff (fullName, role, phone) VALUES (?, ?, ?)`,
+        [fullName, role || 'Staff', phone || '']
+      );
+      
+      db.close();
+      return res.json({ message: 'Staff added successfully' });
+    } else {
+      db.close();
+      return res.status(405).json({ error: 'Method not allowed' });
+    }
+  } catch (err) {
     db.close();
-    res.status(405).json({ error: 'Method not allowed' });
+    console.error('API error:', err);
+    return res.status(500).json({ error: err.message });
   }
 }
