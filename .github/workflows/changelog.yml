@@ -1,0 +1,23 @@
+name: Update Changelog
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  changelog:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate Changelog
+        run: auto-changelog --output CHANGELOG.md
+
+      - name: Commit & Push Changes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "docs: update CHANGELOG"
+          file_pattern: CHANGELOG.md
