@@ -52,7 +52,7 @@ export default async function handler(req, res) {
     if (req.method === 'GET') {
       const rows = await allAsync(db, 'SELECT * FROM events ORDER BY date DESC');
       db.close();
-      return res.json(rows);
+      return res.json({ events: rows });
     } else if (req.method === 'POST') {
       const { id, title, date, duration, staff_assigned, dressCode, arrivalTime } = req.body;
       
