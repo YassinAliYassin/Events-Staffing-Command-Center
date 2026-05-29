@@ -10,6 +10,14 @@ const PHONE_ID = process.env.WHATSAPP_PHONE_ID;
 const YASSIN_PHONE = process.env.YASSIN_PHONE || '+27672961272';
 
 export default async function handler(req, res) {
+  // Vercel Cron security check
+  const authHeader = req.headers.authorization;
+  const cronSecret = process.env.CRON_SECRET;
+  
+  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
+    return res.status(401).json({ error: 'Unauthorized - Cron only' });
+  }
+
   try {
     const report = await generateDailyReport();
     
