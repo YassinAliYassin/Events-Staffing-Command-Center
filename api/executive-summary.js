@@ -53,7 +53,7 @@ async function handleHermesCommand(command) {
     switch (command) {
       case 'today': {
         const { rows } = await pool.query(`
-          SELECT title, start_at, venue FROM calendar_events 
+          SELECT title, start_at, location FROM calendar_events 
           WHERE DATE(start_at) = CURRENT_DATE 
           ORDER BY start_at ASC
         `);
@@ -62,7 +62,7 @@ async function handleHermesCommand(command) {
       
       case 'tomorrow': {
         const { rows } = await pool.query(`
-          SELECT title, start_at, venue FROM calendar_events 
+          SELECT title, start_at, location FROM calendar_events 
           WHERE DATE(start_at) = CURRENT_DATE + INTERVAL '1 day' 
           ORDER BY start_at ASC
         `);
@@ -123,7 +123,7 @@ async function handleHermesCommand(command) {
           command: 'executive-summary',
           todayEvents: dashboard.today.length,
           tomorrowEvents: dashboard.tomorrow.length,
-          totalStaffRequired: dashboard.today.reduce((sum, e) => sum + (e.staff_required || 0), 0),
+          totalStaffRequired: 0, // TODO: calculate from bookings table
           confirmedStaff: parseInt(confirmedStaff.rows[0].count),
           outstandingConfirmations: parseInt(unconfirmedStaff.rows[0].count),
           openBookings: parseInt(openBookings.rows[0].count),
