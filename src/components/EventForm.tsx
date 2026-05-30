@@ -2,8 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { CalendarPlus, User, Clock, Shirt, CheckCircle } from 'lucide-react';
 import { BackendEvent } from '../types';
 
-const STAFF_LIST = ['Mike Anderson', 'Alex Mthembu', 'John Sithole', 'Sipho Dube', 'Ben Marais', 'David Ndlovu', 'Thabo Molefe', 'Kevin Naidoo'];
-
 const generateEventId = (): string => {
   const date = new Date();
   const yyyymmdd = date.toISOString().split('T')[0].replace(/-/g, '');
@@ -18,10 +16,25 @@ const EventForm: React.FC<{ onEventCreated?: () => void }> = ({ onEventCreated }
     dressCode: 'All Black',
     arrivalTime: ''
   });
-  const [staffAssigned, setStaffAssigned] = useState<string[]>([]);
+  const [staffList, setStaffList] = useState<Array<{ id: number; fullName: string }>>([]);
+  const [staffAssigned, setStaffAssigned] = useState<number[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+
+  // Fetch staff from API
+  useEffect(() => {
+    const fetchStaff = async () => {
+      try {
+        const res = await fetch('/api/staff');
+        const data = await res.json();
+        setStaffList(data.staff || []);
+      } catch (err) {
+        console.error('Failed to fetch staff:', err);
+      }
+    };
+    fetchStaff();
+  }, []);
 
   useEffect(() => {
     if (event.date && !event.arrivalTime) {
@@ -44,7 +57,12 @@ const EventForm: React.FC<{ onEventCreated?: () => void }> = ({ onEventCreated }
       const res = await fetch('/api/events', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...event, staff_assigned: staffAssigned })
+        body: JSON.stringify({ 
+          ...event, 
+          staff_assigned: staffAssigned.map(id => 
+            staffList.find(s => s.id === id)?.fullName || ''
+          ).filter(Boolean)
+        })
       });
       if (!res.ok) throw new Error('Failed to create event');
       setSuccessMsg('Event created successfully!');
@@ -128,25 +146,25 @@ const EventForm: React.FC<{ onEventCreated?: () => void }> = ({ onEventCreated }
         <div>
           <label className="block text-sm font-medium text-gray-400 mb-2">Staff Assigned (Select All Applicable)</label>
           <div className="grid grid-cols-2 gap-2 bg-slate-900/50 p-3 rounded-lg border border-slate-700/50 max-h-40 overflow-y-auto">
-            {STAFF_LIST.map((staffName) => {
-              const isChecked = staffAssigned.includes(staffName);
+            {staffList.map((staff) => {
+              const isChecked = staffAssigned.includes(staff.id);
               return (
-                <label key={staffName} className="flex items-center space-x-3 text-sm text-gray-200 cursor-pointer p-1.5 hover:bg-slate-800 rounded transition-colors">
+                <label key={staff.id} className="flex items-center space-x-3 text-sm text-gray-200 cursor-pointer p-1.5 hover:bg-slate-800 rounded transition-colors">
                   <input
                     type="checkbox"
                     checked={isChecked}
                     onChange={(e) => {
                       let updated = [...staffAssigned];
                       if (e.target.checked) {
-                        if (!updated.includes(staffName)) updated.push(staffName);
+                        if (!updated.includes(staff.id)) updated.push(staff.id);
                       } else {
-                        updated = updated.filter(name => name !== staffName);
+                        updated = updated.filter(id => id !== staff.id);
                       }
                       setStaffAssigned(updated);
                     }}
                     className="rounded border-slate-600 text-blue-600 focus:ring-blue-500 bg-slate-800 w-4 h-4"
                   />
-                  <span>{staffName}</span>
+                  <span>{staff.fullName}</span>
                 </label>
               );
             })}

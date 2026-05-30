@@ -91,18 +91,36 @@ if (isNeon) {
     duration INTEGER DEFAULT 4,
     staffName TEXT,
     staffPhone TEXT DEFAULT '',
+    clientID TEXT,
+    clientBudget REAL DEFAULT 0,
     clientName TEXT DEFAULT '',
     clientPhone TEXT DEFAULT '',
     clientEmail TEXT DEFAULT '',
     uniformType TEXT DEFAULT 'Formal All Black',
     arrivalTime TEXT,
+    dressCode TEXT DEFAULT 'All Black',
     region TEXT DEFAULT 'ZA-GP',
     pricing_tier TEXT DEFAULT 'Standard',
     availability_status TEXT DEFAULT 'Available',
     base_price REAL DEFAULT 0,
     multiplier REAL DEFAULT 1.0,
+    misc_expenses TEXT DEFAULT '[]',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
+  
+  // Add missing columns to existing events table (safe to run, ignores errors if column exists)
+  const addColumnIfNotExists = (columnDef) => {
+    dbInterface.run(`ALTER TABLE events ADD COLUMN ${columnDef}`, () => {});
+  };
+  addColumnIfNotExists('clientID TEXT');
+  addColumnIfNotExists('clientBudget REAL DEFAULT 0');
+  addColumnIfNotExists('dressCode TEXT DEFAULT "All Black"');
+  addColumnIfNotExists('misc_expenses TEXT DEFAULT "[]"');
+  addColumnIfNotExists('region TEXT DEFAULT "ZA-GP"');
+  addColumnIfNotExists('pricing_tier TEXT DEFAULT "Standard"');
+  addColumnIfNotExists('availability_status TEXT DEFAULT "Available"');
+  addColumnIfNotExists('base_price REAL DEFAULT 0');
+  addColumnIfNotExists('multiplier REAL DEFAULT 1.0');
 
   dbInterface.run(`CREATE TABLE IF NOT EXISTS staff (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

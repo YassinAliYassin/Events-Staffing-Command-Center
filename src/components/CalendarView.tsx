@@ -85,9 +85,15 @@ const CalendarView = () => {
   useEffect(() => {
     const fetchEvents = async () => {
       try {
-        const res = await fetch('/api/events');
-        const data = await res.json();
-        const calendarEvents = data.events.map((event) => {
+        // Fetch local events
+        const localRes = await fetch('/api/events');
+        const localData = await localRes.json();
+        
+        // Fetch iCloud calendar events
+        const icloudRes = await fetch('/api/calendar');
+        const icloudData = await icloudRes.json();
+        
+        const localEvents = localData.events.map((event) => {
           const start = new Date(event.date);
           const end = new Date(start.getTime() + event.duration * 60 * 60 * 1000);
           const staffList = Array.isArray(event.staff_assigned) 
@@ -97,10 +103,22 @@ const CalendarView = () => {
             title: `${event.title} • ${staffList}`,
             start,
             end,
-            resource: event,
+            resource: { ...event, source: 'local' },
           };
         });
-        setEvents(calendarEvents);
+        
+        const icloudEvents = icloudData.events.map((event) => {
+          const start = new Date(event.start);
+          const end = event.end ? new Date(event.end) : new Date(start.getTime() + 4 * 60 * 60 * 1000);
+          return {
+            title: `☁️ ${event.title}`,
+            start,
+            end,
+            resource: { ...event, source: 'icloud' },
+          };
+        });
+        
+        setEvents([...localEvents, ...icloudEvents]);
       } catch (err) {
         console.error('Failed to fetch calendar events:', err);
       } finally {

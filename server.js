@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 import express from 'express';
 import cors from 'cors';
 import db from './db.js';
+import ical from 'ical';
 
 dotenv.config();
 
@@ -15,6 +16,40 @@ app.use(express.static('public')); // Serve static files
 // Health check endpoint for deployment readiness
 app.get('/api/health', (req, res) => {
   res.json({ status: 'healthy' });
+});
+
+// Fetch iCloud calendar events (JSON)
+app.get('/api/calendar', async (req, res) => {
+  try {
+    const icloudUrl = process.env.ICLOUD_CALENDAR_URL;
+    if (!icloudUrl) {
+      return res.status(500).json({ error: 'ICLOUD_CALENDAR_URL not configured' });
+    }
+
+    const response = await fetch(icloudUrl);
+    if (!response.ok) throw new Error(`Failed to fetch iCloud calendar: ${response.statusText}`);
+    
+    const icsText = await response.text();
+    const parsed = ical.parseICS(icsText);
+    
+    const events = Object.values(parsed)
+      .filter(obj => obj.type === 'VEVENT')
+      .map(event => ({
+        id: event.uid,
+        title: event.summary || 'Untitled Event',
+        start: event.start ? event.start.toISOString() : null,
+        end: event.end ? event.end.toISOString() : null,
+        description: event.description || '',
+        location: event.location || '',
+        source: 'icloud'
+      }))
+      .filter(e => e.start);
+
+    res.json({ events });
+  } catch (err) {
+    console.error('iCloud calendar fetch failed:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Region pricing multiplier calculator (South African Provinces)
@@ -54,7 +89,11 @@ const getMultiplier = (region, pricingTier, availabilityStatus) => {
 
 // CREATE event
 app.post('/api/events', (req, res) => {
-  const { id, title, date, duration, staffName, dressCode, uniformType, arrivalTime, staffPhone, staffEmail, clientID, clientBudget, clientName, clientPhone, clientEmail, miscExpenses, region, pricing_tier, availability_status, base_price } = req.body;
+  const { 
+    id, title, date, duration, staff_assigned, dressCode, uniformType, arrivalTime, 
+    staffPhone, staffEmail, clientID, clientBudget, clientName, clientPhone, clientEmail,
+    miscExpenses, region, pricing_tier, availability_status, base_price 
+  } = req.body;
   
   // Calculate multiplier
   const multiplier = getMultiplier(region || 'ZA-GP', pricing_tier || 'Standard', availability_status || 'Available');
@@ -65,7 +104,7 @@ app.post('/api/events', (req, res) => {
     title,
     date,
     duration || 4,
-    staffName || '',
+    Array.isArray(staff_assigned) ? staff_assigned.join(', ') : (staff_assigned || ''),
     dressCode || 'All Black',
     uniformType || 'Formal All Black',
     arrivalTime || '',
@@ -86,7 +125,64 @@ app.post('/api/events', (req, res) => {
     if (err) {
       return res.status(500).json({ error: err.message });
     }
-    res.status(201).json({ message: 'Event created', id: this.lastID });
+    
+    const eventId = id;
+    const eventDate = new Date(date);
+    const formattedDate = eventDate.toLocaleDateString('en-ZA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    const formattedTime = eventDate.toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' });
+    
+    // Process staff assignments and send WhatsApp notifications
+    if (Array.isArray(staff_assigned) && staff_assigned.length > 0) {
+      // Fetch staff details for assigned staff
+      const staffPlaceholders = staff_assigned.map(() => '?').join(',');
+      const fetchStaffSql = `SELECT id, fullName, phone FROM staff WHERE fullName IN (${staffPlaceholders})`;
+      
+      db.all(fetchStaffSql, staff_assigned, (err, staffRows) => {
+        if (err) {
+          console.error('Failed to fetch staff for event:', err);
+          return res.status(201).json({ message: 'Event created', id: eventId, warning: 'WhatsApp notifications failed: staff lookup error' });
+        }
+        
+        // Insert staff assignments
+        staffRows.forEach(staff => {
+          db.run('INSERT INTO staff_assignments (eventId, staffId) VALUES (?, ?)', [eventId, staff.id], (err) => {
+            if (err) console.error('Failed to assign staff:', err);
+          });
+          
+          // Send WhatsApp notification
+          const token = process.env.WHATSAPP_ACCESS_TOKEN;
+          const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+          const staffPhone = staff.phone;
+          
+          if (token && phoneId && staffPhone) {
+            const message = `🎉 New Event Assignment!\n\nEvent: ${title}\nDate: ${formattedDate}\nTime: ${formattedTime}\nDuration: ${duration || 4} hours\nArrival Time: ${arrivalTime || 'Not specified'}\nDress Code: ${dressCode || 'All Black'}\nClient: ${clientName || 'Not specified'}\n\nPlease confirm your availability.`;
+            
+            fetch(`https://graph.facebook.com/v18.0/${phoneId}/messages`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                messaging_product: 'whatsapp',
+                to: staffPhone,
+                text: { body: message }
+              })
+            }).then(response => {
+              if (!response.ok) {
+                console.error(`WhatsApp send failed to ${staff.fullName}:`, response.statusText);
+              } else {
+                console.log(`WhatsApp sent to ${staff.fullName} (${staffPhone})`);
+              }
+            }).catch(err => console.error(`WhatsApp send failed to ${staff.fullName}:`, err));
+          }
+        });
+        
+        res.status(201).json({ message: 'Event created', id: eventId });
+      });
+    } else {
+      res.status(201).json({ message: 'Event created', id: eventId });
+    }
   });
 });
 
@@ -104,11 +200,11 @@ app.get('/api/staff', (req, res) => {
 
 // CREATE staff
 app.post('/api/staff', (req, res) => {
-  const { fullName, phone, role, rate } = req.body;
+  const { fullName, phone, role, rate, notes } = req.body;
   if (!fullName) return res.status(400).json({ error: 'fullName required' });
   
-  const sql = `INSERT INTO staff (fullName, phone, role, rate) VALUES (?, ?, ?, ?)`;
-  db.run(sql, [fullName, phone || '', role || '', rate || 0], function(err) {
+  const sql = `INSERT INTO staff (fullName, phone, role, rate, notes) VALUES (?, ?, ?, ?, ?)`;
+  db.run(sql, [fullName, phone || '', role || '', rate || 0, notes || ''], function(err) {
     if (err) return res.status(500).json({ error: err.message });
     res.status(201).json({ id: this.lastID, message: 'Staff created' });
   });
