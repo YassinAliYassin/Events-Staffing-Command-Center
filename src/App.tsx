@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { BrowserRouter, Routes, Route, Link, Navigate } from 'react-router-dom';
-import { Calendar, Users, UserCog } from 'lucide-react';
+import { Calendar, Users, UserCog, Combine } from 'lucide-react';
 import EventForm from './components/EventForm';
 import EventList from './components/EventList';
 import CalendarView from './components/CalendarView';
 import StaffView from './components/StaffView';
 import HomePage from './components/HomePage';
+import UnifiedCalendarView from './components/Calendar/UnifiedView';
 
 // Persistent Navigation - Fixed bottom on mobile, top on desktop
 const Navbar = () => {
@@ -26,6 +27,13 @@ const Navbar = () => {
           >
             <Calendar size={20} />
             <span className="text-xs sm:text-sm">Calendar</span>
+          </Link>
+          <Link
+            to="/unified-calendar"
+            className="flex flex-col sm:flex-row items-center gap-1 sm:gap-2 text-gray-300 hover:text-white px-3 py-2 rounded-md text-sm font-medium"
+          >
+            <Combine size={20} />
+            <span className="text-xs sm:text-sm">Unified</span>
           </Link>
           <Link
             to="/staff"
@@ -74,6 +82,7 @@ function App() {
                 }
               />
               <Route path="/calendar" element={<CalendarView />} />
+              <Route path="/unified-calendar" element={<UnifiedCalendarView />} />
               <Route path="/staff" element={<StaffView />} />
             </Routes>
           </div>
