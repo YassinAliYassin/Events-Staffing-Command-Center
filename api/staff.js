@@ -1,6 +1,5 @@
 export default async function handler(req, res) {
   try {
-    // Dynamic import to avoid module-level issues
     const { Pool } = await import('pg');
     
     if (!process.env.DATABASE_URL) {
@@ -14,12 +13,12 @@ export default async function handler(req, res) {
       idleTimeoutMillis: 100
     });
     
-    // Create table if not exists
+    // Create table if not exists (original schema)
     try {
       await pool.query(`
         CREATE TABLE IF NOT EXISTS staff (
           id SERIAL PRIMARY KEY,
-          fullName TEXT NOT NULL,
+          name TEXT NOT NULL,
           phone TEXT DEFAULT '',
           role TEXT DEFAULT '',
           rate REAL DEFAULT 0,
@@ -31,26 +30,26 @@ export default async function handler(req, res) {
     }
     
     if (req.method === 'GET') {
-      const { rows } = await pool.query('SELECT * FROM staff ORDER BY fullName ASC');
+      const { rows } = await pool.query('SELECT * FROM staff ORDER BY name ASC');
       await pool.end();
       return res.json({ staff: rows });
     }
     
     if (req.method === 'POST') {
-      const { fullName, phone, role, rate, notes } = req.body;
+      const { name, phone, role, rate, notes } = req.body;
       const { rows } = await pool.query(
-        'INSERT INTO staff (fullName, phone, role, rate, notes) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-        [fullName || '', phone || '', role || '', rate || 0, notes || '']
+        'INSERT INTO staff (name, phone, role, rate, notes) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+        [name || '', phone || '', role || '', rate || 0, notes || '']
       );
       await pool.end();
       return res.json({ staff: rows[0], message: 'Staff added successfully' });
     }
     
     if (req.method === 'PATCH') {
-      const { id, fullName, phone, role, rate, notes } = req.body;
+      const { id, name, phone, role, rate, notes } = req.body;
       await pool.query(
-        'UPDATE staff SET fullName=$1, phone=$2, role=$3, rate=$4, notes=$5 WHERE id=$6',
-        [fullName, phone, role, rate, notes, id]
+        'UPDATE staff SET name=$1, phone=$2, role=$3, rate=$4, notes=$5 WHERE id=$6',
+        [name, phone, role, rate, notes, id]
       );
       await pool.end();
       return res.json({ message: 'Staff updated successfully' });
