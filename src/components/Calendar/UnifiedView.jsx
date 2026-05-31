@@ -1,20 +1,22 @@
 /**
  * Unified Calendar View - Google + Apple Calendars
- * Uses your existing Google OAuth + Apple feed URL (no Nylas)
+ * Uses: Google OAuth + static Apple Calendar JSON (no API/serverless needed)
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { format, parseISO } from 'date-fns';
 import { fetchGoogleCalendarEvents } from '../../lib/googleCalendar';
 
+// Import Apple Calendar events (fetched at build time)
+import appleCalendarEvents from '../../data/apple-calendar-events.json';
+
 const UnifiedCalendarView = () => {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [googleStatus, setGoogleStatus] = useState({ connected: false, count: 0, error: null });
-  const [appleStatus, setAppleStatus] = useState({ connected: false, count: 0, error: null });
+  const [appleStatus, setAppleStatus] = useState({ connected: true, count: 0, error: null });
   const [selectedSource, setSelectedSource] = useState('all');
-  const [googleToken, setGoogleToken] = useState(null);
 
   useEffect(() => {
     loadUnifiedCalendar();
@@ -28,12 +30,27 @@ const UnifiedCalendarView = () => {
     let googleEvents = [];
     let appleEvents = [];
 
-    // 1. Fetch Google Calendar events (uses your existing OAuth)
+    // 1. Load Apple Calendar events (from static JSON - no API needed!)
+    try {
+      appleEvents = appleCalendarEvents.map(ev => ({
+        ...ev,
+        start: ev.start || null,
+        end: ev.end || null,
+      }));
+      setAppleStatus({ connected: true, count: appleEvents.length, error: null });
+      allEvents = [...allEvents, ...appleEvents];
+      console.log(`[Apple Calendar] Loaded ${appleEvents.length} events from static JSON`);
+    } catch (err) {
+      console.error('[Apple Calendar] Error loading static JSON:', err);
+      setAppleStatus({ connected: false, count: 0, error: err.message });
+    }
+
+    // 2. Fetch Google Calendar events (uses your existing OAuth)
     try {
       const token = await getGoogleToken();
       if (token) {
-        const timeMin = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(); // 30 days back
-        const timeMax = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(); // 90 days ahead
+        const timeMin = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+        const timeMax = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString();
         
         googleEvents = await fetchGoogleCalendarEvents(token, timeMin, timeMax);
         
@@ -60,26 +77,6 @@ const UnifiedCalendarView = () => {
     } catch (err) {
       console.error('[Google Calendar] Error:', err);
       setGoogleStatus({ connected: false, count: 0, error: err.message });
-    }
-
-    // 2. Fetch Apple Calendar events (uses your existing feed URL)
-    try {
-      const appleFeedUrl = localStorage.getItem('fp_apple_feed_url') || 
-        'https://p56-caldav.icloud.com/published/2/MjA3NTMxODM0NzYyMDc1M_MJWBML9PYYcak11gdiRE00jIWbogtgWyD9NtdzTpGoU6oXGhtZYzSDjGnia66w7NxkexZbSwm_tUVl14qv7-g';
-      
-      const response = await fetch(`/api/calendar/apple-feed?feed=${encodeURIComponent(appleFeedUrl)}`);
-      const appleData = await response.json();
-      
-      if (appleData.connected && appleData.events) {
-        appleEvents = appleData.events;
-        allEvents = [...allEvents, ...appleEvents];
-        setAppleStatus({ connected: true, count: appleEvents.length, error: null });
-      } else {
-        setAppleStatus({ connected: false, count: 0, error: appleData.error || 'Feed unavailable' });
-      }
-    } catch (err) {
-      console.error('[Apple Calendar] Error:', err);
-      setAppleStatus({ connected: false, count: 0, error: err.message });
     }
 
     // Sort by start date
@@ -244,8 +241,12 @@ const UnifiedCalendarView = () => {
           disabled={loading}
           className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
         >
-          Refresh All Calendars
+          Refresh Google Calendar
         </button>
+        <p className="text-xs text-gray-500 mt-2">
+          Apple Calendar data is embedded at build time ({appleStatus.count} events). 
+          Re-run `node scripts/fetch-apple-calendar.cjs` and redeploy to refresh.
+        </p>
       </div>
     </div>
   );
