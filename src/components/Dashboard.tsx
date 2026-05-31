@@ -301,7 +301,7 @@ const Dashboard: React.FC = () => {
           <div className="mb-6">
             <div className="bg-gray-900 rounded-lg border border-gray-800 p-6">
               <h2 className="text-xl font-bold text-white mb-4">Unified Calendar View</h2>
-              <UnifiedCalendarView />
+              <UnifiedCalendarView appleEvents={appleEvents} googleEvents={googleEvents} />
             </div>
           </div>
         )}

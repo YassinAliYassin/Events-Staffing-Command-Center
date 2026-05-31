@@ -27,10 +27,14 @@ const UnifiedCalendarView = ({
     });
     
     try {
+      // Ensure events are arrays
+      const googleEventsArray = Array.isArray(googleEvents) ? googleEvents : [];
+      const appleEventsArray = Array.isArray(appleEvents) ? appleEvents : [];
+      
       // Combine Google and Apple events
       const combinedEvents = [
         // Format Google events
-        ...(googleEvents || []).map((ev, index) => ({
+        ...googleEventsArray.map((ev, index) => ({
           id: ev.id || `google-${index}`,
           title: ev.title || ev.summary || 'Untitled Event',
           start: ev.start?.dateTime || ev.start?.date || null,
@@ -42,12 +46,12 @@ const UnifiedCalendarView = ({
           color: '#4285F4'
         })),
         // Format Apple events (use passed appleEvents or fallback to embedded)
-        ...(appleEvents || []).map((ev, index) => ({
+        ...appleEventsArray.map((ev, index) => ({
           id: ev.id || `apple-${index}`,
           title: ev.title || 'Untitled Event',
-          start: ev.start || null,
-          end: ev.end || null,
-          description: ev.description || '',
+          start: ev.start || ev.startTime || null,
+          end: ev.end || ev.endTime || null,
+          description: ev.description || ev.notes || '',
           location: ev.location || '',
           calendar: 'iCloud Calendar',
           source: 'apple',
@@ -55,10 +59,11 @@ const UnifiedCalendarView = ({
         }))
       ];
       
-      console.log(`[UnifiedView] Loaded ${combinedEvents.length} total events (${googleEvents?.length || 0} Google, ${appleEvents?.length || 0} Apple)`);
+      console.log(`[UnifiedView] Loaded ${combinedEvents.length} total events (${googleEventsArray.length} Google, ${appleEventsArray.length} Apple)`);
       setEvents(combinedEvents);
     } catch (err) {
       console.error('[UnifiedView] Error:', err);
+      setEvents([]); // Reset to empty array on error
     }
     
     setLoading(false);
