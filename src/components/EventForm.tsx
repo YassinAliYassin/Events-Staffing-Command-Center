@@ -40,18 +40,27 @@ const [whatsappResults, setWhatsappResults] = useState<Array<{ staff: string; ph
     setEvent(prev => ({ ...prev, [field]: value }));
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
     setWhatsappResults([]);
-
+    
+    // FIX: Read date directly from input if event.date is undefined
+    const dateValue = event.date || document.querySelector('input[type="datetime-local"]')?.value || '';
+    if (!dateValue) {
+      setError('Please select event date & time');
+      setLoading(false);
+      return;
+    }
+    
     try {
       const res = await fetch('/api/events', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          ...event, 
+          ...event,
+          date: dateValue,
           staff_assigned: staffAssigned.map(id => 
             staffList.find(s => s.id === id)?.name || ''
           ).filter(Boolean),
