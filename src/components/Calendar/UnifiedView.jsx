@@ -1,10 +1,9 @@
 /**
- * Unified Calendar View Component
- * Displays events from both Google Calendar (client-side OAuth) and Apple Calendar (via Nylas API)
- * Color-coded by source with event details
+ * Unified Calendar View - Google + Apple Calendars
+ * Uses your existing Google OAuth + Apple feed URL (no Nylas)
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { format, parseISO } from 'date-fns';
 import { fetchGoogleCalendarEvents } from '../../lib/googleCalendar';
 
@@ -12,275 +11,240 @@ const UnifiedCalendarView = () => {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [googleStatus, setGoogleStatus] = useState({ connected: false, error: null, count: 0 });
-  const [appleStatus, setAppleStatus] = useState({ connected: false, error: null, count: 0 });
+  const [googleStatus, setGoogleStatus] = useState({ connected: false, count: 0, error: null });
+  const [appleStatus, setAppleStatus] = useState({ connected: false, count: 0, error: null });
+  const [selectedSource, setSelectedSource] = useState('all');
   const [googleToken, setGoogleToken] = useState(null);
 
   useEffect(() => {
-    // Try to get Google OAuth token from Firebase/auth
-    const getGoogleToken = async () => {
-      try {
-        // Dynamic import to avoid SSR issues
-        const { getAuth, onAuthStateChanged } = await import('firebase/auth');
-        const auth = getAuth();
+    loadUnifiedCalendar();
+  }, []);
+
+  const loadUnifiedCalendar = async () => {
+    setLoading(true);
+    setError(null);
+    
+    let allEvents = [];
+    let googleEvents = [];
+    let appleEvents = [];
+
+    // 1. Fetch Google Calendar events (uses your existing OAuth)
+    try {
+      const token = await getGoogleToken();
+      if (token) {
+        const timeMin = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(); // 30 days back
+        const timeMax = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(); // 90 days ahead
         
+        googleEvents = await fetchGoogleCalendarEvents(token, timeMin, timeMax);
+        
+        const formattedGoogle = googleEvents.map(ev => ({
+          id: ev.id || `google-${Date.now()}-${Math.random()}`,
+          title: ev.summary || 'Untitled',
+          start: ev.start?.dateTime || ev.start?.date || null,
+          end: ev.end?.dateTime || ev.end?.date || null,
+          description: ev.description || '',
+          location: ev.location || '',
+          calendar: ev.calendarName || 'Google Calendar',
+          calendarId: ev.calendarId || 'google',
+          source: 'google',
+          sourceType: 'google',
+          color: '#4285F4',
+          backgroundColor: '#4285F420'
+        }));
+        
+        allEvents = [...allEvents, ...formattedGoogle];
+        setGoogleStatus({ connected: true, count: formattedGoogle.length, error: null });
+      } else {
+        setGoogleStatus({ connected: false, count: 0, error: 'No Google token' });
+      }
+    } catch (err) {
+      console.error('[Google Calendar] Error:', err);
+      setGoogleStatus({ connected: false, count: 0, error: err.message });
+    }
+
+    // 2. Fetch Apple Calendar events (uses your existing feed URL)
+    try {
+      const appleFeedUrl = localStorage.getItem('fp_apple_feed_url') || 
+        'https://p56-caldav.icloud.com/published/2/MjA3NTMxODM0NzYyMDc1M_MJWBML9PYYcak11gdiRE00jIWbogtgWyD9NtdzTpGoU6oXGhtZYzSDjGnia66w7NxkexZbSwm_tUVl14qv7-g';
+      
+      const response = await fetch(`/api/calendar/apple-feed?feed=${encodeURIComponent(appleFeedUrl)}`);
+      const appleData = await response.json();
+      
+      if (appleData.connected && appleData.events) {
+        appleEvents = appleData.events;
+        allEvents = [...allEvents, ...appleEvents];
+        setAppleStatus({ connected: true, count: appleEvents.length, error: null });
+      } else {
+        setAppleStatus({ connected: false, count: 0, error: appleData.error || 'Feed unavailable' });
+      }
+    } catch (err) {
+      console.error('[Apple Calendar] Error:', err);
+      setAppleStatus({ connected: false, count: 0, error: err.message });
+    }
+
+    // Sort by start date
+    allEvents.sort((a, b) => {
+      const dateA = a.start ? new Date(a.start) : new Date(0);
+      const dateB = b.start ? new Date(b.start) : new Date(0);
+      return dateA - dateB;
+    });
+
+    setEvents(allEvents);
+    setLoading(false);
+  };
+
+  const getGoogleToken = async () => {
+    try {
+      const { getAuth, onAuthStateChanged } = await import('firebase/auth');
+      const auth = getAuth();
+      
+      return new Promise((resolve) => {
         onAuthStateChanged(auth, async (user) => {
           if (user) {
             const token = await user.getIdToken();
-            setGoogleToken(token);
-            fetchUnifiedCalendar(token);
+            resolve(token);
           } else {
-            // No user signed in - try without token
-            fetchUnifiedCalendar(null);
+            resolve(null);
           }
         });
-      } catch (err) {
-        console.error('Firebase auth error:', err);
-        fetchUnifiedCalendar(null);
-      }
-    };
-
-    getGoogleToken();
-  }, []);
-
-  const fetchUnifiedCalendar = async (googleToken) => {
-    try {
-      setLoading(true);
-      let allEvents = [];
-      let googleEvents = [];
-      let appleEvents = [];
-
-      // ========== FETCH GOOGLE CALENDAR (client-side OAuth) ==========
-      if (googleToken) {
-        try {
-          const now = new Date();
-          const timeMin = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
-          const timeMax = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000).toISOString();
-          
-          const googleData = await fetchGoogleCalendarEvents(googleToken, timeMin, timeMax);
-          
-          googleEvents = (googleData || []).map(event => ({
-            id: event.id,
-            title: event.summary || 'Untitled Event',
-            start: event.start?.dateTime || event.start?.date || null,
-            end: event.end?.dateTime || event.end?.date || null,
-            description: event.description || '',
-            location: event.location || '',
-            calendar: 'Google Calendar',
-            calendarId: 'primary',
-            source: 'google',
-            sourceType: 'google',
-            color: '#4285F4'
-          }));
-
-          setGoogleStatus({ connected: true, error: null, count: googleEvents.length });
-        } catch (err) {
-          console.error('Google Calendar error:', err);
-          setGoogleStatus({ connected: false, error: err.message, count: 0 });
-        }
-      } else {
-        setGoogleStatus({ connected: false, error: 'No Google OAuth token. Sign in to view Google Calendar.', count: 0 });
-      }
-
-      // ========== FETCH APPLE CALENDAR (via Nylas API) ==========
-      try {
-        const response = await fetch('/api/calendar/unified');
-        
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const data = await response.json();
-        
-        setAppleStatus({
-          connected: data.apple?.connected || false,
-          error: data.apple?.error || null,
-          count: data.apple?.count || 0
-        });
-
-        appleEvents = data.apple?.events || [];
-      } catch (err) {
-        console.error('Apple Calendar error:', err);
-        setAppleStatus({ connected: false, error: err.message, count: 0 });
-      }
-
-      // ========== COMBINE & SORT ==========
-      allEvents = [...googleEvents, ...appleEvents];
-      
-      // Sort by start date
-      allEvents.sort((a, b) => {
-        const dateA = new Date(a.start || 0);
-        const dateB = new Date(b.start || 0);
-        return dateA - dateB;
       });
-
-      setEvents(allEvents);
-      setError(null);
     } catch (err) {
-      console.error('Error fetching unified calendar:', err);
-      setError(err.message);
-    } finally {
-      setLoading(false);
+      console.error('Firebase auth error:', err);
+      return null;
     }
   };
 
-  const getSourceColor = (source) => {
-    switch (source) {
-      case 'google':
-        return 'bg-blue-100 border-blue-500 text-blue-800';
-      case 'apple':
-        return 'bg-green-100 border-green-500 text-green-800';
-      default:
-        return 'bg-gray-100 border-gray-500 text-gray-800';
-    }
-  };
+  const filteredEvents = selectedSource === 'all' 
+    ? events 
+    : events.filter(e => e.source === selectedSource);
 
-  const getSourceLabel = (source) => {
-    switch (source) {
-      case 'google':
-        return 'Google';
-      case 'apple':
-        return 'Apple (Nylas)';
-      default:
-        return 'Unknown';
-    }
-  };
-
-  const formatEventDate = (dateString) => {
-    if (!dateString) return 'No date';
+  const formatEventDate = (dateStr) => {
+    if (!dateStr) return 'No date';
     try {
-      const date = parseISO(dateString);
+      const date = parseISO(dateStr);
       return format(date, 'MMM d, yyyy h:mm a');
     } catch {
-      return dateString;
+      return dateStr;
     }
   };
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-64">
-        <div className="text-lg text-gray-600">Loading unified calendar...</div>
+      <div className="p-6">
+        <div className="animate-pulse flex space-x-4">
+          <div className="flex-1 space-y-4 py-1">
+            <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+            <div className="space-y-2">
+              {[1,2,3].map(i => (
+                <div key={i} className="h-10 bg-gray-200 rounded"></div>
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="max-w-7xl mx-auto p-6">
+    <div className="p-6">
+      {/* Header */}
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Unified Calendar View</h1>
-        <p className="text-gray-600">Events from Google Calendar and Apple Calendar (via Nylas)</p>
+        <h2 className="text-2xl font-bold text-gray-900 mb-2">Unified Calendar</h2>
+        <p className="text-gray-600">Google Calendar + Apple Calendar (iCloud Feed)</p>
       </div>
 
       {/* Status Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-        <div className={`p-4 rounded-lg border ${googleStatus.connected ? 'bg-blue-50 border-blue-200' : 'bg-red-50 border-red-200'}`}>
+      <div className="grid grid-cols-2 gap-4 mb-6">
+        <div className={`p-4 rounded-lg border ${googleStatus.connected ? 'bg-blue-50 border-blue-200' : 'bg-gray-50 border-gray-200'}`}>
           <div className="flex items-center justify-between">
             <div>
               <h3 className="font-semibold text-gray-900">Google Calendar</h3>
-              <p className="text-sm text-gray-600">
-                {googleStatus.connected ? `Connected - ${googleStatus.count} events` : 'Not connected'}
-              </p>
+              <p className="text-sm text-gray-600">{googleStatus.count} events</p>
             </div>
-            <div className={`px-3 py-1 rounded-full text-xs font-medium ${googleStatus.connected ? 'bg-blue-200 text-blue-800' : 'bg-red-200 text-red-800'}`}>
-              {googleStatus.connected ? 'Online' : 'Offline'}
-            </div>
+            <div className={`w-3 h-3 rounded-full ${googleStatus.connected ? 'bg-green-500' : 'bg-gray-400'}`}></div>
           </div>
-          {googleStatus.error && (
-            <p className="text-sm text-red-600 mt-2">{googleStatus.error}</p>
-          )}
+          {googleStatus.error && <p className="text-xs text-red-600 mt-1">{googleStatus.error}</p>}
         </div>
 
-        <div className={`p-4 rounded-lg border ${appleStatus.connected ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+        <div className={`p-4 rounded-lg border ${appleStatus.connected ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="font-semibold text-gray-900">Apple Calendar (Nylas)</h3>
-              <p className="text-sm text-gray-600">
-                {appleStatus.connected ? `Connected - ${appleStatus.count} events` : 'Not connected'}
-              </p>
+              <h3 className="font-semibold text-gray-900">Apple Calendar</h3>
+              <p className="text-sm text-gray-600">{appleStatus.count} events</p>
             </div>
-            <div className={`px-3 py-1 rounded-full text-xs font-medium ${appleStatus.connected ? 'bg-green-200 text-green-800' : 'bg-red-200 text-red-800'}`}>
-              {appleStatus.connected ? 'Online' : 'Offline'}
-            </div>
+            <div className={`w-3 h-3 rounded-full ${appleStatus.connected ? 'bg-green-500' : 'bg-gray-400'}`}></div>
           </div>
-          {appleStatus.error && (
-            <p className="text-sm text-red-600 mt-2">{appleStatus.error}</p>
-          )}
-          {!appleStatus.connected && !appleStatus.error && (
-            <p className="text-sm text-gray-600 mt-2">
-              Connect iCloud at <a href="https://dashboard.nylas.com" target="_blank" className="text-blue-600 hover:underline">Nylas Dashboard</a>
-            </p>
-          )}
+          {appleStatus.error && <p className="text-xs text-red-600 mt-1">{appleStatus.error}</p>}
         </div>
       </div>
 
-      {/* Error Message */}
+      {/* Filter */}
+      <div className="mb-4">
+        <select 
+          value={selectedSource} 
+          onChange={(e) => setSelectedSource(e.target.value)}
+          className="px-3 py-2 border border-gray-300 rounded-md text-sm"
+        >
+          <option value="all">All Calendars ({events.length})</option>
+          <option value="google">Google Only ({events.filter(e => e.source === 'google').length})</option>
+          <option value="apple">Apple Only ({events.filter(e => e.source === 'apple').length})</option>
+        </select>
+      </div>
+
+      {/* Error Display */}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-          <p className="text-red-800">Error: {error}</p>
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+          <p className="text-sm text-red-800">{error}</p>
         </div>
       )}
 
       {/* Events List */}
-      <div className="bg-white rounded-lg shadow">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h2 className="text-xl font-semibold text-gray-900">
-            All Events ({events.length})
-          </h2>
-        </div>
-
-        {events.length === 0 ? (
-          <div className="p-6 text-center text-gray-500">
-            No events found. Check your calendar connections.
+      <div className="space-y-3">
+        {filteredEvents.length === 0 ? (
+          <div className="text-center py-8 text-gray-500">
+            <p>No events found</p>
           </div>
         ) : (
-          <div className="divide-y divide-gray-200">
-            {events.map((event, index) => (
-              <div key={`${event.source}-${event.id}-${index}`} className="p-6 hover:bg-gray-50">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                      <span className={`px-2 py-1 text-xs font-medium rounded border ${getSourceColor(event.source)}`}>
-                        {getSourceLabel(event.source)}
-                      </span>
-                      <h3 className="text-lg font-medium text-gray-900">{event.title}</h3>
-                    </div>
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm text-gray-600">
-                      <div>
-                        <span className="font-medium">Calendar:</span> {event.calendar || 'N/A'}
-                      </div>
-                      <div>
-                        <span className="font-medium">Start:</span> {formatEventDate(event.start)}
-                      </div>
-                      <div>
-                        <span className="font-medium">End:</span> {formatEventDate(event.end)}
-                      </div>
-                      {event.location && (
-                        <div>
-                          <span className="font-medium">Location:</span> {event.location}
-                        </div>
-                      )}
-                    </div>
-
+          filteredEvents.map((event) => (
+            <div 
+              key={event.id} 
+              className="p-4 border border-gray-200 rounded-lg hover:shadow-md transition-shadow"
+              style={{ borderLeftColor: event.color, borderLeftWidth: '4px' }}
+            >
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <h4 className="font-semibold text-gray-900">{event.title}</h4>
+                  <div className="mt-1 space-y-1 text-sm text-gray-600">
+                    <p>📅 {formatEventDate(event.start)} - {formatEventDate(event.end)}</p>
+                    {event.location && <p>📍 {event.location}</p>}
                     {event.description && (
-                      <p className="mt-2 text-sm text-gray-500 line-clamp-2">{event.description}</p>
+                      <p className="text-gray-500">📝 {event.description.substring(0, 100)}</p>
                     )}
                   </div>
                 </div>
+                <div className="ml-4 flex flex-col items-end">
+                  <span 
+                    className="px-2 py-1 text-xs rounded-full text-white"
+                    style={{ backgroundColor: event.color }}
+                  >
+                    {event.source === 'google' ? 'Google' : 'Apple'}
+                  </span>
+                  <span className="text-xs text-gray-500 mt-1">{event.calendar}</span>
+                </div>
               </div>
-            ))}
-          </div>
+            </div>
+          ))
         )}
       </div>
 
       {/* Refresh Button */}
-      <div className="mt-6 text-center">
+      <div className="mt-6">
         <button
-          onClick={() => fetchUnifiedCalendar(googleToken)}
+          onClick={loadUnifiedCalendar}
           disabled={loading}
-          className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
         >
-          Refresh Calendar
+          Refresh All Calendars
         </button>
       </div>
     </div>
