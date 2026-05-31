@@ -5,6 +5,7 @@ import EventForm from './components/EventForm';
 import EventList from './components/EventList';
 import CalendarView from './components/CalendarView';
 import StaffView from './components/StaffView';
+import HomePage from './components/HomePage';
 
 // Persistent Navigation - Fixed bottom on mobile, top on desktop
 const Navbar = () => {
@@ -58,7 +59,7 @@ function App() {
             </div>
 
             <Routes>
-              <Route path="/" element={<Navigate to="/events" replace />} />
+              <Route path="/" element={<HomePage />} />
               <Route
                 path="/events"
                 element={
