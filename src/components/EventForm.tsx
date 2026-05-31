@@ -216,13 +216,12 @@ const EventForm: React.FC<{ onEventCreated?: () => void }> = ({ onEventCreated }
         </label>
 
         <button
-          type="submit"
+          type="button"
           disabled={loading}
-          onClick={() => {
-            console.log('Button onClick fired!');
-            // Call handleSubmit manually
-            const submitEvent = new Event('submit', { cancelable: true });
-            document.querySelector('form')?.dispatchEvent(submitEvent);
+          onClick={async () => {
+            console.log('Button onClick - calling handleSubmit directly');
+            const mockEvent = { preventDefault: () => {} };
+            await handleSubmit(mockEvent as any);
           }}
           className="w-full min-h-[48px] bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
         >
