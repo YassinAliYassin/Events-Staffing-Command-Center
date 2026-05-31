@@ -1,5 +1,5 @@
+// Calendar API v1.1 - Fixed folded line parsing + debug logs
 export default async function handler(req, res) {
-  const format = req.query.format || 'ics';
   
   try {
     // Dynamic import for pg (serverless-compatible)
@@ -30,23 +30,30 @@ export default async function handler(req, res) {
     
     if (iCloudUrl) {
       try {
+        console.log('[Calendar] Fetching iCloud URL:', iCloudUrl.substring(0, 50) + '...');
         const response = await fetch(iCloudUrl, { 
           headers: { 'User-Agent': 'Mozilla/5.0' }
         });
+        console.log('[Calendar] iCloud fetch status:', response.status);
         if (response.ok) {
           const icsText = await response.text();
+          console.log('[Calendar] iCloud ICS length:', icsText.length);
           iCloudEvents = parseICS(icsText);
+          console.log('[Calendar] Parsed iCloud events count:', iCloudEvents.length);
         } else {
-          console.log('[Calendar] iCloud fetch failed:', response.status);
+          console.log('[Calendar] iCloud fetch failed:', response.status, response.statusText);
         }
       } catch (e) {
-        console.log('[Calendar] iCloud fetch error:', e.message);
+        console.log('[Calendar] iCloud fetch error:', e.message, e.stack);
       }
+    } else {
+      console.log('[Calendar] No ICLOUD_CALENDAR_URL set');
     }
     
     await pool.end();
     
     // If JSON format requested (for frontend calendar UI)
+    const format = req.query.format;
     if (format === 'json') {
       const localEvents = eventsResult.rows.map(event => ({
         id: event.id,
@@ -79,11 +86,16 @@ export default async function handler(req, res) {
 
 function parseICS(icsText) {
   const events = [];
-  const lines = icsText.split('\n');
+  
+  // Unfold folded lines (RFC 5545): replace CRLF + space/tab with nothing
+  const unfolded = icsText.replace(/\r\n[ \t]/g, '').replace(/\n[ \t]/g, '');
+  const lines = unfolded.split('\n');
+  
   let currentEvent = null;
   
   for (const line of lines) {
     const trimmed = line.trim();
+    if (!trimmed) continue;
     
     if (trimmed === 'BEGIN:VEVENT') {
       currentEvent = {};
@@ -108,10 +120,10 @@ function parseICS(icsText) {
         currentEvent.summary = trimmed.substring(8);
       } else if (trimmed.startsWith('DTSTART')) {
         const val = trimmed.split(':')[1];
-        currentEvent.dtstart = formatICSDate(val);
+        if (val) currentEvent.dtstart = formatICSDate(val);
       } else if (trimmed.startsWith('DTEND')) {
         const val = trimmed.split(':')[1];
-        currentEvent.dtend = formatICSDate(val);
+        if (val) currentEvent.dtend = formatICSDate(val);
       }
     }
   }
