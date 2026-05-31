@@ -17,7 +17,7 @@ const EventForm: React.FC<{ onEventCreated?: () => void }> = ({ onEventCreated }
     arrivalTime: '',
     clientName: ''
   });
-  const [staffList, setStaffList] = useState<Array<{ id: number; fullName: string; phone: string }>>([]);
+  const [staffList, setStaffList] = useState<Array<{ id: number; name: string; phone: string }>>([]);
   const [staffAssigned, setStaffAssigned] = useState<number[]>([]);
   const [sendWhatsApp, setSendWhatsApp] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -64,7 +64,7 @@ const EventForm: React.FC<{ onEventCreated?: () => void }> = ({ onEventCreated }
         body: JSON.stringify({ 
           ...event, 
           staff_assigned: staffAssigned.map(id => 
-            staffList.find(s => s.id === id)?.fullName || ''
+            staffList.find(s => s.id === id)?.name || ''
           ).filter(Boolean),
           sendWhatsApp: sendWhatsApp
         })
@@ -202,7 +202,7 @@ const EventForm: React.FC<{ onEventCreated?: () => void }> = ({ onEventCreated }
                     }}
                     className="rounded border-slate-600 text-blue-600 focus:ring-blue-500 bg-slate-800 w-4 h-4"
                   />
-                  <span>{staff.fullName}</span>
+                  <span>{staff.name}</span>
                 </label>
               );
             })}

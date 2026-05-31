@@ -4,7 +4,7 @@ import { Users, UserPlus, Trash2, Pencil } from 'lucide-react';
 const StaffView = () => {
   const [staffList, setStaffList] = useState([]);
   const [formData, setFormData] = useState({
-    fullName: '',
+    name: '',
     phone: '',
     role: '',
     rate: '',
@@ -52,7 +52,7 @@ const StaffView = () => {
       if (!res.ok) throw new Error('Failed to save staff');
       
       setSuccessMsg(editingId ? 'Staff updated!' : 'Staff added!');
-      setFormData({ fullName: '', phone: '', role: '', rate: '', notes: '' });
+      setFormData({ name: '', phone: '', role: '', rate: '', notes: '' });
       setEditingId(null);
       setTimeout(() => setSuccessMsg(''), 3000);
       fetchStaff();
@@ -65,7 +65,7 @@ const StaffView = () => {
 
   const handleEdit = (staff) => {
     setFormData({
-      fullName: staff.fullName,
+      name: staff.name,
       phone: staff.phone || '',
       role: staff.role || '',
       rate: staff.rate?.toString() || '',
@@ -115,8 +115,8 @@ const StaffView = () => {
             <label className="block text-sm font-medium text-gray-400 mb-1">Full Name (Firstname Surname)</label>
             <input
               type="text"
-              value={formData.fullName}
-              onChange={e => handleChange('fullName', e.target.value)}
+              value={formData.name}
+              onChange={e => handleChange('name', e.target.value)}
               required
               className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="e.g. John Smith"
@@ -182,7 +182,7 @@ const StaffView = () => {
               <button
                 type="button"
                 onClick={() => {
-                  setFormData({ fullName: '', phone: '', role: '', rate: '', notes: '' });
+                  setFormData({ name: '', phone: '', role: '', rate: '', notes: '' });
                   setEditingId(null);
                 }}
                 className="px-4 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
@@ -207,7 +207,7 @@ const StaffView = () => {
             {staffList.map(staff => (
               <div key={staff.id} className="bg-gray-800 rounded-lg p-4 flex justify-between items-center">
                 <div>
-                  <p className="text-white font-medium">{staff.fullName}</p>
+                  <p className="text-white font-medium">{staff.name}</p>
                   <p className="text-sm text-gray-400">
                     {staff.role || 'No role'} • {staff.phone || 'No phone'}
                     {staff.rate ? ` • R${staff.rate}/hr` : ''}
