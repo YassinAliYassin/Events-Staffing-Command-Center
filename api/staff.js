@@ -20,15 +20,18 @@ export default async function handler(req, res) {
           id SERIAL PRIMARY KEY,
           name TEXT NOT NULL,
           phone TEXT DEFAULT '',
-          role TEXT DEFAULT ''
+          role TEXT DEFAULT '',
+          total_hours INTEGER DEFAULT 0
         )
       `);
+      // Add total_hours column if not exists (for existing tables)
+      await pool.query(`ALTER TABLE staff ADD COLUMN IF NOT EXISTS total_hours INTEGER DEFAULT 0`).catch(e => {});
     } catch (e) {
       console.log('Table creation note:', e.message);
     }
     
     if (req.method === 'GET') {
-      const { rows } = await pool.query('SELECT * FROM staff ORDER BY name ASC');
+      const { rows } = await pool.query('SELECT id, name, phone, role, total_hours FROM staff ORDER BY name ASC');
       await pool.end();
       return res.json({ staff: rows });
     }

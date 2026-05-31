@@ -87,6 +87,93 @@ const getMultiplier = (region, pricingTier, availabilityStatus) => {
   return multiplier.toFixed(2);
 };
 
+// Calculate current payroll cycle (26th of previous month to 25th of current month)
+function getCurrentCycle() {
+  const now = new Date();
+  const currentDay = now.getDate();
+  const currentMonth = now.getMonth(); // 0-indexed
+  const currentYear = now.getFullYear();
+  
+  let startDate, endDate;
+  
+  if (currentDay >= 26) {
+    // After 26th: cycle starts this month on 26th, ends 25th next month
+    startDate = new Date(currentYear, currentMonth, 26);
+    endDate = new Date(currentYear, currentMonth + 1, 25, 23, 59, 59, 999);
+  } else {
+    // Before 26th: cycle started last month on 26th, ends 25th this month
+    startDate = new Date(currentYear, currentMonth - 1, 26);
+    endDate = new Date(currentYear, currentMonth, 25, 23, 59, 59, 999);
+  }
+  
+  return {
+    start: startDate.toISOString().split('T')[0],
+    end: endDate.toISOString().split('T')[0]
+  };
+}
+
+// Recalculate staff total hours for current cycle (SQLite version)
+function recalculateStaffHoursSQLite() {
+  return new Promise((resolve, reject) => {
+    const cycle = getCurrentCycle();
+    
+    // Get all events in current cycle
+    db.all(`
+      SELECT staff_assigned, duration, date FROM events 
+      WHERE date >= ? AND date <= ?
+    `, [cycle.start, cycle.end], (err, events) => {
+      if (err) {
+        console.error('Error fetching events for cycle:', err);
+        return reject(err);
+      }
+      
+      const staffHours = {};
+      
+      events.forEach(event => {
+        const staffAssigned = typeof event.staff_assigned === 'string' 
+          ? JSON.parse(event.staff_assigned) 
+          : event.staff_assigned;
+        const duration = event.duration || 5;
+        
+        if (Array.isArray(staffAssigned)) {
+          staffAssigned.forEach(staffName => {
+            if (!staffHours[staffName]) {
+              staffHours[staffName] = 0;
+            }
+            staffHours[staffName] += duration;
+          });
+        }
+      });
+      
+      // Update each staff member's total hours
+      const staffNames = Object.keys(staffHours);
+      let updated = 0;
+      
+      if (staffNames.length === 0) {
+        // Reset all staff hours to 0 if no events in cycle
+        db.run(`UPDATE staff SET total_hours = 0`, [], (err) => {
+          if (err) console.error('Error resetting staff hours:', err);
+          console.log('Staff total hours recalculated for cycle:', cycle.start, 'to', cycle.end);
+          resolve();
+        });
+        return;
+      }
+      
+      staffNames.forEach(staffName => {
+        db.run(`UPDATE staff SET total_hours = ? WHERE fullName = ?`, 
+          [staffHours[staffName], staffName], (err) => {
+          if (err) console.error(`Error updating hours for ${staffName}:`, err);
+          updated++;
+          if (updated === staffNames.length) {
+            console.log('Staff total hours recalculated for cycle:', cycle.start, 'to', cycle.end);
+            resolve();
+          }
+        });
+      });
+    });
+  });
+}
+
 // CREATE event
 app.post('/api/events', async (req, res) => {
   const { 
@@ -99,6 +186,11 @@ app.post('/api/events', async (req, res) => {
   if (!title || !date) {
     return res.status(400).json({ error: 'Title and date are required' });
   }
+  
+  // Validate minimum 5-hour charge
+  if (!duration || duration < 5) {
+    return res.status(400).json({ error: 'Minimum event duration is 5 hours' });
+  }
 
   // Calculate multiplier
   const multiplier = getMultiplier(region || 'ZA-GP', pricing_tier || 'Standard', availability_status || 'Available');
@@ -109,7 +201,7 @@ app.post('/api/events', async (req, res) => {
     id,
     title,
     date,
-    duration || 4,
+    duration || 5,
     Array.isArray(staff_assigned) ? staff_assigned.join(', ') : (staff_assigned || ''),
     dressCode || 'All Black',
     uniformType || 'Formal All Black',
@@ -133,6 +225,9 @@ app.post('/api/events', async (req, res) => {
     }
     
     const eventId = id;
+    // Recalculate staff hours after event creation
+    await recalculateStaffHoursSQLite().catch(e => console.error('Recalculation error:', e));
+    
     const eventDate = new Date(date);
     const formattedDate = eventDate.toLocaleDateString('en-ZA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
     const formattedTime = eventDate.toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' });
@@ -182,7 +277,7 @@ app.post('/api/events', async (req, res) => {
           const formattedPhone = staff.phone.replace(/\s+/g, '');
           const e164Phone = formattedPhone.startsWith('+') ? formattedPhone : `+${formattedPhone}`;
           
-          const message = `🎉 New Event Assignment!\n\nEvent: ${title}\nDate: ${formattedDate}\nTime: ${formattedTime}\nDuration: ${duration || 4} hours\nArrival Time: ${arrivalTime || 'Not specified'}\nDress Code: ${dressCode || 'All Black'}\nClient: ${clientName || 'Not specified'}\n\nPlease confirm your availability.`;
+          const message = `🎉 New Event Assignment!\n\nEvent: ${title}\nDate: ${formattedDate}\nTime: ${formattedTime}\nDuration: ${duration || 5} hours (Minimum 5-hour charge applies)\nArrival Time: ${arrivalTime || 'Not specified'}\nDress Code: ${dressCode || 'All Black'}\nClient: ${clientName || 'Not specified'}\n\nPlease confirm your availability.`;
           
           try {
             const response = await fetch(`https://graph.facebook.com/v19.0/${phoneId}/messages`, {
@@ -249,7 +344,7 @@ app.post('/api/events', async (req, res) => {
 
 // GET all staff
 app.get('/api/staff', (req, res) => {
-  db.all('SELECT * FROM staff ORDER BY fullName', [], (err, rows) => {
+  db.all('SELECT id, fullName, phone, role, rate, total_hours FROM staff ORDER BY fullName', [], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json({ staff: rows });
   });
@@ -567,6 +662,11 @@ app.get('/api/events', (req, res) => {
 app.put('/api/events/:id', (req, res) => {
   const { title, date, duration, staffName, dressCode, uniformType, arrivalTime, staffPhone, staffEmail, clientID, clientBudget, clientName, clientPhone, clientEmail, miscExpenses } = req.body;
   
+  // Validate minimum 5-hour charge if duration is being updated
+  if (duration !== undefined && duration < 5) {
+    return res.status(400).json({ error: 'Minimum event duration is 5 hours' });
+  }
+  
   // Build dynamic SQL to preserve fields not being updated
   const fields = [];
   const values = [];
@@ -594,20 +694,24 @@ app.put('/api/events/:id', (req, res) => {
   values.push(req.params.id);
   const sql = `UPDATE events SET ${fields.join(', ')} WHERE id = ?`;
   
-  db.run(sql, values, function(err) {
+  db.run(sql, values, async function(err) {
     if (err) {
       return res.status(500).json({ error: err.message });
     }
+    // Recalculate staff hours after update
+    await recalculateStaffHoursSQLite().catch(e => console.error('Recalculation error:', e));
     res.json({ message: 'Event updated', changes: this.changes });
   });
 });
 
 // DELETE event
-app.delete('/api/events/:id', (req, res) => {
-  db.run(`DELETE FROM events WHERE id = ?`, req.params.id, function(err) {
+app.delete('/api/events/:id', async (req, res) => {
+  db.run(`DELETE FROM events WHERE id = ?`, req.params.id, async function(err) {
     if (err) {
       return res.status(500).json({ error: err.message });
     }
+    // Recalculate staff hours after deletion
+    await recalculateStaffHoursSQLite().catch(e => console.error('Recalculation error:', e));
     res.json({ message: 'Event deleted', changes: this.changes });
   });
 });

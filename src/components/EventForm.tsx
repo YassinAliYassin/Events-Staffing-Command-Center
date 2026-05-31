@@ -12,7 +12,7 @@ const generateEventId = (): string => {
 const EventForm: React.FC<{ onEventCreated?: () => void }> = ({ onEventCreated }) => {
   const [event, setEvent] = useState<Partial<BackendEvent>>({
     id: generateEventId(),
-    duration: 4,
+    duration: 5,
   });
   const [staffList, setStaffList] = useState<Array<{ id: number; name: string; phone: string }>>([]);
   const [staffAssigned, setStaffAssigned] = useState<number[]>([]);
@@ -71,7 +71,7 @@ const [whatsappResults, setWhatsappResults] = useState<Array<{ staff: string; ph
       }
       
       setSuccessMsg(msg);
-      setEvent({ id: generateEventId(), duration: 4 });
+      setEvent({ id: generateEventId(), duration: 5 });
       setStaffAssigned([]);
       setTimeout(() => setSuccessMsg(''), 5000);
       if (onEventCreated) onEventCreated();
@@ -151,9 +151,9 @@ const [whatsappResults, setWhatsappResults] = useState<Array<{ staff: string; ph
           <label className="block text-sm font-medium text-gray-400 mb-1">Duration (hrs)</label>
           <input
             type="number"
-            value={event.duration || 4}
+            value={event.duration || 5}
             onChange={e => handleChange('duration', parseInt(e.target.value))}
-            min={1}
+            min={5}
             max={12}
             className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           />

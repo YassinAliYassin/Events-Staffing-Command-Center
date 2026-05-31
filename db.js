@@ -88,7 +88,7 @@ if (isNeon) {
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
     date TEXT NOT NULL,
-    duration INTEGER DEFAULT 4,
+    duration INTEGER DEFAULT 5,
     staffName TEXT,
     staffPhone TEXT DEFAULT '',
     clientID TEXT,
@@ -122,6 +122,7 @@ if (isNeon) {
   addColumnIfNotExists('base_price REAL DEFAULT 0');
   addColumnIfNotExists('multiplier REAL DEFAULT 1.0');
 
+  // Create tables for SQLite
   dbInterface.run(`CREATE TABLE IF NOT EXISTS staff (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     fullName TEXT NOT NULL,
@@ -130,8 +131,12 @@ if (isNeon) {
     role TEXT DEFAULT '',
     rate REAL DEFAULT 0,
     notes TEXT DEFAULT '',
+    total_hours INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
+  
+  // Add total_hours column if not exists
+  dbInterface.run(`ALTER TABLE staff ADD COLUMN total_hours INTEGER DEFAULT 0`, () => {});
 
   dbInterface.run(`CREATE TABLE IF NOT EXISTS staff_assignments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
