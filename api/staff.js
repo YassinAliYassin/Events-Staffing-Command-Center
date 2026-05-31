@@ -13,7 +13,7 @@ export default async function handler(req, res) {
       idleTimeoutMillis: 100
     });
     
-    // Create table if not exists and add missing columns
+    // Create table if not exists (original schema only)
     try {
       await pool.query(`
         CREATE TABLE IF NOT EXISTS staff (
@@ -22,14 +22,6 @@ export default async function handler(req, res) {
           phone TEXT DEFAULT '',
           role TEXT DEFAULT ''
         )
-      `);
-      
-      // Add missing columns if they don't exist
-      await pool.query(`
-        ALTER TABLE staff ADD COLUMN IF NOT EXISTS rate REAL DEFAULT 0
-      `);
-      await pool.query(`
-        ALTER TABLE staff ADD COLUMN IF NOT EXISTS notes TEXT DEFAULT ''
       `);
     } catch (e) {
       console.log('Table creation note:', e.message);
@@ -42,20 +34,20 @@ export default async function handler(req, res) {
     }
     
     if (req.method === 'POST') {
-      const { name, phone, role, rate, notes } = req.body;
+      const { name, phone, role } = req.body;
       const { rows } = await pool.query(
-        'INSERT INTO staff (name, phone, role, rate, notes) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-        [name || '', phone || '', role || '', rate || 0, notes || '']
+        'INSERT INTO staff (name, phone, role) VALUES ($1, $2, $3) RETURNING *',
+        [name || '', phone || '', role || '']
       );
       await pool.end();
       return res.json({ staff: rows[0], message: 'Staff added successfully' });
     }
     
     if (req.method === 'PATCH') {
-      const { id, name, phone, role, rate, notes } = req.body;
+      const { id, name, phone, role } = req.body;
       await pool.query(
-        'UPDATE staff SET name=$1, phone=$2, role=$3, rate=$4, notes=$5 WHERE id=$6',
-        [name, phone, role, rate, notes, id]
+        'UPDATE staff SET name=$1, phone=$2, role=$3 WHERE id=$4',
+        [name, phone, role, id]
       );
       await pool.end();
       return res.json({ message: 'Staff updated successfully' });
