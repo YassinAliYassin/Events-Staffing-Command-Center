@@ -1,21 +1,18 @@
 /**
  * Unified Calendar View - Google + Apple Calendars
- * Uses: Google OAuth + static Apple Calendar JSON (no API/serverless needed)
+ * Uses: Google OAuth + static Apple Calendar JSON (fetched at runtime)
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { format, parseISO } from 'date-fns';
 import { fetchGoogleCalendarEvents } from '../../lib/googleCalendar';
 
-// Import Apple Calendar events (fetched at build time)
-import appleCalendarEvents from '../../data/apple-calendar-events.json';
-
 const UnifiedCalendarView = () => {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [googleStatus, setGoogleStatus] = useState({ connected: false, count: 0, error: null });
-  const [appleStatus, setAppleStatus] = useState({ connected: true, count: 0, error: null });
+  const [appleStatus, setAppleStatus] = useState({ connected: false, count: 0, error: null });
   const [selectedSource, setSelectedSource] = useState('all');
 
   useEffect(() => {
@@ -30,18 +27,38 @@ const UnifiedCalendarView = () => {
     let googleEvents = [];
     let appleEvents = [];
 
-    // 1. Load Apple Calendar events (from static JSON - no API needed!)
+    // 1. Load Apple Calendar events (fetch static JSON at runtime)
     try {
+      console.log('[Apple Calendar] Fetching static JSON...');
+      const response = await fetch('/data/apple-calendar-events.json');
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      
+      const appleCalendarEvents = await response.json();
+      
+      if (!Array.isArray(appleCalendarEvents)) {
+        throw new Error('Apple events data is not an array');
+      }
+      
       appleEvents = appleCalendarEvents.map(ev => ({
-        ...ev,
+        id: ev.id || `apple-${Math.random()}`,
+        title: ev.title || 'Untitled',
         start: ev.start || null,
         end: ev.end || null,
+        description: ev.description || '',
+        location: ev.location || '',
+        calendar: ev.calendar || 'iCloud Calendar',
+        calendarId: ev.calendarId || 'icloud-feed',
+        source: 'apple',
+        sourceType: 'icloud-feed',
+        color: '#34C759',
+        backgroundColor: '#34C75920'
       }));
+      
       setAppleStatus({ connected: true, count: appleEvents.length, error: null });
       allEvents = [...allEvents, ...appleEvents];
-      console.log(`[Apple Calendar] Loaded ${appleEvents.length} events from static JSON`);
+      console.log(`[Apple Calendar] Loaded ${appleEvents.length} events`);
     } catch (err) {
-      console.error('[Apple Calendar] Error loading static JSON:', err);
+      console.error('[Apple Calendar] Error:', err);
       setAppleStatus({ connected: false, count: 0, error: err.message });
     }
 
@@ -244,8 +261,8 @@ const UnifiedCalendarView = () => {
           Refresh Google Calendar
         </button>
         <p className="text-xs text-gray-500 mt-2">
-          Apple Calendar data is embedded at build time ({appleStatus.count} events). 
-          Re-run `node scripts/fetch-apple-calendar.cjs` and redeploy to refresh.
+          Apple Calendar: {appleStatus.count} events (static JSON). 
+          Re-run `node scripts/fetch-apple-calendar.cjs` to refresh.
         </p>
       </div>
     </div>
