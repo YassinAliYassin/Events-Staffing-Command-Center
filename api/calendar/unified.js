@@ -12,47 +12,50 @@ export default async function handler(req, res) {
     });
   }
 
-  try {
-    const results = {
-      google: { connected: false, events: [], error: null, calendars: [], count: 0 },
-      apple: { connected: false, events: [], error: null, calendars: [], count: 0 },
-      all: [],
-      totalCount: 0,
-      timestamp: new Date().toISOString()
-    };
+  const results = {
+    google: { connected: false, events: [], error: null, calendars: [], count: 0 },
+    apple: { connected: false, events: [], error: null, calendars: [], count: 0 },
+    all: [],
+    totalCount: 0,
+    timestamp: new Date().toISOString()
+  };
 
+  try {
     // ========== GOOGLE CALENDAR ==========
     try {
       const serviceAccountBase64 = process.env.GOOGLE_SERVICE_ACCOUNT_BASE64;
       
       if (!serviceAccountBase64) {
-        results.google.error = 'Google service account not configured';
+        results.google.error = 'GOOGLE_SERVICE_ACCOUNT_BASE64 not set';
       } else {
-        // Decode service account
-        const serviceAccount = JSON.parse(
-          Buffer.from(serviceAccountBase64, 'base64').toString('utf8')
-        );
+        // Decode and parse service account
+        const serviceAccountJson = Buffer.from(serviceAccountBase64, 'base64').toString('utf8');
+        const serviceAccount = JSON.parse(serviceAccountJson);
         
-        // Dynamic import googleapis
+        // Import googleapis
         const { google } = await import('googleapis');
         
-        // Create JWT client
-        const jwtClient = new google.auth.JWT(
-          serviceAccount.client_email,
-          null,
-          serviceAccount.private_key,
-          ['https://www.googleapis.com/auth/calendar.readonly']
-        );
+        // Create JWT client with proper scopes
+        const jwtClient = new google.auth.JWT({
+          email: serviceAccount.client_email,
+          key: serviceAccount.private_key,
+          scopes: ['https://www.googleapis.com/auth/calendar.readonly']
+        });
         
-        await jwtClient.authorize();
+        // Authorize
+        const tokens = await jwtClient.authorize();
         
-        const calendar = google.calendar({ version: 'v3', auth: jwtClient });
+        // Create calendar client
+        const calendar = google.calendar({ 
+          version: 'v3', 
+          auth: jwtClient 
+        });
         
         // Get calendar list
-        const calendarList = await calendar.calendarList.list();
-        const calendars = calendarList.data.items || [];
+        const calendarListResponse = await calendar.calendarList.list({ maxResults: 50 });
+        const calendars = calendarListResponse.data.items || [];
         
-        // Fetch events from all calendars (last 30 days to next 90 days)
+        // Fetch events from all calendars
         const now = new Date();
         const timeMin = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
         const timeMax = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000).toISOString();
@@ -65,7 +68,7 @@ export default async function handler(req, res) {
               calendarId: cal.id,
               timeMin: timeMin,
               timeMax: timeMax,
-              maxResults: 100,
+              maxResults: 250,
               singleEvents: true,
               orderBy: 'startTime'
             });
@@ -80,7 +83,8 @@ export default async function handler(req, res) {
               calendar: cal.summary || 'Unknown Calendar',
               calendarId: cal.id,
               source: 'google',
-              color: '#4285F4' // Google blue
+              sourceType: 'google',
+              color: '#4285F4'
             }));
             
             allGoogleEvents.push(...events);
@@ -99,7 +103,7 @@ export default async function handler(req, res) {
       }
     } catch (error) {
       console.error('[Unified] Google Calendar error:', error.message);
-      results.google.error = error.message;
+      results.google.error = `Google Calendar error: ${error.message}`;
     }
 
     // ========== APPLE CALENDAR (via Nylas) ==========
@@ -108,7 +112,7 @@ export default async function handler(req, res) {
       const nylasGrantId = process.env.NYLAS_GRANT_ID;
       
       if (!nylasApiKey || !nylasGrantId) {
-        results.apple.error = 'Nylas API key or Grant ID not configured';
+        results.apple.error = 'Nylas API key or Grant ID not configured. Connect iCloud at: https://dashboard.nylas.com';
       } else {
         // Fetch calendars from Nylas
         const calendarsResponse = await fetch(
@@ -132,15 +136,15 @@ export default async function handler(req, res) {
         
         // Fetch events from all calendars
         const now = new Date();
-        const startTime = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
-        const endTime = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000).toISOString();
+        const startTime = Math.floor((now.getTime() - 30 * 24 * 60 * 60 * 1000) / 1000);
+        const endTime = Math.floor((now.getTime() + 90 * 24 * 60 * 60 * 1000) / 1000);
         
         let allAppleEvents = [];
         
         for (const calendar of calendars) {
           try {
             const eventsResponse = await fetch(
-              `https://api.us.nylas.com/v3/grants/${nylasGrantId}/events?calendar_id=${calendar.id}&start_time=${startTime}&end_time=${endTime}&limit=100`,
+              `https://api.us.nylas.com/v3/grants/${nylasGrantId}/events?calendar_id=${calendar.id}&start_time=${startTime}&end_time=${endTime}&limit=250`,
               {
                 method: 'GET',
                 headers: {
@@ -162,7 +166,8 @@ export default async function handler(req, res) {
                 calendar: calendar.name,
                 calendarId: calendar.id,
                 source: 'apple',
-                color: '#34C759' // Apple green
+                sourceType: 'nylas',
+                color: '#34C759'
               }));
               allAppleEvents.push(...events);
             }
@@ -181,7 +186,7 @@ export default async function handler(req, res) {
       }
     } catch (error) {
       console.error('[Unified] Apple Calendar (Nylas) error:', error.message);
-      results.apple.error = error.message;
+      results.apple.error = `Nylas error: ${error.message}`;
     }
 
     // ========== COMBINE & SORT ==========
@@ -206,8 +211,8 @@ export default async function handler(req, res) {
     console.error('[Unified Calendar] Error:', error.message);
     return res.status(500).json({
       error: `Unified Calendar error: ${error.message}`,
-      google: { connected: false, events: [], error: 'Failed to fetch' },
-      apple: { connected: false, events: [], error: 'Failed to fetch' },
+      google: results.google,
+      apple: results.apple,
       all: []
     });
   }
