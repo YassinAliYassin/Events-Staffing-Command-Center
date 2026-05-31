@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { CalendarPlus, User, Clock, Shirt, CheckCircle, MessageSquare } from 'lucide-react';
+import { CalendarPlus, User, Clock, CheckCircle, MessageSquare } from 'lucide-react';
 import { BackendEvent } from '../types';
 
 const generateEventId = (): string => {
@@ -13,9 +13,6 @@ const EventForm: React.FC<{ onEventCreated?: () => void }> = ({ onEventCreated }
   const [event, setEvent] = useState<Partial<BackendEvent>>({
     id: generateEventId(),
     duration: 4,
-    dressCode: 'All Black',
-    arrivalTime: '',
-    clientName: ''
   });
   const [staffList, setStaffList] = useState<Array<{ id: number; name: string; phone: string }>>([]);
   const [staffAssigned, setStaffAssigned] = useState<number[]>([]);
@@ -23,7 +20,7 @@ const EventForm: React.FC<{ onEventCreated?: () => void }> = ({ onEventCreated }
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
-  const [whatsappResults, setWhatsappResults] = useState<Array<{ staff: string; sent: boolean }>>([]);
+const [whatsappResults, setWhatsappResults] = useState<Array<{ staff: string; phone?: string; sent: boolean }>>([]);
 
   // Fetch staff from API
   useEffect(() => {
@@ -38,14 +35,6 @@ const EventForm: React.FC<{ onEventCreated?: () => void }> = ({ onEventCreated }
     };
     fetchStaff();
   }, []);
-
-  useEffect(() => {
-    if (event.date && !event.arrivalTime) {
-      const eventDate = new Date(event.date);
-      eventDate.setHours(eventDate.getHours() - 1);
-      setEvent(prev => ({ ...prev, arrivalTime: eventDate.toISOString().slice(0, 16) }));
-    }
-  }, [event.date]);
 
   const handleChange = (field: keyof BackendEvent, value: any) => {
     setEvent(prev => ({ ...prev, [field]: value }));
@@ -82,7 +71,7 @@ const EventForm: React.FC<{ onEventCreated?: () => void }> = ({ onEventCreated }
       }
       
       setSuccessMsg(msg);
-      setEvent({ id: generateEventId(), duration: 4, dressCode: 'All Black', arrivalTime: '', clientName: '' });
+      setEvent({ id: generateEventId(), duration: 4 });
       setStaffAssigned([]);
       setTimeout(() => setSuccessMsg(''), 5000);
       if (onEventCreated) onEventCreated();
@@ -148,17 +137,6 @@ const EventForm: React.FC<{ onEventCreated?: () => void }> = ({ onEventCreated }
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-400 mb-1">Client Name</label>
-          <input
-            type="text"
-            placeholder="e.g. ABC Corporation"
-            value={event.clientName || ''}
-            onChange={e => handleChange('clientName', e.target.value)}
-            className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-        </div>
-
-        <div>
           <label className="block text-sm font-medium text-gray-400 mb-1">Event Date & Time</label>
           <input
             type="datetime-local"
@@ -207,26 +185,6 @@ const EventForm: React.FC<{ onEventCreated?: () => void }> = ({ onEventCreated }
               );
             })}
           </div>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-400 mb-1">Dress Code</label>
-          <input
-            type="text"
-            value={event.dressCode || 'All Black'}
-            onChange={e => handleChange('dressCode', e.target.value)}
-            className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-400 mb-1">Arrival Time (1hr before)</label>
-          <input
-            type="datetime-local"
-            value={event.arrivalTime || ''}
-            onChange={e => handleChange('arrivalTime', e.target.value)}
-            className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
         </div>
 
         <label className="flex items-center gap-3 p-3 bg-slate-800/50 rounded-lg border border-slate-700 cursor-pointer hover:bg-slate-800 transition-colors">
