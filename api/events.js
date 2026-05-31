@@ -1,4 +1,13 @@
 export default async function handler(req, res) {
+  // Permanent CORS headers for browser-based submissions
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
   try {
     const { Pool } = await import('pg');
     
@@ -118,12 +127,29 @@ export default async function handler(req, res) {
   }
 }
 
+function formatE164(phone) {
+  if (!phone) return '';
+  // Remove all non-digit characters except +
+  let cleaned = phone.replace(/[^\d+]/g, '');
+  // If it doesn't start with +, add it
+  if (!cleaned.startsWith('+')) {
+    cleaned = '+' + cleaned.replace(/\D/g, '');
+  }
+  return cleaned;
+}
+
 async function sendWhatsAppMessage(phone, message) {
   const token = process.env.WHATSAPP_ACCESS_TOKEN;
   const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
   
   if (!token || !phoneId || !phone) {
     console.log('[WhatsApp] Missing credentials or phone, skipping');
+    return false;
+  }
+
+  const formattedPhone = formatE164(phone);
+  if (!formattedPhone) {
+    console.error('[WhatsApp] Invalid phone number after formatting:', phone);
     return false;
   }
   
@@ -136,20 +162,44 @@ async function sendWhatsAppMessage(phone, message) {
       },
       body: JSON.stringify({
         messaging_product: 'whatsapp',
-        to: phone,
+        to: formattedPhone,
         type: 'text',
         text: { body: message }
       })
     });
     
     const result = await response.json();
-    if (result.error) {
-      console.error('[WhatsApp] Error:', result.error);
+    
+    if (!response.ok) {
+      console.error('[WhatsApp] API Request Failed:', {
+        status: response.status,
+        statusText: response.statusText,
+        phoneId,
+        recipient: formattedPhone,
+        originalPhone: phone,
+        error: result.error || result,
+        messagePreview: message.substring(0, 50) + '...'
+      });
       return false;
     }
+    
+    if (result.error) {
+      console.error('[WhatsApp] Business Logic Error:', {
+        recipient: formattedPhone,
+        error: result.error,
+        whatsappError: result.error
+      });
+      return false;
+    }
+    
+    console.log('[WhatsApp] Message sent successfully to:', formattedPhone);
     return true;
   } catch (e) {
-    console.error('[WhatsApp] Send failed:', e.message);
+    console.error('[WhatsApp] Send Exception:', {
+      recipient: formattedPhone,
+      error: e.message,
+      stack: e.stack?.split('\n').slice(0, 3).join('\n')
+    });
     return false;
   }
 }
