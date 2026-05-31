@@ -9,7 +9,8 @@ import UnifiedCalendarView from './Calendar/UnifiedView';
 import { DollarSign, AlertTriangle, Calendar, LayoutDashboard } from 'lucide-react';
 
 // Import Apple Calendar events (embedded)
-import appleCalendarEvents from '../data/apple-calendar-events.json';
+import rawAppleCalendarEvents from '../data/apple-calendar-events.json';
+const appleCalendarEvents = Array.isArray(rawAppleCalendarEvents) ? rawAppleCalendarEvents : [];
 
 const HomePage = () => {
   const [todaysEvents, setTodaysEvents] = useState<any[]>([]);
