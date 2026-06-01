@@ -92,6 +92,61 @@ const OperationsCalendar: React.FC<OperationsCalendarProps> = ({
     setSelectedDate(newDate);
   };
 
+  // Keyboard navigation for calendar
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target !== document.body) return; // Only trigger when not in input fields
+      
+      switch(e.key) {
+        case 'ArrowLeft':
+          e.preventDefault();
+          goToPrev();
+          break;
+        case 'ArrowRight':
+          e.preventDefault();
+          goToNext();
+          break;
+        case 't':
+        case 'T':
+          if (!e.ctrlKey && !e.metaKey) {
+            e.preventDefault();
+            goToToday();
+          }
+          break;
+        case 'm':
+        case 'M':
+          if (!e.ctrlKey && !e.metaKey && onViewChange) {
+            e.preventDefault();
+            onViewChange('month');
+          }
+          break;
+        case 'w':
+        case 'W':
+          if (!e.ctrlKey && !e.metaKey && onViewChange) {
+            e.preventDefault();
+            onViewChange('week');
+          }
+          break;
+        case 'd':
+        case 'D':
+          if (!e.ctrlKey && !e.metaKey && onViewChange) {
+            e.preventDefault();
+            onViewChange('day');
+          }
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedDate, view, onViewChange]);
+
+  // Double-click handler for quick event creation
+  const handleDayDoubleClick = (date: Date) => {
+    const time = '09:00'; // Default time for quick create
+    onEventCreate(date, time);
+  };
+
   // Get events for a specific day
   const getEventsForDay = useCallback((date: Date) => {
     return events.filter(event => {
@@ -195,6 +250,7 @@ const OperationsCalendar: React.FC<OperationsCalendarProps> = ({
                 key={index}
                 className={`calendar-day ${!isCurrentMonth ? 'other-month' : ''} ${isToday ? 'today' : ''} ${isHovered ? 'hovered' : ''}`}
                 onClick={() => onEventCreate(day)}
+                onDoubleClick={() => handleDayDoubleClick(day)}
                 onDragOver={(e) => handleDragOver(e, day)}
                 onDrop={(e) => handleDrop(e, day)}
                 onDragLeave={() => setHoveredCell(null)}
