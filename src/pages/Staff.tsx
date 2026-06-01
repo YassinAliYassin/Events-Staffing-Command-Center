@@ -326,6 +326,13 @@ const Staff = () => {
                     <span className="text-gray-400 text-sm">Off-duty</span>
                   </div>
                 </div>
+                <button 
+                  onClick={() => window.print()} 
+                  className="px-4 py-2 bg-gray-800/50 border border-gray-700/50 rounded-lg hover:bg-gray-700/50 transition-all duration-300 flex items-center gap-2"
+                >
+                  <Calendar size={16} className="text-gray-400" />
+                  <span className="text-gray-400 text-sm">Print List</span>
+                </button>
               </div>
             </div>
           </div>
