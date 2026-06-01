@@ -353,9 +353,16 @@ const OperationsSidebar: React.FC<OperationsSidebarProps> = ({
         <div className="sidebar-footer">
           {/* System Status Indicator */}
           <div className="system-status-mini" role="status" aria-label="System status">
-            <span className="status-dot-mini operational" aria-hidden="true" />
+            <span className="status-dot-mini operational animate-pulse" aria-hidden="true" />
             {!collapsed && <span className="status-text-mini">System Operational</span>}
           </div>
+          
+          {/* Version Number */}
+          {!collapsed && (
+            <div className="sidebar-version" style={{ fontSize: '10px', color: 'rgba(156, 163, 175, 0.6)', textAlign: 'center', marginTop: '4px' }}>
+              FPCC v2.1.0
+            </div>
+          )}
           
           {/* User Info */}
           {!collapsed && (
