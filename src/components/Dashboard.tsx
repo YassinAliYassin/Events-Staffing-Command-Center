@@ -80,13 +80,13 @@ const Dashboard: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   
   // Filtered data based on search
-  const filteredClients = clients.filter(c => 
+  const filteredClients = (Array.isArray(clients) ? clients : []).filter(c => 
     c.name?.toLowerCase().includes(searchQuery.toLowerCase())
   );
-  const filteredVenues = venues.filter(v => 
+  const filteredVenues = (Array.isArray(venues) ? venues : []).filter(v => 
     v.name?.toLowerCase().includes(searchQuery.toLowerCase())
   );
-  const filteredStaff = staff.filter(s => 
+  const filteredStaff = (Array.isArray(staff) ? staff : []).filter(s => 
     s.name?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -169,19 +169,24 @@ const Dashboard: React.FC = () => {
         
         if (clientsRes.ok) {
           const data = await clientsRes.json();
-          setClients(data);
+          // Extract array from response (APIs return { clients: [...] } or similar)
+          const clientsArray = Array.isArray(data) ? data : (data.clients || data.staff || data || []);
+          setClients(Array.isArray(clientsArray) ? clientsArray : []);
         }
         if (venuesRes.ok) {
           const data = await venuesRes.json();
-          setVenues(data);
+          const venuesArray = Array.isArray(data) ? data : (data.venues || data || []);
+          setVenues(Array.isArray(venuesArray) ? venuesArray : []);
         }
         if (staffRes.ok) {
           const data = await staffRes.json();
-          setStaff(data);
+          const staffArray = Array.isArray(data) ? data : (data.staff || data || []);
+          setStaff(Array.isArray(staffArray) ? staffArray : []);
         }
         if (eventsRes.ok) {
           const data = await eventsRes.json();
-          setEventsState(data);
+          const eventsArray = Array.isArray(data) ? data : (data.events || data || []);
+          setEventsState(Array.isArray(eventsArray) ? eventsArray : []);
         }
       } catch (error) {
         console.error('Failed to fetch data:', error);
@@ -228,7 +233,7 @@ const Dashboard: React.FC = () => {
               <Calendar size={16} />
               <span className="text-sm">Events Today</span>
             </div>
-            <p className="text-2xl font-bold text-white">{events.filter(e => e.date === selectedDateStr).length}</p>
+            <p className="text-2xl font-bold text-white">{(Array.isArray(events) ? events : []).filter(e => e.date === selectedDateStr).length}</p>
           </div>
           <div className="bg-gray-900 p-4 rounded-lg border border-gray-800">
             <div className="flex items-center gap-2 text-gray-400 mb-1">
@@ -313,13 +318,13 @@ const Dashboard: React.FC = () => {
             <div className="bg-gray-900 rounded-lg border border-gray-800 p-4">
               <h3 className="text-lg font-bold text-white mb-4">Recent Activity</h3>
               <div className="space-y-2">
-                {activityLogs.slice(0, 5).map((log) => (
+                {(Array.isArray(activityLogs) ? activityLogs : []).slice(0, 5).map((log) => (
                   <div key={log.id} className="bg-gray-800 p-2 rounded text-sm">
                     <span className="text-gray-400">{new Date(log.timestamp).toLocaleTimeString()}</span>
                     <span className="text-white ml-2">{log.action}</span>
                   </div>
                 ))}
-                {activityLogs.length === 0 && (
+                {(Array.isArray(activityLogs) ? activityLogs : []).length === 0 && (
                   <p className="text-gray-500 text-sm">No recent activity</p>
                 )}
               </div>
