@@ -462,7 +462,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({ onSelectClient }) => {
           </div>
         </div>
 
-        <div className="crm-summary-card">
+        <div className="crm-summary-card animate-pulse">
           <div className="crm-card-header">
             <div>
               <div className="crm-card-value">{summaryStats.vip}</div>
