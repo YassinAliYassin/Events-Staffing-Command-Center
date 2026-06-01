@@ -5,5 +5,9 @@
   "rewrites": [
     { "source": "/(.*)", "destination": "/" }
   ],
-  "cleanUrls": true
+  "cleanUrls": true,
+  "crons": [
+    { "path": "/api/sync-icloud", "schedule": "0 0 * * *" },
+    { "path": "/api/daily-report", "schedule": "0 7 * * *" }
+  ]
 }
