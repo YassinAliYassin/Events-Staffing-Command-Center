@@ -9,6 +9,9 @@ import HomePage from './components/HomePage';
 import UnifiedCalendarView from './components/Calendar/UnifiedView';
 import Dashboard from './components/Dashboard';
 
+// Import Apple Calendar events for unified calendar route
+import appleCalendarEvents from './data/apple-calendar-events.json';
+
 // Persistent Navigation - Fixed bottom on mobile, top on desktop
 const Navbar = () => {
   return (
@@ -90,7 +93,7 @@ function App() {
                 }
               />
               <Route path="/calendar" element={<CalendarView />} />
-              <Route path="/unified-calendar" element={<UnifiedCalendarView />} />
+              <Route path="/unified-calendar" element={<UnifiedCalendarView appleEvents={appleCalendarEvents} />} />
               <Route path="/staff" element={<StaffView />} />
             </Routes>
           </div>
