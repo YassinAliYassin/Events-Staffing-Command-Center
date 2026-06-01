@@ -836,12 +836,21 @@ Flow Events Finance Team`;
               <span className="finance-stat-value" style={{ 
                 color: payroll.summary.pendingAmount === 0 ? '#10B981' : '#F59E0B' 
               }}>
-                {payroll.summary.totalEarnings > 0
+                {payroll.summary.totalEarnings > 0 
                   ? ((payroll.summary.paidAmount / payroll.summary.totalEarnings) * 100).toFixed(1)
                   : '0.0'
                 }%
               </span>
             </div>
+
+            {payroll.summary.overdueCount > 0 && (
+              <div className="finance-stat-item animate-pulse">
+                <span className="finance-stat-label text-red-400">Overdue Payments</span>
+                <span className="finance-stat-value text-red-400">
+                  {payroll.summary.overdueCount} staff
+                </span>
+              </div>
+            )}
           </div>
         </div>
       </div>
