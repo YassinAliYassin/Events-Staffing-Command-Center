@@ -31,9 +31,11 @@ import EventList from './components/EventList';
 import StaffView from './components/StaffView';
 import HomePage from './components/HomePage';
 import Dashboard from './components/Dashboard';
+import Payroll from './pages/Payroll';
 
 // Styles
 import './styles/operations-command.css';
+import './styles/finance-agent.css';
 
 // ==========================================
 // SAMPLE DATA FOR DEMONSTRATION
@@ -834,6 +836,16 @@ function App() {
                       Staff Management
                     </h1>
                     <StaffView />
+                  </div>
+                }
+              />
+
+              {/* Payroll Route - Finance Agent */}
+              <Route
+                path="/payroll"
+                element={
+                  <div className="animate-fade-in">
+                    <Payroll />
                   </div>
                 }
               />
