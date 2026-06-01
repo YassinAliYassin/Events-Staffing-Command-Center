@@ -3419,6 +3419,82 @@ kbd {
   background: rgba(255, 255, 255, 0.95);
 }
 
+/* Tablet - 1024px */
+@media (max-width: 1024px) {
+  .operations-command-layout {
+    grid-template-columns: 72px 1fr 0px;
+  }
+
+  .layout-left {
+    position: fixed;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 200;
+    transform: translateX(-100%);
+    width: 280px;
+    box-shadow: var(--glass-shadow);
+    transition: transform var(--transition-slow);
+  }
+
+  .layout-left.open {
+    transform: translateX(0);
+  }
+
+  .layout-right {
+    display: none;
+  }
+
+  .header-kpis {
+    display: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .operations-command-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: 80px 1fr;
+    grid-template-areas:
+      "header"
+      "center";
+  }
+
+  .command-header-inner {
+    padding: 0 1rem;
+  }
+}
+
+/* Mobile Small - 480px */
+@media (max-width: 480px) {
+  .command-header-inner {
+    gap: 0.5rem;
+  }
+
+  .logo-text h1 {
+    font-size: 0.875rem;
+  }
+
+  .logo-subtitle {
+    font-size: 0.625rem;
+  }
+
+  .layout-center {
+    padding: 1rem;
+  }
+
+  .kpi-compact {
+    padding: 0.375rem 0.5rem;
+  }
+
+  .kpi-compact-value {
+    font-size: 0.875rem;
+  }
+
+  .kpi-compact-label {
+    font-size: 0.625rem;
+  }
+}
+
 /* Print Styles */
 @media print {
   .operations-sidebar,

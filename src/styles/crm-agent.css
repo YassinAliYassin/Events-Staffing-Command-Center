@@ -1095,6 +1095,16 @@
   }
 }
 
+@media (max-width: 1024px) {
+  .crm-container {
+    padding: 1.5rem;
+  }
+
+  .crm-summary-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
 @media (max-width: 768px) {
   .crm-container {
     padding: 1rem;
