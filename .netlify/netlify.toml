@@ -1,16 +1,15 @@
+functionsDirectory = "/home/yassin/projects/fresh-people-command-center/netlify/functions"
+functionsDirectoryOrigin = "config-v1"
 redirectsOrigin = "config"
 plugins = []
 headers = []
 
-[functions]
-
-[functions."*"]
-
 [build]
-publish = "/home/yassin/fresh-people-command-center/dist"
+publish = "/home/yassin/projects/fresh-people-command-center/dist"
 publishOrigin = "config"
 commandOrigin = "config"
 command = "npm install && npm run build"
+functions = "/home/yassin/projects/fresh-people-command-center/netlify/functions"
 
 [build.environment]
 
@@ -25,6 +24,23 @@ command = "npm install && npm run build"
 [build.processing.js]
 
 [build.services]
+
+[functions]
+
+[functions."*"]
+node_bundler = "esbuild"
+
+[[redirects]]
+from = "/api/*"
+to = "/.netlify/functions/:splat"
+status = 200.0
+force = false
+
+[redirects.query]
+
+[redirects.conditions]
+
+[redirects.headers]
 
 [[redirects]]
 from = "/*"
