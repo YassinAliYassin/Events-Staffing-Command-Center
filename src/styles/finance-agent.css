@@ -5,6 +5,12 @@
    ========================================== */
 
 /* ==========================================
+   CSS IMPORTS
+   ========================================== */
+
+@import './animations-enhanced.css';
+
+/* ==========================================
    FINANCE CONTAINER - MAIN LAYOUT
    ========================================== */
 
@@ -144,6 +150,24 @@
   box-shadow: var(--glass-shadow);
   transition: all var(--transition-normal);
   overflow: hidden;
+  cursor: pointer;
+}
+
+.finance-summary-card:hover {
+  transform: translateY(-4px);
+  border-color: var(--border-hover);
+  box-shadow: var(--glass-shadow), var(--glow-gold-md);
+  z-index: 10;
+}
+
+.finance-summary-card:active {
+  transform: translateY(-2px) scale(0.99);
+  transition: transform 80ms ease-out;
+}
+
+.finance-summary-card:focus-visible {
+  outline: none;
+  box-shadow: var(--glass-shadow), 0 0 0 3px rgba(191, 143, 59, 0.2), 0 0 0 5px rgba(191, 143, 59, 0.1);
 }
 
 .finance-summary-card::before {
@@ -158,13 +182,7 @@
   transition: opacity var(--transition-normal);
 }
 
-.finance-summary-card:hover {
-  transform: translateY(-4px);
-  border-color: var(--border-hover);
-  box-shadow: var(--glass-shadow), var(--glow-gold-md);
-}
-
-.finance-summary-card:hover::before {
+.finance-card-alert {
   opacity: 1;
 }
 
@@ -293,6 +311,15 @@
   background: var(--bg-surface);
 }
 
+.finance-search-input:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(191, 143, 59, 0.2), 0 0 0 5px rgba(191, 143, 59, 0.1);
+}
+
+.finance-search-input::placeholder {
+  color: var(--text-muted);
+}
+
 .finance-filter-buttons {
   display: flex;
   gap: 0.5rem;
@@ -311,12 +338,26 @@
   transition: all var(--transition-fast);
   text-transform: uppercase;
   letter-spacing: 0.03em;
+  position: relative;
+  overflow: hidden;
 }
 
 .finance-filter-btn:hover {
   background: var(--bg-surface);
   border-color: var(--border-hover);
   color: var(--text-primary);
+  transform: translateY(-1px);
+  box-shadow: var(--glow-gold-sm);
+}
+
+.finance-filter-btn:active {
+  transform: scale(0.97);
+  transition: transform 80ms ease-out;
+}
+
+.finance-filter-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(191, 143, 59, 0.2), 0 0 0 5px rgba(191, 143, 59, 0.1);
 }
 
 .finance-filter-btn.active {
@@ -346,6 +387,12 @@
   outline: none;
   border-color: var(--gold-500);
   box-shadow: 0 0 0 3px rgba(191, 143, 59, 0.15);
+  background: var(--bg-surface);
+}
+
+.finance-date-input:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(191, 143, 59, 0.2), 0 0 0 5px rgba(191, 143, 59, 0.1);
 }
 
 .finance-date-separator {
@@ -370,6 +417,22 @@
   transition: all var(--transition-normal);
   white-space: nowrap;
   min-height: 44px;
+  position: relative;
+  overflow: hidden;
+}
+
+.finance-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.finance-btn:active:not(:disabled) {
+  transform: scale(0.97);
+  transition: transform 80ms ease-out;
+}
+
+.finance-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(191, 143, 59, 0.2), 0 0 0 5px rgba(191, 143, 59, 0.1);
 }
 
 .finance-btn:disabled {

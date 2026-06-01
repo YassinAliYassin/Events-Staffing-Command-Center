@@ -5,6 +5,12 @@
    ========================================== */
 
 /* ==========================================
+   CSS IMPORTS
+   ========================================== */
+
+@import './animations-enhanced.css';
+
+/* ==========================================
    CRM CONTAINER - MAIN LAYOUT
    ========================================== */
 
@@ -164,6 +170,11 @@
   border-color: var(--border-hover);
   box-shadow: 0 0 0 3px rgba(191, 143, 59, 0.1);
   background: var(--bg-glass-strong);
+}
+
+.crm-search-input:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(191, 143, 59, 0.2), 0 0 0 5px rgba(191, 143, 59, 0.1);
 }
 
 .crm-search-input::placeholder {
@@ -342,16 +353,16 @@
   color: var(--text-muted);
 }
 
-/* ==========================================
-   CRM CLIENT CARDS - MAIN DISPLAY
-   ========================================== */
-
-.crm-clients-grid {
-  position: relative;
-  z-index: 10;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
-  gap: 1.25rem;
+.crm-client-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, var(--gold-500), transparent);
+  opacity: 0;
+  transition: opacity var(--transition-normal);
 }
 
 .crm-client-card {
@@ -368,22 +379,25 @@
   cursor: pointer;
 }
 
-.crm-client-card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: linear-gradient(90deg, transparent, var(--gold-500), transparent);
-  opacity: 0;
-  transition: opacity var(--transition-normal);
-}
-
 .crm-client-card:hover {
   transform: translateY(-4px);
   border-color: var(--border-hover);
   box-shadow: var(--glass-shadow), var(--glow-gold-md);
+  z-index: 10;
+}
+
+.crm-client-card:active {
+  transform: translateY(-2px) scale(0.99);
+  transition: transform 80ms ease-out;
+}
+
+.crm-client-card:focus-visible {
+  outline: none;
+  box-shadow: var(--glass-shadow), 0 0 0 3px rgba(191, 143, 59, 0.2), 0 0 0 5px rgba(191, 143, 59, 0.1);
+}
+
+.crm-client-card.vip {
+  border-color: rgba(191, 143, 59, 0.3);
 }
 
 .crm-client-card:hover::before {
@@ -549,6 +563,8 @@
   color: var(--text-secondary);
   cursor: pointer;
   transition: all var(--transition-normal);
+  position: relative;
+  overflow: hidden;
 }
 
 .crm-action-btn:hover {
@@ -557,6 +573,16 @@
   color: var(--text-primary);
   transform: translateY(-2px);
   box-shadow: var(--glow-gold-sm);
+}
+
+.crm-action-btn:active {
+  transform: scale(0.92);
+  transition: transform 80ms ease-out;
+}
+
+.crm-action-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(191, 143, 59, 0.2), 0 0 0 5px rgba(191, 143, 59, 0.1);
 }
 
 .crm-action-btn.edit:hover {
@@ -785,6 +811,11 @@
   background: var(--bg-glass-strong);
 }
 
+.crm-form-input:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(191, 143, 59, 0.2), 0 0 0 5px rgba(191, 143, 59, 0.1);
+}
+
 .crm-form-input::placeholder {
   color: var(--text-muted);
 }
@@ -859,6 +890,22 @@
   transition: all var(--transition-normal);
   font-family: var(--font-sans);
   white-space: nowrap;
+  position: relative;
+  overflow: hidden;
+}
+
+.crm-btn:hover {
+  transform: translateY(-1px);
+}
+
+.crm-btn:active {
+  transform: scale(0.97);
+  transition: transform 80ms ease-out;
+}
+
+.crm-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(191, 143, 59, 0.2), 0 0 0 5px rgba(191, 143, 59, 0.1);
 }
 
 .crm-btn-primary {
