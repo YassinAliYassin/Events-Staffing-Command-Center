@@ -27,6 +27,7 @@ import ModalSystem from './components/command/ModalSystem';
 
 // Existing Components (Preserved Functionality)
 import EventForm from './components/EventForm';
+import EventFormPolished from './components/EventFormPolished';
 import EventList from './components/EventList';
 import StaffView from './components/StaffView';
 import HomePage from './components/HomePage';
@@ -808,7 +809,7 @@ function App() {
                       gap: '1.5rem'
                     }}>
                       <div>
-                        <EventForm onEventCreated={() => {
+                        <EventFormPolished onEventCreated={() => {
                           setRefreshKey(k => k + 1);
                         }} />
                       </div>
