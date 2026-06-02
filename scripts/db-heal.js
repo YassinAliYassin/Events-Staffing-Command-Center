@@ -104,28 +104,39 @@ async function checkFKDrift() {
   const result = { status: 'pass', issues: [], repairs_needed: [] };
   
   try {
-    // Check for FKs pointing to calendar_events
-    const forbiddenFKs = await pool.query(`
-      SELECT conname, conrelid::regclass as table_name
-      FROM pg_constraint 
-      WHERE confrelid = 'calendar_events'::regclass
-      AND contype = 'f'
-    `);
-    
-    if (forbiddenFKs.rows.length > 0) {
-      result.status = 'fail';
-      result.issues.push({
-        type: 'forbidden_fk',
-        message: 'Foreign keys pointing to calendar_events (FORBIDDEN)',
-        details: forbiddenFKs.rows
-      });
-      result.repairs_needed.push('drop_fk_calendar_events');
+    // Safely check table existence before querying constraints (prevents errors on minimal schemas)
+    const tableExists = async (tbl) => {
+      const r = await pool.query(`SELECT to_regclass($1) IS NOT NULL as exists`, [tbl]);
+      return r.rows[0]?.exists;
+    };
+
+    // Check for FKs pointing to calendar_events (only if table exists)
+    if (await tableExists('calendar_events')) {
+      const forbiddenFKs = await pool.query(`
+        SELECT conname, conrelid::regclass as table_name
+        FROM pg_constraint 
+        WHERE confrelid = 'calendar_events'::regclass
+        AND contype = 'f'
+      `);
+      
+      if (forbiddenFKs.rows.length > 0) {
+        result.status = 'fail';
+        result.issues.push({
+          type: 'forbidden_fk',
+          message: 'Foreign keys pointing to calendar_events (FORBIDDEN)',
+          details: forbiddenFKs.rows
+        });
+        result.repairs_needed.push('drop_fk_calendar_events');
+      }
     }
     
-    // Check for missing FKs to bookings
+    // Check for missing FKs to bookings (only for tables that exist)
     const requiredTables = ['staff_confirmations', 'event_timeline'];
     
     for (const tableName of requiredTables) {
+      if (!(await tableExists(tableName)) || !(await tableExists('bookings'))) {
+        continue;
+      }
       const fks = await pool.query(`
         SELECT conname FROM pg_constraint 
         WHERE conrelid = $1::regclass
