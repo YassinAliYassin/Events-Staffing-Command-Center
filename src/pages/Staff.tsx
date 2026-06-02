@@ -573,7 +573,7 @@ const Staff = () => {
                   return (
                     <div
                       key={staff.id}
-                      className={`group relative overflow-hidden bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm rounded-xl border border-gray-700/50 hover:border-[#BF8F3B]/50 transition-all duration-300 hover:shadow-lg hover:shadow-[#BF8F3B]/10 ${
+                      className={`gradient-border group relative overflow-hidden bg-gradient-to-br from-gray-800/50 to-gray-900/50 backdrop-blur-sm rounded-xl border border-gray-700/50 hover:border-[#BF8F3B]/50 transition-all duration-300 hover:shadow-lg hover:shadow-[#BF8F3B]/10 ${
                         viewMode === 'list' ? 'p-4' : 'p-5'
                       }`}
                     >
