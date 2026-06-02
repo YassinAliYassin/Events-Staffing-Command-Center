@@ -513,7 +513,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({ onSelectClient }) => {
           {filteredAndSortedClients.map(client => (
             <div
               key={client.id}
-              className={`crm-client-card ${client.status}`}
+              className={`gradient-border crm-client-card ${client.status}`}
               onClick={() => handleViewProfile(client)}
             >
               {/* VIP Badge */}
