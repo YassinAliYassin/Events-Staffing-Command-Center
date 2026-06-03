@@ -11,8 +11,8 @@ const INITIAL_STAFF = [
 ];
 
 const today   = new Date();
-const ymd     = (d: Date) => d.toISOString().slice(0,10);
-const addDays = (d: Date,n: number) => { const x=new Date(d); x.setDate(x.getDate()+n); return x; };
+const ymd     = (d) => d.toISOString().slice(0,10);
+const addDays = (d,n) => { const x=new Date(d); x.setDate(x.getDate()+n); return x; };
 
 const INITIAL_EVENTS = [
   { id:1, title:"Sandton Jazz Festival",    date:ymd(addDays(today,2)),  venue:"Sandton Convention Centre", staffIds:[1,2,5],   startTime:"17:00", endTime:"23:00", clientId:1, color:"#00e5a0", gcalId:null, notes:"Smart dress code. Parking in basement." },
@@ -43,7 +43,7 @@ const A="\#00e5a0",BG="\#0d1117",SF="\#161b22",SF2="\#1c2330",BD="\#30363d",
 
 const ACCENT=A, SURFACE=SF, SURFACE2=SF2, BORDER=BD, TEXT=TX, MUTED=MU, RED=RD, AMBER=AM, PURPLE=PU, CORAL=CO;
 
-const STATUS_COLOR: Record<string, string> = {
+const STATUS_COLOR = {
   draft:MUTED, sent:AMBER, paid:ACCENT, overdue:RED, accepted:ACCENT, declined:RED, expired:MUTED,
   pending:AMBER, confirmed:ACCENT, cancelled:RED,
 };
@@ -67,22 +67,22 @@ const css = `
 `;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-const pad2    = (n: number) => String(n).padStart(2,"0");
-const fmtTime = (ts: number) => { if(!ts) return "—"; const d=new Date(ts); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
-const fmtDur  = (ms: number) => { if(!ms||ms<0) return "—"; return `${Math.floor(ms/3600000)}h ${pad2(Math.floor((ms%3600000)/60000))}m`; };
-const calcPay = (ms: number,r: number) => (!ms||ms<0)?0:(ms/3600000)*r;
+const pad2    = n => String(n).padStart(2,"0");
+const fmtTime = ts => { if(!ts) return "—"; const d=new Date(ts); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
+const fmtDur  = ms => { if(!ms||ms<0) return "—"; return `${Math.floor(ms/3600000)}h ${pad2(Math.floor((ms%3600000)/60000))}m`; };
+const calcPay = (ms,r) => (!ms||ms<0)?0:(ms/3600000)*r;
 const MONTHS  = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const WDAYS   = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-const fmtDate = (s: string) => { if(!s) return "—"; const d=new Date(s+"T00:00:00"); return `${d.getDate()} ${MONTHS[d.getMonth()].slice(0,3)} ${d.getFullYear()}`; };
-const eventHours = (ev: any) => { const [sh,sm]=ev.startTime.split(":").map(Number),[eh,em]=ev.endTime.split(":").map(Number); return (eh*60+em-sh*60-sm)/60; };
+const fmtDate = s => { if(!s) return "—"; const d=new Date(s+"T00:00:00"); return `${d.getDate()} ${MONTHS[d.getMonth()].slice(0,3)} ${d.getFullYear()}`; };
+const eventHours = ev => { const [sh,sm]=ev.startTime.split(":").map(Number),[eh,em]=ev.endTime.split(":").map(Number); return (eh*60+em-sh*60-sm)/60; };
 
-function docSubtotal(lines: any[]) { return lines.reduce((a: number,l: any)=>a+Number(l.qty)*Number(l.rate),0); }
-function nextDocNo(arr: any[], prefix: string) { return `${prefix}-${new Date().getFullYear()}-${String(arr.length+1).padStart(3,"0")}`; }
+function docSubtotal(lines) { return lines.reduce((a,l)=>a+Number(l.qty)*Number(l.rate),0); }
+function nextDocNo(arr, prefix) { return `${prefix}-${new Date().getFullYear()}-${String(arr.length+1).padStart(3,"0")}`; }
 
 // ─── Shared UI ────────────────────────────────────────────────────────────────
-function Dot({on,color}: {on: boolean, color?: string}){return <span style={{display:"inline-block",width:8,height:8,borderRadius:"50%",background:on?(color||ACCENT):MUTED,boxShadow:on?`0 0 6px ${color||ACCENT}`:"none",flexShrink:0}}/>;}
-function Badge({color,children}: {color: string, children: React.ReactNode}){return <span style={{display:"inline-block",padding:"2px 8px",borderRadius:4,fontSize:11,fontWeight:500,background:color+"22",color,border:`1px solid ${color}44`}}>{children}</span>;}
-function Stat({label,value,accent,sub}: {label: string, value: string|number, accent?: string, sub?: string}){
+function Dot({on,color}){return <span style={{display:"inline-block",width:8,height:8,borderRadius:"50%",background:on?(color||ACCENT):MUTED,boxShadow:on?`0 0 6px ${color||ACCENT}`:"none",flexShrink:0}}/>;}
+function Badge({color,children}){return <span style={{display:"inline-block",padding:"2px 8px",borderRadius:4,fontSize:11,fontWeight:500,background:color+"22",color,border:`1px solid ${color}44`}}>{children}</span>;}
+function Stat({label,value,accent,sub}){
   return(
     <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:10,padding:"14px 18px"}}>
       <div style={{fontSize:11,color:MUTED,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>{label}</div>
@@ -91,20 +91,16 @@ function Stat({label,value,accent,sub}: {label: string, value: string|number, ac
     </div>
   );
 }
-function Btn({children,onClick,variant="ghost",style={},disabled=false}: {children: React.ReactNode, onClick?: ()=>void, variant?: string, style?: React.CSSProperties, disabled?: boolean}){
-  const base={border:"none" as const,borderRadius:8,padding:"8px 16px",fontSize:13,fontWeight:500,transition:"all 0.15s",opacity:disabled?0.45:1,...style};
-  const v:{[key:string]: React.CSSProperties}={
-    primary:{background:ACCENT,color:"#000"},
-    danger:{background:RED+"22",color:RED,border:`1px solid ${RED}44`},
-    ghost:{background:SURFACE2,color:TEXT,border:`1px solid ${BORDER}`},
-    accent:{background:ACCENT+"22",color:ACCENT,border:`1px solid ${ACCENT}44`},
-    amber:{background:AMBER+"22",color:AMBER,border:`1px solid ${AMBER}44`}
-  };
+function Btn({children,onClick,variant="ghost",style={},disabled=false}){
+  const base={border:"none",borderRadius:8,padding:"8px 16px",fontSize:13,fontWeight:500,transition:"all 0.15s",opacity:disabled?0.45:1,...style};
+  const v={primary:{background:ACCENT,color:"#000"},danger:{background:RED+"22",color:RED,border:`1px solid ${RED}44`},
+           ghost:{background:SURFACE2,color:TEXT,border:`1px solid ${BORDER}`},accent:{background:ACCENT+"22",color:ACCENT,border:`1px solid ${ACCENT}44`},
+           amber:{background:AMBER+"22",color:AMBER,border:`1px solid ${AMBER}44`}};
   return <button onClick={disabled?undefined:onClick} style={{...base,...v[variant]}}>{children}</button>;
 }
-function Lbl({children}: {children: React.ReactNode}){return <div style={{fontSize:12,color:MUTED,marginBottom:6}}>{children}</div>;}
-function Fld({label,children,style={}}: {label: string, children: React.ReactNode, style?: React.CSSProperties}){return <div style={{marginBottom:14,...style}}><Lbl>{label}</Lbl>{children}</div>;}
-function Modal({title,onClose,children,width=540}: {title: string, onClose: ()=>void, children: React.ReactNode, width?: number}){
+function Lbl({children}){return <div style={{fontSize:12,color:MUTED,marginBottom:6}}>{children}</div>;}
+function Fld({label,children,style={}}){return <div style={{marginBottom:14,...style}}><Lbl>{label}</Lbl>{children}</div>;}
+function Modal({title,onClose,children,width=540}){
   return(
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,padding:16}}>
       <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:14,padding:28,width,maxWidth:"95vw",maxHeight:"92vh",overflow:"auto"}}>
@@ -117,7 +113,7 @@ function Modal({title,onClose,children,width=540}: {title: string, onClose: ()=>
     </div>
   );
 }
-function Toast({msg,type="success",onDone}: {msg: string, type?: string, onDone: ()=>void}){
+function Toast({msg,type="success",onDone}){
   useEffect(()=>{const t=setTimeout(onDone,3500);return()=>clearTimeout(t);},[onDone]);
   const color=type==="error"?RED:type==="warn"?AMBER:ACCENT;
   return(
@@ -128,8 +124,8 @@ function Toast({msg,type="success",onDone}: {msg: string, type?: string, onDone:
   );
 }
 
-// ─── Anthropic API call helper ───────────────────────────────────────────────
-async function callClaude(systemPrompt: string, userPrompt: string) {
+// ─── Anthropic API call helper (used inside artifact) ─────────────────────────
+async function callClaude(systemPrompt, userPrompt) {
   const res = await fetch("https://api.anthropic.com/v1/messages",{
     method:"POST",
     headers:{"Content-Type":"application/json"},
@@ -144,18 +140,16 @@ async function callClaude(systemPrompt: string, userPrompt: string) {
   return data.content?.[0]?.text || "";
 }
 
-// ─── Document Print View ────────────────────────────────────────────────────
-function DocPrint({doc, docType, client, event: evt, allDocs, onClose}: {
-  doc: any, docType: string, client: any, event: any, allDocs: any[], onClose: ()=>void
-}){
+// ─── Document Print View (Invoice / Quote / Statement) ───────────────────────
+function DocPrint({doc, docType, client, event: evt, allDocs, onClose}){
   const sub  = docSubtotal(doc.lines);
   const vat  = sub*0.15;
   const total= sub+vat;
   const isPaid = docType==="statement";
-  const paidAmt = isPaid ? allDocs.filter((d: any)=>d.clientId===doc.clientId&&d.status==="paid").reduce((a: number,d: any)=>a+docSubtotal(d.lines)*1.15,0) : 0;
-  const outstanding = isPaid ? allDocs.filter((d: any)=>d.clientId===doc.clientId&&d.status!=="paid").reduce((a: number,d: any)=>a+docSubtotal(d.lines)*1.15,0) : 0;
+  const paidAmt = isPaid ? allDocs.filter(d=>d.clientId===doc.clientId&&d.status==="paid").reduce((a,d)=>a+docSubtotal(d.lines)*1.15,0) : 0;
+  const outstanding = isPaid ? allDocs.filter(d=>d.clientId===doc.clientId&&d.status!=="paid").reduce((a,d)=>a+docSubtotal(d.lines)*1.15,0) : 0;
 
-  const titles: Record<string,string> = {invoice:"TAX INVOICE", quote:"QUOTATION", statement:"ACCOUNT STATEMENT"};
+  const titles = {invoice:"TAX INVOICE", quote:"QUOTATION", statement:"ACCOUNT STATEMENT"};
   const statusC = STATUS_COLOR[doc.status]||MUTED;
 
   return(
@@ -210,7 +204,7 @@ function DocPrint({doc, docType, client, event: evt, allDocs, onClose}: {
                   <th key={h} style={{padding:"8px 10px",textAlign:"left",fontSize:11,color:"#888",textTransform:"uppercase",letterSpacing:"0.05em"}}>{h}</th>
                 ))}
               </tr></thead>
-              <tbody>{allDocs.filter((d: any)=>d.clientId===doc.clientId).map((d: any,i: number)=>{
+              <tbody>{allDocs.filter(d=>d.clientId===doc.clientId).map((d,i)=>{
                 const amt=(docSubtotal(d.lines)*1.15).toFixed(2);
                 return(
                   <tr key={i} style={{borderBottom:"1px solid #f3f4f6"}}>
@@ -244,7 +238,7 @@ function DocPrint({doc, docType, client, event: evt, allDocs, onClose}: {
                   <th key={h} style={{padding:"8px 10px",textAlign:h==="Description"?"left":"right",fontSize:11,color:"#888",textTransform:"uppercase",letterSpacing:"0.06em"}}>{h}</th>
                 ))}
               </tr></thead>
-              <tbody>{doc.lines.map((l: any,i: number)=>(
+              <tbody>{doc.lines.map((l,i)=>(
                 <tr key={i} style={{borderBottom:"1px solid #f3f4f6"}}>
                   <td style={{padding:"10px 10px",fontSize:13}}>{l.desc}</td>
                   <td style={{padding:"10px 10px",textAlign:"right",fontSize:13}}>{l.qty}</td>
@@ -255,7 +249,7 @@ function DocPrint({doc, docType, client, event: evt, allDocs, onClose}: {
             </table>
             <div style={{display:"flex",justifyContent:"flex-end",marginBottom:24}}>
               <table style={{fontSize:13,borderCollapse:"collapse"}}>
-                {[["Subtotal",`R ${sub.toFixed(2)}`],["VAT (15%)",`R ${(sub*0.15).toFixed(2)}`]].map(([l,v])=>(
+                {[["Subtotal",`R ${sub.toFixed(2)}`],["VAT (15%)",`R ${vat.toFixed(2)}`]].map(([l,v])=>(
                   <tr key={l}><td style={{padding:"4px 16px 4px 0",color:"#666"}}>{l}</td><td style={{padding:"4px 0",textAlign:"right",fontFamily:"'DM Mono',monospace"}}>{v}</td></tr>
                 ))}
                 <tr style={{borderTop:"2px solid #111"}}>
@@ -283,10 +277,8 @@ function DocPrint({doc, docType, client, event: evt, allDocs, onClose}: {
   );
 }
 
-// ─── Document Form ──────────────────────────────────────────────────────────
-function DocForm({docType, clients, events, existingDocs, onSave, onClose}: {
-  docType: string, clients: any[], events: any[], existingDocs: any[], onSave: (doc: any)=>void, onClose: ()=>void
-}){
+// ─── Document Form (Invoice or Quote) ────────────────────────────────────────
+function DocForm({docType, clients, events, existingDocs, onSave, onClose}){
   const prefix = docType==="invoice" ? "FP-INV" : "FP-QTE";
   const [form,setForm] = useState({
     docNo: nextDocNo(existingDocs, prefix),
@@ -299,19 +291,19 @@ function DocForm({docType, clients, events, existingDocs, onSave, onClose}: {
     type: docType,
   });
 
-  function prefill(eventId: string){
-    const ev=events.find((e: any)=>e.id===Number(eventId));
+  function prefill(eventId){
+    const ev=events.find(e=>e.id===Number(eventId));
     if(!ev){ setForm(f=>({...f,eventId})); return; }
     const hrs=eventHours(ev);
-    const lines=ev.staffIds.map((id: number)=>{
-      const s=INITIAL_STAFF.find((x: any)=>x.id===id);
+    const lines=ev.staffIds.map(id=>{
+      const s=INITIAL_STAFF.find(x=>x.id===id);
       return {desc:`${s?.name||"Staff"} — ${s?.role||""} (${hrs}h @ R${s?.rate}/h)`, qty:hrs, rate:s?.rate||0};
     });
     setForm(f=>({...f,eventId,clientId:String(ev.clientId||f.clientId),lines}));
   }
   function addLine(){ setForm(f=>({...f,lines:[...f.lines,{desc:"",qty:1,rate:0}]})); }
-  function updLine(i: number,k: string,v: any){ setForm(f=>({...f,lines:f.lines.map((l: any,j: number)=>j===i?{...l,[k]:v}:l)})); }
-  function rmLine(i: number){ setForm(f=>({...f,lines:f.lines.filter((_: any,j: number)=>j!==i)})); }
+  function updLine(i,k,v){ setForm(f=>({...f,lines:f.lines.map((l,j)=>j===i?{...l,[k]:v}:l)})); }
+  function rmLine(i){ setForm(f=>({...f,lines:f.lines.filter((_,j)=>j!==i)})); }
 
   const sub=docSubtotal(form.lines);
 
@@ -322,13 +314,13 @@ function DocForm({docType, clients, events, existingDocs, onSave, onClose}: {
         <Fld label="Client *">
           <select value={form.clientId} onChange={e=>setForm(f=>({...f,clientId:e.target.value}))} style={{width:"100%"}}>
             <option value="">— Select client —</option>
-            {clients.map((c: any)=><option key={c.id} value={c.id}>{c.name}</option>)}
+            {clients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </Fld>
         <Fld label="Link Event (auto-fills lines)">
           <select value={form.eventId} onChange={e=>prefill(e.target.value)} style={{width:"100%"}}>
             <option value="">— None —</option>
-            {events.map((ev: any)=><option key={ev.id} value={ev.id}>{ev.title} ({fmtDate(ev.date)})</option>)}
+            {events.map(ev=><option key={ev.id} value={ev.id}>{ev.title} ({fmtDate(ev.date)})</option>)}
           </select>
         </Fld>
         <Fld label="Issue Date"><input type="date" value={form.issueDate} onChange={e=>setForm(f=>({...f,issueDate:e.target.value}))} style={{width:"100%"}}/></Fld>
@@ -338,7 +330,7 @@ function DocForm({docType, clients, events, existingDocs, onSave, onClose}: {
         }
       </div>
       <Fld label="Line Items">
-        {form.lines.map((l: any,i: number)=>(
+        {form.lines.map((l,i)=>(
           <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 72px 96px 28px",gap:8,marginBottom:8,alignItems:"center"}}>
             <input value={l.desc} onChange={e=>updLine(i,"desc",e.target.value)} placeholder="Description" style={{width:"100%"}}/>
             <input type="number" value={l.qty} onChange={e=>updLine(i,"qty",e.target.value)} placeholder="Qty" style={{width:"100%",textAlign:"right"}}/>
@@ -359,7 +351,7 @@ function DocForm({docType, clients, events, existingDocs, onSave, onClose}: {
         <textarea value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} rows={2} style={{width:"100%"}}/>
       </Fld>
       <div style={{display:"flex",gap:10}}>
-        <Btn variant="primary" onClick={()=>onSave({...form,id:Date.now(),status:"draft",lines:form.lines.map((l: any)=>({...l,qty:Number(l.qty),rate:Number(l.rate)}))})} style={{flex:1,padding:"11px"}}>
+        <Btn variant="primary" onClick={()=>onSave({...form,id:Date.now(),status:"draft",lines:form.lines.map(l=>({...l,qty:Number(l.qty),rate:Number(l.rate)}))})} style={{flex:1,padding:"11px"}}>
           Create {docType==="invoice"?"Invoice":"Quote"}
         </Btn>
         <Btn variant="ghost" onClick={onClose} style={{flex:1,padding:"11px"}}>Cancel</Btn>
@@ -368,32 +360,29 @@ function DocForm({docType, clients, events, existingDocs, onSave, onClose}: {
   );
 }
 
-// ─── Documents Tab ──────────────────────────────────────────────────────────
-function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,events}: {
-  invoices: any[], setInvoices: (inv: any[])=>void, quotes: any[], setQuotes: (q: any[])=>void,
-  clients: any[], events: any[]
-}){
-  const [view,setView]         = useState("invoices");
-  const [showForm,setShowForm] = useState<string|null>(null);
-  const [printDoc,setPrintDoc] = useState<any>(null);
+// ─── Documents Tab (Invoices + Quotes + Statements) ──────────────────────────
+function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,events}){
+  const [view,setView]         = useState("invoices"); // invoices | quotes | statements
+  const [showForm,setShowForm] = useState(null);       // "invoice" | "quote" | null
+  const [printDoc,setPrintDoc] = useState(null);
   const [stmtClient,setStmtClient] = useState("");
   const [filterStatus,setFilter] = useState("all");
-  const [toast,setToast]       = useState<{msg:string,type:string}|null>(null);
+  const [toast,setToast]       = useState(null);
 
   const allDocs = [...invoices,...quotes];
 
-  const invTotal  = invoices.reduce((a: number,i: any)=>a+docSubtotal(i.lines)*1.15,0);
-  const invPaid   = invoices.filter((i: any)=>i.status==="paid").reduce((a: number,i: any)=>a+docSubtotal(i.lines)*1.15,0);
-  const invOverdue= invoices.filter((i: any)=>i.status==="overdue").length;
-  const quoteConv = quotes.length ? Math.round(quotes.filter((q: any)=>q.status==="accepted").length/quotes.length*100) : 0;
+  const invTotal  = invoices.reduce((a,i)=>a+docSubtotal(i.lines)*1.15,0);
+  const invPaid   = invoices.filter(i=>i.status==="paid").reduce((a,i)=>a+docSubtotal(i.lines)*1.15,0);
+  const invOverdue= invoices.filter(i=>i.status==="overdue").length;
+  const quoteConv = quotes.length ? Math.round(quotes.filter(q=>q.status==="accepted").length/quotes.length*100) : 0;
 
-  function setStatus(id: number, status: string, collection: any[], setter: (docs: any[])=>void){
-    setter(prev=>prev.map((d: any)=>d.id===id?{...d,status}:d));
+  function setStatus(id, status, collection, setter){
+    setter(prev=>prev.map(d=>d.id===id?{...d,status}:d));
     setToast({msg:`Status updated to ${status}`,type:"success"});
   }
-  function deleteDoc(id: number, setter: (docs: any[])=>void){ setter(prev=>prev.filter((d: any)=>d.id!==id)); }
+  function deleteDoc(id, setter){ setter(prev=>prev.filter(d=>d.id!==id)); }
 
-  function convertToInvoice(quote: any){
+  function convertToInvoice(quote){
     const inv={
       ...quote,
       id:Date.now(),
@@ -404,13 +393,13 @@ function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,events}: {
       status:"draft",
     };
     setInvoices(prev=>[inv,...prev]);
-    setQuotes(prev=>prev.map((q: any)=>q.id===quote.id?{...q,status:"accepted"}:q));
+    setQuotes(prev=>prev.map(q=>q.id===quote.id?{...q,status:"accepted"}:q));
     setToast({msg:`Quote converted to Invoice ${inv.docNo}`,type:"success"});
     setView("invoices");
   }
 
-  const renderDocs = (docs: any[], setter: (docs: any[])=>void, isInvoice: boolean) => {
-    const filtered = filterStatus==="all" ? docs : docs.filter((d: any)=>d.status===filterStatus);
+  const renderDocs = (docs, setter, isInvoice) => {
+    const filtered = filterStatus==="all" ? docs : docs.filter(d=>d.status===filterStatus);
     if(!filtered.length) return <div style={{textAlign:"center",padding:48,color:MUTED,fontSize:14}}>No documents found</div>;
     return(
       <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,overflow:"auto"}}>
@@ -420,9 +409,9 @@ function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,events}: {
               <th key={h} style={{padding:"12px 14px",textAlign:"left",color:MUTED,fontWeight:500,fontSize:11,textTransform:"uppercase",letterSpacing:"0.05em"}}>{h}</th>
             ))}
           </tr></thead>
-          <tbody>{filtered.map((doc: any)=>{
-            const client=clients.find((c: any)=>c.id===doc.clientId);
-            const event=events.find((e: any)=>e.id===doc.eventId);
+          <tbody>{filtered.map(doc=>{
+            const client=clients.find(c=>c.id===doc.clientId);
+            const event=events.find(e=>e.id===doc.eventId);
             const total=(docSubtotal(doc.lines)*1.15).toFixed(2);
             const sc=STATUS_COLOR[doc.status]||MUTED;
             return(
@@ -503,14 +492,14 @@ function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,events}: {
             <Lbl>Select Client to generate statement</Lbl>
             <select value={stmtClient} onChange={e=>setStmtClient(e.target.value)} style={{width:"100%"}}>
               <option value="">— Choose client —</option>
-              {clients.map((c: any)=><option key={c.id} value={c.id}>{c.name}</option>)}
+              {clients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
           {stmtClient&&(()=>{
-            const c=clients.find((x: any)=>x.id===Number(stmtClient));
-            const cDocs=allDocs.filter((d: any)=>d.clientId===Number(stmtClient));
-            const outstanding=cDocs.filter((d: any)=>d.status!=="paid").reduce((a: number,d: any)=>a+docSubtotal(d.lines)*1.15,0);
-            const paid=cDocs.filter((d: any)=>d.status==="paid").reduce((a: number,d: any)=>a+docSubtotal(d.lines)*1.15,0);
+            const c=clients.find(x=>x.id===Number(stmtClient));
+            const cDocs=allDocs.filter(d=>d.clientId===Number(stmtClient));
+            const outstanding=cDocs.filter(d=>d.status!=="paid").reduce((a,d)=>a+docSubtotal(d.lines)*1.15,0);
+            const paid=cDocs.filter(d=>d.status==="paid").reduce((a,d)=>a+docSubtotal(d.lines)*1.15,0);
             return(
               <div>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:20}}>
@@ -535,7 +524,7 @@ function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,events}: {
           clients={clients}
           events={events}
           existingDocs={showForm==="invoice"?invoices:quotes}
-          onSave={(doc: any)=>{ if(showForm==="invoice") setInvoices(p=>[doc,...p]); else setQuotes(p=>[doc,...p]); setShowForm(null); setToast({msg:`${showForm==="invoice"?"Invoice":"Quote"} ${doc.docNo} created`,type:"success"}); }}
+          onSave={doc=>{ if(showForm==="invoice") setInvoices(p=>[doc,...p]); else setQuotes(p=>[doc,...p]); setShowForm(null); setToast({msg:`${showForm==="invoice"?"Invoice":"Quote"} ${doc.docNo} created`,type:"success"}); }}
           onClose={()=>setShowForm(null)}
         />
       )}
@@ -543,8 +532,8 @@ function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,events}: {
         <DocPrint
           doc={printDoc.doc}
           docType={printDoc.docType}
-          client={clients.find((c: any)=>c.id===printDoc.doc.clientId)}
-          event={events.find((e: any)=>e.id===printDoc.doc.eventId)}
+          client={clients.find(c=>c.id===printDoc.doc.clientId)}
+          event={events.find(e=>e.id===printDoc.doc.eventId)}
           allDocs={allDocs}
           onClose={()=>setPrintDoc(null)}
         />
@@ -554,17 +543,15 @@ function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,events}: {
   );
 }
 
-// ─── Calendar Tab ───────────────────────────────────────────────────────────
-function CalendarTab({events,setEvents,staff,clients,addToast}: {
-  events: any[], setEvents: (ev: any[])=>void, staff: any[], clients: any[], addToast: (msg: string, type: string)=>void
-}){
+// ─── Calendar Tab (with Google Calendar sync) ─────────────────────────────────
+function CalendarTab({events,setEvents,staff,clients,addToast}){
   const [viewDate,setViewDate] = useState(new Date(today.getFullYear(),today.getMonth(),1));
-  const [selected,setSelected] = useState<any>(null);
+  const [selected,setSelected] = useState(null);
   const [showForm,setShowForm] = useState(false);
-  const [editEvt,setEditEvt]   = useState<any>(null);
-  const [gcalEvents,setGcalEvents] = useState<any[]>([]);
+  const [editEvt,setEditEvt]   = useState(null);
+  const [gcalEvents,setGcalEvents] = useState([]);
   const [syncing,setSyncing]   = useState(false);
-  const [bookingModal,setBookingModal] = useState<any>(null);
+  const [bookingModal,setBookingModal] = useState(null); // event to send notifications for
   const [sendingNotifs,setSendingNotifs] = useState(false);
   const [form,setForm] = useState({title:"",date:"",venue:"",startTime:"09:00",endTime:"17:00",staffIds:[],clientId:"",color:ACCENT,notes:""});
 
@@ -574,10 +561,11 @@ function CalendarTab({events,setEvents,staff,clients,addToast}: {
   const cells=Array.from({length:firstDay+daysInMonth},(_,i)=>i<firstDay?null:i-firstDay+1);
   const todayStr=ymd(today);
 
-  // Fetch GCal events
+  // Fetch GCal events for the visible month
   async function fetchGcal(){
     setSyncing(true);
     try{
+      // This calls the connected Google Calendar MCP tool via the API
       const start=new Date(yr,mo,1).toISOString();
       const end=new Date(yr,mo+1,0,23,59).toISOString();
       const resp=await fetch("https://api.anthropic.com/v1/messages",{
@@ -592,11 +580,11 @@ function CalendarTab({events,setEvents,staff,clients,addToast}: {
         })
       });
       const data=await resp.json();
-      const text=data.content?.find((b: any)=>b.type==="text")?.text||"[]";
+      const text=data.content?.find(b=>b.type==="text")?.text||"[]";
       const cleaned=text.replace(/```json|```/g,"").trim();
       try{
         const parsed=JSON.parse(cleaned);
-        if(Array.isArray(parsed)) setGcalEvents(parsed.map((e: any)=>({...e,isGcal:true,color:"#5ca4ea"})));
+        if(Array.isArray(parsed)) setGcalEvents(parsed.map(e=>({...e,isGcal:true,color:"#5ca4ea"})));
       }catch{}
       addToast("Google Calendar synced ✓","success");
     }catch(e){ addToast("Could not fetch GCal events","error"); }
@@ -604,14 +592,14 @@ function CalendarTab({events,setEvents,staff,clients,addToast}: {
   }
 
   // Push event to GCal
-  async function pushToGcal(ev: any){
+  async function pushToGcal(ev){
     try{
       const [sh,sm]=ev.startTime.split(":").map(Number);
       const [eh,em]=ev.endTime.split(":").map(Number);
       const base=ev.date+"T";
       const start=`${base}${pad2(sh)}:${pad2(sm)}:00`;
       const end=`${base}${pad2(eh)}:${pad2(em)}:00`;
-      const staffNames=ev.staffIds.map((id: number)=>staff.find((s: any)=>s.id===id)?.name||"Staff").join(", ");
+      const staffNames=ev.staffIds.map(id=>staff.find(s=>s.id===id)?.name||"Staff").join(", ");
       const description=`Freshpeople Event\nVenue: ${ev.venue||""}\nStaff: ${staffNames}\n${ev.notes||""}`;
 
       const resp=await fetch("https://api.anthropic.com/v1/messages",{
@@ -626,22 +614,23 @@ function CalendarTab({events,setEvents,staff,clients,addToast}: {
         })
       });
       const data=await resp.json();
-      const gcalId=data.content?.find((b: any)=>b.type==="text")?.text?.trim()||null;
-      setEvents(prev=>prev.map((e: any)=>e.id===ev.id?{...e,gcalId}:e));
+      const gcalId=data.content?.find(b=>b.type==="text")?.text?.trim()||null;
+      setEvents(prev=>prev.map(e=>e.id===ev.id?{...e,gcalId}:e));
       addToast(`"${ev.title}" pushed to Google Calendar ✓`,"success");
     }catch(e){ addToast("Failed to push to Google Calendar","error"); }
   }
 
   // Send staff booking notifications via Gmail drafts
-  async function sendBookingNotifications(ev: any){
+  async function sendBookingNotifications(ev){
     setSendingNotifs(true);
-    const staffToNotify=ev.staffIds.map((id: number)=>staff.find((s: any)=>s.id===id)).filter(Boolean);
+    const staffToNotify=ev.staffIds.map(id=>staff.find(s=>s.id===id)).filter(Boolean);
     const hrs=eventHours(ev).toFixed(1);
-    const pay=staffToNotify.map((s: any)=>({...s,total:(eventHours(ev)*s.rate).toFixed(2)}));
+    const pay=staffToNotify.map(s=>({...s,total:(eventHours(ev)*s.rate).toFixed(2)}));
     let successCount=0;
 
     for(const s of pay){
       try{
+        // Generate personalised email body via Claude
         const body=await callClaude(
           "You write concise, professional staff booking emails for Freshpeople Events Staffing. Be warm but brief. Plain text only, no markdown.",
           `Write a booking confirmation email to ${s.name} (${s.role}) for:
@@ -655,6 +644,7 @@ Notes: ${ev.notes||"N/A"}
 Sign off from: Freshpeople Admin`
         );
 
+        // Create Gmail draft
         await fetch("https://api.anthropic.com/v1/messages",{
           method:"POST",
           headers:{"Content-Type":"application/json"},
@@ -674,12 +664,12 @@ Sign off from: Freshpeople Admin`
     addToast(`${successCount}/${staffToNotify.length} booking emails drafted in Gmail ✓`,"success");
   }
 
-  function openNew(day: number){
+  function openNew(day){
     const d=`${yr}-${pad2(mo+1)}-${pad2(day)}`;
     setForm({title:"",date:d,venue:"",startTime:"09:00",endTime:"17:00",staffIds:[],clientId:"",color:ACCENT,notes:""});
     setEditEvt(null); setShowForm(true);
   }
-  function openEdit(ev: any){
+  function openEdit(ev){
     setForm({...ev,staffIds:[...ev.staffIds],clientId:String(ev.clientId||"")});
     setEditEvt(ev); setShowForm(true);
   }
@@ -687,24 +677,25 @@ Sign off from: Freshpeople Admin`
     if(!form.title||!form.date) return;
     const evt={...form,staffIds:form.staffIds.map(Number),clientId:form.clientId?Number(form.clientId):null};
     if(editEvt){
-      setEvents(prev=>prev.map((e: any)=>e.id===editEvt.id?{...evt,id:editEvt.id,gcalId:editEvt.gcalId}:e));
+      setEvents(prev=>prev.map(e=>e.id===editEvt.id?{...evt,id:editEvt.id,gcalId:editEvt.gcalId}:e));
       addToast("Event updated","success");
     } else {
       const newEv={...evt,id:Date.now(),gcalId:null};
       setEvents(prev=>[...prev,newEv]);
       addToast("Event created","success");
+      // Auto-offer to push to GCal
       setTimeout(()=>pushToGcal(newEv),300);
     }
     setShowForm(false); setSelected(null);
   }
-  function deleteEvent(id: number){
-    setEvents(prev=>prev.filter((e: any)=>e.id!==id));
+  function deleteEvent(id){
+    setEvents(prev=>prev.filter(e=>e.id!==id));
     setSelected(null);
     addToast("Event deleted","warn");
   }
-  function toggleStaff(id: number){ setForm(f=>({...f,staffIds:f.staffIds.includes(id)?f.staffIds.filter((x: number)=>x!==id):[...f.staffIds,id]})); }
+  function toggleStaff(id){ setForm(f=>({...f,staffIds:f.staffIds.includes(id)?f.staffIds.filter(x=>x!==id):[...f.staffIds,id]})); }
 
-  const upcomingEvs=events.filter((e: any)=>e.date>=todayStr).sort((a: any,b: any)=>a.date.localeCompare(b.date)).slice(0,5);
+  const upcomingEvs=events.filter(e=>e.date>=todayStr).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,5);
   const allCells=[...events,...gcalEvents];
 
   return(
@@ -725,7 +716,7 @@ Sign off from: Freshpeople Admin`
         {/* Calendar grid */}
         <div>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
-            <div style={{fontSize:18,fontWeight:600}}>{MONTHS[mo]} {yr}</div>
+            <div style={{fontSize:18,fontWeight:600}}>{["January","February","March","April","May","June","July","August","September","October","November","December"][mo]} {yr}</div>
             <div style={{display:"flex",gap:8}}>
               <Btn onClick={()=>setViewDate(new Date(yr,mo-1,1))} style={{fontSize:12,padding:"6px 12px"}}>‹</Btn>
               <Btn onClick={()=>setViewDate(new Date(today.getFullYear(),today.getMonth(),1))} style={{fontSize:12,padding:"6px 12px"}}>Today</Btn>
@@ -739,7 +730,7 @@ Sign off from: Freshpeople Admin`
             {cells.map((day,idx)=>{
               if(!day) return <div key={idx}/>;
               const cellDate=`${yr}-${pad2(mo+1)}-${pad2(day)}`;
-              const dayEvs=allCells.filter((e: any)=>e.date===cellDate);
+              const dayEvs=allCells.filter(e=>e.date===cellDate);
               const isToday=cellDate===todayStr;
               return(
                 <div key={idx} onClick={()=>openNew(day)}
@@ -749,8 +740,8 @@ Sign off from: Freshpeople Admin`
                   onMouseLeave={e=>e.currentTarget.style.background=isToday?ACCENT+"18":SURFACE}
                 >
                   <div style={{fontSize:12,fontWeight:isToday?700:400,color:isToday?ACCENT:TEXT,marginBottom:4}}>{day}</div>
-                  {dayEvs.map((ev: any)=>(
-                    <div key={ev.id} onClick={(e)=>{e.stopPropagation();setSelected(ev);}}
+                  {dayEvs.map(ev=>(
+                    <div key={ev.id} onClick={e=>{e.stopPropagation();setSelected(ev);}}
                       style={{background:ev.color+"33",border:`1px solid ${ev.color}55`,borderLeft:`3px solid ${ev.color}`,
                         borderRadius:4,padding:"2px 5px",fontSize:10,marginBottom:2,color:TEXT,
                         overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer"}}
@@ -778,7 +769,7 @@ Sign off from: Freshpeople Admin`
               {selected.venue&&<div style={{fontSize:12,marginTop:4}}>{selected.venue}</div>}
               {selected.notes&&<div style={{fontSize:12,color:MUTED,marginTop:4,fontStyle:"italic"}}>{selected.notes}</div>}
               <div style={{margin:"10px 0",display:"flex",flexWrap:"wrap",gap:4}}>
-                {selected.staffIds.map((id: number)=>{const s=staff.find((x: any)=>x.id===id);return s?<Badge key={id} color={MUTED}>{s.name.split(" ")[0]}</Badge>:null;})}
+                {selected.staffIds.map(id=>{const s=staff.find(x=>x.id===id);return s?<Badge key={id} color={MUTED}>{s.name.split(" ")[0]}</Badge>:null;})}
               </div>
               {selected.gcalId
                 ?<div style={{fontSize:11,color:ACCENT,marginBottom:10}}>✓ Synced to Google Calendar</div>
@@ -807,9 +798,9 @@ Sign off from: Freshpeople Admin`
 
           {/* Upcoming */}
           <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:10,padding:16}}>
-            <div style={{fontSize:12,color:MUTED,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}}>Upcoming Events</div>
+            <div style={{fontSize:11,color:MUTED,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}}>Upcoming Events</div>
             {upcomingEvs.length===0&&<div style={{fontSize:13,color:MUTED}}>No upcoming events</div>}
-            {upcomingEvs.map((ev: any)=>(
+            {upcomingEvs.map(ev=>(
               <div key={ev.id} onClick={()=>setSelected(ev)} style={{marginBottom:12,cursor:"pointer"}}>
                 <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
                   <div style={{width:3,minHeight:36,background:ev.color,borderRadius:2,flexShrink:0,marginTop:2}}/>
@@ -845,7 +836,7 @@ Sign off from: Freshpeople Admin`
             <Fld label="Client">
               <select value={form.clientId} onChange={e=>setForm(f=>({...f,clientId:e.target.value}))} style={{width:"100%"}}>
                 <option value="">— No client —</option>
-                {clients.map((c: any)=><option key={c.id} value={c.id}>{c.name}</option>)}
+                {clients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </Fld>
           </div>
@@ -864,7 +855,7 @@ Sign off from: Freshpeople Admin`
           </div>
           <Fld label="Assign Staff">
             <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
-              {staff.map((s: any)=>(
+              {staff.map(s=>(
                 <div key={s.id} onClick={()=>toggleStaff(s.id)}
                   style={{padding:"5px 12px",borderRadius:20,fontSize:12,cursor:"pointer",
                     background:form.staffIds.includes(s.id)?ACCENT+"22":SURFACE2,
@@ -893,8 +884,8 @@ Sign off from: Freshpeople Admin`
           </div>
           <div style={{marginBottom:20}}>
             <Lbl>Staff receiving booking emails ({bookingModal.staffIds.length})</Lbl>
-            {bookingModal.staffIds.map((id: number)=>{
-              const s=staff.find((x: any)=>x.id===id);
+            {bookingModal.staffIds.map(id=>{
+              const s=staff.find(x=>x.id===id);
               if(!s) return null;
               const pay=(eventHours(bookingModal)*s.rate).toFixed(2);
               return(
@@ -926,13 +917,13 @@ Sign off from: Freshpeople Admin`
   );
 }
 
-// ─── PIN Pad ──────────────────────────────────────────────────────────────
-function PinPad({onSuccess,staff,adminMode}: {onSuccess: (member: any, adminFlag: boolean)=>void, staff: any[], adminMode: boolean}){
+// ─── PIN Pad ──────────────────────────────────────────────────────────────────
+function PinPad({onSuccess,staff,adminMode}){
   const [pin,setPin]=useState(""); const [shake,setShake]=useState(false); const [err,setErr]=useState("");
-  function press(d: string){ if(pin.length>=4)return; const next=pin+d; setPin(next); if(next.length===4)setTimeout(()=>check(next),80); }
-  function check(p: string){
+  function press(d){ if(pin.length>=4)return; const next=pin+d; setPin(next); if(next.length===4)setTimeout(()=>check(next),80); }
+  function check(p){
     if(adminMode&&p==="0000"){onSuccess(null,true);return;}
-    const found=staff.find((s: any)=>s.pin===p);
+    const found=staff.find(s=>s.pin===p);
     if(found){onSuccess(found,false);return;}
     setShake(true);setErr("Invalid PIN");
     setTimeout(()=>{setShake(false);setPin("");setErr("");},700);
@@ -957,13 +948,13 @@ function PinPad({onSuccess,staff,adminMode}: {onSuccess: (member: any, adminFlag
   );
 }
 
-// ─── Main App ─────────────────────────────────────────────────────────────
+// ─── Main App ─────────────────────────────────────────────────────────────────
 export default function App(){
   const [page,setPage]           = useState("login");
-  const [currentStaff,setCS]     = useState<any>(null);
+  const [currentStaff,setCS]     = useState(null);
   const [isAdmin,setIsAdmin]     = useState(false);
   const [staff]                  = useState(INITIAL_STAFF);
-  const [records,setRecords]     = useState<any[]>([]);
+  const [records,setRecords]     = useState([]);
   const [now,setNow]             = useState(Date.now());
   const [adminTab,setAdminTab]   = useState("dashboard");
   const [deptFilter,setDept]     = useState("All");
@@ -971,32 +962,32 @@ export default function App(){
   const [invoices,setInvoices]   = useState(INITIAL_INVOICES);
   const [quotes,setQuotes]       = useState(INITIAL_QUOTES);
   const [clients]                = useState(INITIAL_CLIENTS);
-  const [toasts,setToasts]       = useState<any[]>([]);
+  const [toasts,setToasts]       = useState([]);
   const [newStaff,setNewStaff]   = useState({name:"",role:"",rate:"",pin:"",department:"Bar",uniform:false,email:"",phone:""});
 
   useEffect(()=>{ const t=setInterval(()=>setNow(Date.now()),10000); return()=>clearInterval(t); },[]);
 
-  const addToast = useCallback((msg: string,type="success")=>{
+  const addToast = useCallback((msg,type="success")=>{
     const id=Date.now();
     setToasts(p=>[...p,{id,msg,type}]);
     setTimeout(()=>setToasts(p=>p.filter(t=>t.id!==id)),4000);
   },[]);
 
-  function handleLogin(member: any,adminFlag: boolean){
+  function handleLogin(member,adminFlag){
     if(adminFlag){setIsAdmin(true);setCS(null);setPage("admin");}
     else{setCS(member);setIsAdmin(false);setPage("staff");}
   }
-  function clockIn(id: number){if(!records.find(r=>r.staffId===id&&!r.clockOut))setRecords(p=>[...p,{id:Date.now(),staffId:id,clockIn:Date.now(),clockOut:null}]);}
-  function clockOut(id: number){setRecords(p=>p.map(r=>r.staffId===id&&!r.clockOut?{...r,clockOut:Date.now()}:r));}
+  function clockIn(id){if(!records.find(r=>r.staffId===id&&!r.clockOut))setRecords(p=>[...p,{id:Date.now(),staffId:id,clockIn:Date.now(),clockOut:null}]);}
+  function clockOut(id){setRecords(p=>p.map(r=>r.staffId===id&&!r.clockOut?{...r,clockOut:Date.now()}:r));}
 
   const activeRec   = currentStaff?records.find(r=>r.staffId===currentStaff.id&&!r.clockOut):null;
   const elapsed     = activeRec?now-activeRec.clockIn:0;
   const myShifts    = currentStaff?records.filter(r=>r.staffId===currentStaff.id&&r.clockOut).slice(-5).reverse():[];
-  const myTotalMs   = myShifts.reduce((a: number,r: any)=>a+(r.clockOut-r.clockIn),0);
+  const myTotalMs   = myShifts.reduce((a,r)=>a+(r.clockOut-r.clockIn),0);
   const myPay       = currentStaff?calcPay(myTotalMs,currentStaff.rate):0;
   const completed   = records.filter(r=>r.clockOut);
-  const tPayroll    = completed.reduce((a: number,r: any)=>{const s=staff.find((x: any)=>x.id===r.staffId);return a+calcPay(r.clockOut-r.clockIn,s?.rate||0);},0);
-  const tHours      = completed.reduce((a: number,r: any)=>a+(r.clockOut-r.clockIn)/3600000,0);
+  const tPayroll    = completed.reduce((a,r)=>{const s=staff.find(x=>x.id===r.staffId);return a+calcPay(r.clockOut-r.clockIn,s?.rate||0);},0);
+  const tHours      = completed.reduce((a,r)=>a+(r.clockOut-r.clockIn)/3600000,0);
   const tActive     = staff.filter(s=>records.some(r=>r.staffId===s.id&&!r.clockOut)).length;
   const filtered    = deptFilter==="All"?staff:staff.filter(s=>s.department===deptFilter);
 
@@ -1129,7 +1120,7 @@ export default function App(){
                   </div>
                   <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,padding:"16px 20px"}}>
                     <div style={{fontSize:12,color:MUTED,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:14}}>Upcoming Events</div>
-                    {events.filter(e=>e.date>=ymd(today)).sort((a: any,b: any)=>a.date.localeCompare(b.date)).slice(0,4).map(ev=>(
+                    {events.filter(e=>e.date>=ymd(today)).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,4).map(ev=>(
                       <div key={ev.id} style={{display:"flex",alignItems:"flex-start",gap:10,marginBottom:10}}>
                         <div style={{width:3,minHeight:36,background:ev.color,borderRadius:2,flexShrink:0,marginTop:2}}/>
                         <div>
@@ -1146,7 +1137,7 @@ export default function App(){
                     {["Bar","Floor","Management","Security"].map(dept=>{
                       const ds=staff.filter(s=>s.department===dept);
                       const active=ds.filter(s=>records.some(r=>r.staffId===s.id&&!r.clockOut)).length;
-                      const colors: Record<string,string> ={Bar:ACCENT,Floor:PURPLE,Management:AMBER,Security:CORAL};
+                      const colors={Bar:ACCENT,Floor:PURPLE,Management:AMBER,Security:CORAL};
                       return(<div key={dept} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
                         <div style={{display:"flex",gap:8,alignItems:"center"}}>
                           <div style={{width:8,height:8,borderRadius:"50%",background:colors[dept]||ACCENT}}/>
@@ -1162,14 +1153,14 @@ export default function App(){
                   <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,padding:"16px 20px"}}>
                     <div style={{fontSize:12,color:MUTED,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:14}}>Billing Summary</div>
                     {[
-                      ["Invoices outstanding",invoices.filter(i=>i.status!=="paid").reduce((a: number,i: any)=>a+docSubtotal(i.lines)*1.15,0).toFixed(0),AMBER],
-                      ["Invoices paid",invoices.filter(i=>i.status==="paid").reduce((a: number,i: any)=>a+docSubtotal(i.lines)*1.15,0).toFixed(0),ACCENT],
+                      ["Invoices outstanding",invoices.filter(i=>i.status!=="paid").reduce((a,i)=>a+docSubtotal(i.lines)*1.15,0).toFixed(0),AMBER],
+                      ["Invoices paid",invoices.filter(i=>i.status==="paid").reduce((a,i)=>a+docSubtotal(i.lines)*1.15,0).toFixed(0),ACCENT],
                       ["Open quotes",quotes.filter(q=>q.status==="draft").length,PURPLE],
                       ["Quotes accepted",quotes.filter(q=>q.status==="accepted").length,ACCENT],
                     ].map(([l,v,c])=>(
                       <div key={l} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
                         <span style={{fontSize:13,color:MUTED}}>{l}</span>
-                        <span style={{fontSize:13,fontWeight:600,color:c,fontFamily:"'DM Mono',monospace"}}>{isNaN(Number(v))?v:`R ${v}`}</span>
+                        <span style={{fontSize:13,fontWeight:600,color:c,fontFamily:"'DM Mono',monospace"}}>{isNaN(v)?v:`R ${v}`}</span>
                       </div>
                     ))}
                   </div>
@@ -1192,7 +1183,7 @@ export default function App(){
                   {filtered.map(s=>{
                     const active=records.some(r=>r.staffId===s.id&&!r.clockOut);
                     const shifts=records.filter(r=>r.staffId===s.id&&r.clockOut);
-                    const hrs=shifts.reduce((a: number,r: any)=>a+(r.clockOut-r.clockIn)/3600000,0);
+                    const hrs=shifts.reduce((a,r)=>a+(r.clockOut-r.clockIn)/3600000,0);
                     return(<div key={s.id} style={{background:SURFACE,border:`1px solid ${active?ACCENT+"44":BORDER}`,borderRadius:12,padding:"16px 18px"}}>
                       <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
                         <div>
@@ -1221,7 +1212,7 @@ export default function App(){
                   <div style={{fontSize:14,color:MUTED}}>{completed.length} completed shifts</div>
                   <Btn variant="accent" onClick={()=>{
                     const h="Name,Dept,Clock In,Clock Out,Hours,Pay (R)";
-                    const lines=completed.map(r=>{const s=staff.find((x: any)=>x.id===r.staffId);const dur=r.clockOut-r.clockIn;return `${s?.name},${s?.department},${fmtTime(r.clockIn)},${fmtTime(r.clockOut)},${(dur/3600000).toFixed(2)},${calcPay(dur,s?.rate||0).toFixed(2)}`;});
+                    const lines=completed.map(r=>{const s=staff.find(x=>x.id===r.staffId);const dur=r.clockOut-r.clockIn;return `${s?.name},${s?.department},${fmtTime(r.clockIn)},${fmtTime(r.clockOut)},${(dur/3600000).toFixed(2)},${calcPay(dur,s?.rate||0).toFixed(2)}`;});
                     navigator.clipboard.writeText([h,...lines].join("\n"));
                     addToast("Payroll CSV copied to clipboard","success");
                   }}>Export Payroll CSV</Btn>
@@ -1234,7 +1225,7 @@ export default function App(){
                         {["Staff","Dept","Clock In","Clock Out","Duration","Pay"].map(h=><th key={h} style={{padding:"12px 14px",textAlign:"left",color:MUTED,fontWeight:500,fontSize:11,textTransform:"uppercase",letterSpacing:"0.05em"}}>{h}</th>)}
                       </tr></thead>
                       <tbody>{completed.slice().reverse().map(r=>{
-                        const s=staff.find((x: any)=>x.id===r.staffId); const dur=r.clockOut-r.clockIn;
+                        const s=staff.find(x=>x.id===r.staffId); const dur=r.clockOut-r.clockIn;
                         return(<tr key={r.id} style={{borderTop:`1px solid ${BORDER}33`}}>
                           <td style={{padding:"12px 14px",fontWeight:500}}>{s?.name||"?"}</td>
                           <td style={{padding:"12px 14px",color:MUTED}}>{s?.department}</td>
