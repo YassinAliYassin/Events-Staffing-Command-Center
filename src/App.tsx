@@ -580,7 +580,7 @@ function CalendarTab({events,setEvents,staff,clients,addToast}){
     }
     setSyncing(false);
   }
-  // Push event to GCal (Google Calendar)
+  // Push event to Apple Calendar (via Nylas) → syncs to Google Calendar
   async function pushToGcal(ev){
     if(!ev?.id) return;
     try{
@@ -592,8 +592,8 @@ function CalendarTab({events,setEvents,staff,clients,addToast}){
       const staffNames=ev.staffIds.map(id=>staff.find(s=>s.id===id)?.name||"Staff").join(", ");
       const description=`Freshpeople Event\nVenue: ${ev.venue||""}\nStaff: ${staffNames}\n${ev.notes||""}`;
 
-      // Push to Google Calendar via our API
-      const resp=await fetch('/api/calendar/google',{
+      // Push to Apple Calendar via Nylas (already configured in Vercel)
+      const resp=await fetch('/api/calendar/nylas',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({
@@ -609,13 +609,13 @@ function CalendarTab({events,setEvents,staff,clients,addToast}){
       
       if(data.success){
         setEvents(prev=>prev.map(e=>e.id===ev.id?{...e,gcalId:data.eventId}:e));
-        addToast(`"${ev.title}" pushed to Google Calendar ✓`,"success");
+        addToast(`"${ev.title}" pushed to Apple Calendar ✓ (synced to Google)`,"success");
       } else {
         addToast(`Failed to push: ${data.error||'Unknown error'}`,"error");
       }
     }catch(e){ 
-      console.error('Push to GCal error:', e);
-      addToast("Failed to push to Google Calendar","error"); 
+      console.error('Push to Calendar error:', e);
+      addToast("Failed to push to calendar","error"); 
     }
   }
 
