@@ -1,11 +1,11 @@
-// Google Calendar API endpoint (Vercel serverless function)
-// Uses google-auth-library for authentication (lighter than googleapis)
-// Requires: GOOGLE_SERVICE_ACCOUNT_BASE64 environment variable
+// Google Calendar API - Simple & Direct
+// Uses service account to read/write Google Calendar
+// No Nylas needed - direct Google ↔ Apple sync via iCal
 
 const { JWT } = require('google-auth-library');
 
 export default async function handler(req, res) {
-  // Set CORS headers
+  // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -15,16 +15,18 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Parse service account from base64 env var
+    // Parse service account from base64
     if (!process.env.GOOGLE_SERVICE_ACCOUNT_BASE64) {
-      return res.status(500).json({ error: 'Missing GOOGLE_SERVICE_ACCOUNT_BASE64' });
+      return res.status(500).json({ 
+        error: 'Missing GOOGLE_SERVICE_ACCOUNT_BASE64 in Vercel env vars' 
+      });
     }
 
     const serviceAccount = JSON.parse(
       Buffer.from(process.env.GOOGLE_SERVICE_ACCOUNT_BASE64, 'base64').toString()
     );
 
-    // Authenticate with Google using JWT
+    // Authenticate with Google
     const client = new JWT({
       email: serviceAccount.client_email,
       key: serviceAccount.private_key,
@@ -32,25 +34,28 @@ export default async function handler(req, res) {
     });
 
     await client.authorize();
-    const accessToken = client.credentials.access_token;
-
-    const calendarId = 'primary'; // Use your Google Calendar ID here
+    
+    const calendarId = 'primary'; // Your main calendar
+    const baseUrl = `https://www.googleapis.com/calendar/v3/calendars/${calendarId}`;
 
     // GET - Fetch events from Google Calendar
     if (req.method === 'GET') {
       const timeMin = new Date().toISOString();
       const timeMax = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
       
-      const url = `https://www.googleapis.com/calendar/v3/calendars/${calendarId}/events?timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&orderBy=startTime`;
+      const url = `${baseUrl}/events?timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&orderBy=startTime`;
       
       const response = await fetch(url, {
-        headers: { 'Authorization': `Bearer ${accessToken}` }
+        headers: { 'Authorization': `Bearer ${client.credentials.access_token}` }
       });
 
       const data = await response.json();
       
       if (!response.ok) {
-        return res.status(response.status).json({ error: 'Google API error', details: data });
+        return res.status(response.status).json({ 
+          error: 'Google API error', 
+          details: data 
+        });
       }
 
       return res.status(200).json({
@@ -58,8 +63,8 @@ export default async function handler(req, res) {
         events: (data.items || []).map(event => ({
           id: event.id,
           title: event.summary || 'Untitled Event',
-          start: event.start?.dateTime || event.start?.date || new Date().toISOString(),
-          end: event.end?.dateTime || event.end?.date || new Date().toISOString(),
+          start: event.start?.dateTime || event.start?.date,
+          end: event.end?.dateTime || event.end?.date,
           description: event.description || '',
           location: event.location || ''
         })),
@@ -67,11 +72,11 @@ export default async function handler(req, res) {
       });
     }
 
-    // POST - Add event to Google Calendar
+    // POST - Create event in Google Calendar
     if (req.method === 'POST') {
       const { title, start, end, description, location } = req.body;
 
-      const eventData = {
+      const event = {
         summary: title || 'New Event',
         start: { dateTime: new Date(start).toISOString() },
         end: { dateTime: new Date(end).toISOString() },
@@ -79,33 +84,39 @@ export default async function handler(req, res) {
         location: location || ''
       };
 
-      const url = `https://www.googleapis.com/calendar/v3/calendars/${calendarId}/events`;
+      const url = `${baseUrl}/events`;
       
       const response = await fetch(url, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${accessToken}`,
+          'Authorization': `Bearer ${client.credentials.access_token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(eventData)
+        body: JSON.stringify(event)
       });
 
       const data = await response.json();
       
       if (!response.ok) {
-        return res.status(response.status).json({ error: 'Failed to create event', details: data });
+        return res.status(response.status).json({ 
+          error: 'Failed to create event', 
+          details: data 
+        });
       }
 
       return res.status(200).json({
         success: true,
         eventId: data.id,
-        message: 'Event added to Google Calendar'
+        message: 'Event created in Google Calendar ✓'
       });
     }
 
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (error) {
     console.error('Google Calendar API error:', error);
-    return res.status(500).json({ error: error.message, stack: error.stack });
+    return res.status(500).json({ 
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 }
