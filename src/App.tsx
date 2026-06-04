@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import ClientsView from './components/ClientsView';
 import Dashboard from './components/Dashboard';
 import Payroll from './pages/Payroll';
+import StaffCard from './components/StaffCard';
 
 // ─── Constants & Seed ────────────────────────────────────────────────────────
 const INITIAL_STAFF = [
@@ -1096,18 +1097,23 @@ export default function App(){
                     const active=records.some(r=>r.staffId===s.id&&!r.clockOut);
                     const shifts=records.filter(r=>r.staffId===s.id&&r.clockOut);
                     const hrs=shifts.reduce((a,r)=>a+(r.clockOut-r.clockIn)/3600000,0);
-                    return(
-                      <div key={s.id} style={{background:SURFACE,border:`1px solid ${active?ACCENT+"44":BORDER}`,borderRadius:12,padding:"16px 18px"}}>
-                        <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
-                          <div>
-                            <div style={{fontWeight:600,fontSize:14,marginBottom:2}}>{s.name}</div>
-                            <div style={{fontSize:12,color:MUTED}}>{s.department}</div>
-                          </div>
-                          <Dot on={active}/>
-                        </div>
-                        <div style={{fontSize:12}} className="mono">R{s.rate}/h · {hrs.toFixed(1)}h</div>
-                        {s.uniform&&<div style={{marginTop:8}}><Badge color={MUTED}>Uni</Badge></div>}
-                      </div>
+                    return (
+                      <StaffCard
+                        key={s.id}
+                        staff={s}
+                        active={active}
+                        hrs={hrs}
+                        onView={()=>alert(s.name)}
+                        onEdit={()=>{
+                          setNewStaff({name:s.name,role:s.role,rate:String(s.rate),pin:s.pin,department:s.department,uniform:s.uniform,email:s.email,phone:s.phone});
+                          setAdminTab("add staff");
+                        }}
+                        onRemove={()=>{
+                          if(window.confirm("Remove?")){
+                            addToast(s.name+" removed","success");
+                          }
+                        }}
+                      />
                     );
                   })}
                 </div>
