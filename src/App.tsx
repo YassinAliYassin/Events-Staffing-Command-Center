@@ -85,12 +85,11 @@ function nextDocNo(arr, prefix) { return `${prefix}-${new Date().getFullYear()}-
 // ─── Shared UI ────────────────────────────────────────────────────────────────
 function Dot({on,color}){return <span style={{display:"inline-block",width:8,height:8,borderRadius:"50%",background:on?(color||ACCENT):MUTED,boxShadow:on?`0 0 6px ${color||ACCENT}`:"none",flexShrink:0}}/>;}
 function Badge({color,children}){return <span style={{display:"inline-block",padding:"2px 8px",borderRadius:4,fontSize:11,fontWeight:500,background:color+"22",color,border:`1px solid ${color}44`}}>{children}</span>;}
-function Stat({label,value,accent,sub}){
+function Stat({label,value,accent}){
   return(
     <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:10,padding:"14px 18px"}}>
-      <div style={{fontSize:11,color:MUTED,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>{label}</div>
+      <div style={{fontSize:11,color:MUTED,marginBottom:6}}>{label}</div>
       <div style={{fontSize:22,fontWeight:600,color:accent||TEXT,fontFamily:"'DM Mono',monospace"}}>{value}</div>
-      {sub&&<div style={{fontSize:11,color:MUTED,marginTop:3}}>{sub}</div>}
     </div>
   );
 }
@@ -757,22 +756,22 @@ Sign off from: Freshpeople Admin`
                 <div style={{fontWeight:600,fontSize:14}}>{selected.title}</div>
                 <button onClick={()=>setSelected(null)} style={{background:"none",border:"none",color:MUTED,fontSize:18,cursor:"pointer"}}>×</button>
               </div>
-              <div style={{fontSize:12,color:MUTED}}>{fmtDate(selected.date)} · {selected.startTime}–{selected.endTime}</div>
+              <div style={{fontSize:12,color:MUTED}}>{fmtDate(selected.date)}</div>
               {selected.venue&&<div style={{fontSize:12,marginTop:4}}>{selected.venue}</div>}
               {selected.notes&&<div style={{fontSize:12,color:MUTED,marginTop:4,fontStyle:"italic"}}>{selected.notes}</div>}
               <div style={{margin:"10px 0",display:"flex",flexWrap:"wrap",gap:4}}>
                 {selected.staffIds.map(id=>{const s=staff.find(x=>x.id===id);return s?<Badge key={id} color={MUTED}>{s.name.split(" ")[0]}</Badge>:null;})}
               </div>
               {selected.gcalId
-                ?<div style={{fontSize:11,color:ACCENT,marginBottom:10}}>✓ Synced to Google Calendar</div>
-                :<Btn variant="accent" onClick={()=>pushToGcal(selected)} style={{width:"100%",fontSize:12,padding:"6px",marginBottom:8}}>↑ Push to Google Calendar</Btn>
+                ?<div style={{fontSize:11,color:ACCENT,marginBottom:10}}>✓ GCal</div>
+                :<Btn variant="accent" onClick={()=>pushToGcal(selected)} style={{width:"100%",fontSize:12,padding:"6px",marginBottom:8}}>Sync</Btn>
               }
               <Btn variant="amber" onClick={()=>setBookingModal(selected)} style={{width:"100%",fontSize:12,padding:"6px",marginBottom:8}}>
-                📧 Send Staff Booking Emails
+                Notify
               </Btn>
               <div style={{display:"flex",gap:8}}>
-                <Btn onClick={()=>openEdit(selected)} style={{flex:1,fontSize:12,padding:"6px"}}>Edit</Btn>
-                <Btn variant="danger" onClick={()=>deleteEvent(selected.id)} style={{flex:1,fontSize:12,padding:"6px"}}>Delete</Btn>
+                <Btn onClick={()=>openEdit(selected)} style={{flex:1,fontSize:12,padding:"6px"}}>E</Btn>
+                <Btn variant="danger" onClick={()=>deleteEvent(selected.id)} style={{flex:1,fontSize:12,padding:"6px"}}>X</Btn>
               </div>
             </div>
           )}
@@ -1010,10 +1009,9 @@ export default function App(){
 
         {/* LOGIN */}
         {page==="login"&&(
-          <div style={{display:"flex",flexDirection:"column",alignItems:"center",paddingTop:40}}>
-            <div style={{fontSize:13,color:MUTED,marginBottom:4,textTransform:"uppercase",letterSpacing:"0.1em"}}>Events Staffing Operations</div>
-            <h1 style={{fontSize:28,fontWeight:700,letterSpacing:"-0.03em",marginBottom:8}}>Command Center</h1>
-            <p style={{color:MUTED,fontSize:14,marginBottom:32,textAlign:"center"}}>Enter your PIN · Admin: 0000</p>
+            <div style={{display:"flex",flexDirection:"column",alignItems:"center",paddingTop:40}}>
+              <h1 style={{fontSize:24,fontWeight:700,marginBottom:8}}>Freshpeople</h1>
+              <p style={{color:MUTED,fontSize:13,marginBottom:24}}>Enter PIN</p>
             <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:14,width:"100%",maxWidth:320}}>
               <PinPad staff={staff} onSuccess={handleLogin} adminMode/>
             </div>
@@ -1026,14 +1024,13 @@ export default function App(){
         {/* STAFF */}
         {page==="staff"&&currentStaff&&(
           <div>
-            <div style={{marginBottom:28}}>
-              <div style={{fontSize:12,color:MUTED,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}>{currentStaff.department} · {currentStaff.role}</div>
-              <h1 style={{fontSize:26,fontWeight:700,letterSpacing:"-0.02em"}}>{currentStaff.name}</h1>
+            <div style={{marginBottom:20}}>
+              <h1 style={{fontSize:22,fontWeight:700}}>{currentStaff.name}</h1>
             </div>
-            <div style={{background:SURFACE,border:`1px solid ${activeRec?ACCENT+"44":BORDER}`,borderRadius:14,padding:28,marginBottom:24,textAlign:"center",transition:"border 0.3s"}}>
-              <div style={{fontSize:13,color:MUTED,marginBottom:8}}>{activeRec?"Currently on shift":"Not clocked in"}</div>
-              <div style={{fontSize:48,fontWeight:700,fontFamily:"'DM Mono',monospace",color:activeRec?ACCENT:MUTED,marginBottom:4,letterSpacing:"-0.02em"}}>{activeRec?fmtDur(elapsed):"—"}</div>
-              {activeRec&&<div style={{fontSize:13,color:MUTED,marginBottom:20}}>Clocked in at {fmtTime(activeRec.clockIn)} · Earning R {calcPay(elapsed,currentStaff.rate).toFixed(2)}</div>}
+              <div style={{background:SURFACE,border:`1px solid ${activeRec?ACCENT+"44":BORDER}`,borderRadius:14,padding:28,marginBottom:24,textAlign:"center",transition:"border 0.3s"}}>
+                <div style={{fontSize:13,color:MUTED,marginBottom:8}}>{activeRec?"Active":"Off"}</div>
+                <div style={{fontSize:48,fontWeight:700,fontFamily:"'DM Mono',monospace",color:activeRec?ACCENT:MUTED,marginBottom:4,letterSpacing:"-0.02em"}}>{activeRec?fmtDur(elapsed):"—"}</div>
+                {activeRec&&<div style={{fontSize:13,color:MUTED,marginBottom:20}}>In at {fmtTime(activeRec.clockIn)}</div>}
               <div style={{display:"flex",gap:12,justifyContent:"center",marginTop:20}}>
                 {!activeRec
                   ?<button onClick={()=>clockIn(currentStaff.id)} style={{background:ACCENT,color:"#000",border:"none",borderRadius:10,padding:"14px 40px",fontSize:15,fontWeight:600,cursor:"pointer"}}>Clock In</button>
@@ -1048,9 +1045,9 @@ export default function App(){
             </div>
             {myShifts.length>0&&(
               <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,padding:"16px 20px"}}>
-                <div style={{fontSize:12,color:MUTED,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:14}}>Recent Shifts</div>
+                <div style={{fontSize:12,color:MUTED,marginBottom:14}}>Recent</div>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-                  <thead><tr style={{borderBottom:`1px solid ${BORDER}`}}>{["Clock In","Clock Out","Duration","Pay"].map(h=><th key={h} style={{padding:"4px 8px",textAlign:"left",color:MUTED,fontWeight:400,paddingBottom:10}}>{h}</th>)}</tr></thead>
+                  <thead><tr style={{borderBottom:`1px solid ${BORDER}`}}>{["In","Out","Hrs","R"].map(h=><th key={h} style={{padding:"4px 8px",textAlign:"left",color:MUTED,fontWeight:400,paddingBottom:10}}>{h}</th>)}</tr></thead>
                   <tbody>{myShifts.map(r=>(
                     <tr key={r.id} style={{borderBottom:`1px solid ${BORDER}22`}}>
                       <td style={{padding:"10px 8px",fontFamily:"'DM Mono',monospace"}}>{fmtTime(r.clockIn)}</td>
@@ -1068,9 +1065,8 @@ export default function App(){
         {/* ADMIN */}
         {page==="admin"&&isAdmin&&(
           <div>
-            <div style={{marginBottom:24}}>
-              <div style={{fontSize:12,color:ACCENT,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:4}}>Admin · Freshpeople</div>
-              <h1 style={{fontSize:26,fontWeight:700,letterSpacing:"-0.02em"}}>Command Center</h1>
+            <div style={{marginBottom:20}}>
+              <h1 style={{fontSize:22,fontWeight:700}}>Dashboard</h1>
             </div>
 
             {/* Tabs */}
@@ -1104,17 +1100,12 @@ export default function App(){
                       <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
                         <div>
                           <div style={{fontWeight:600,fontSize:14,marginBottom:2}}>{s.name}</div>
-                          <div style={{fontSize:12,color:MUTED}}>{s.role} · {s.department}</div>
-                          <div style={{fontSize:11,color:MUTED}}>{s.email}</div>
+                          <div style={{fontSize:12,color:MUTED}}>{s.department}</div>
                         </div>
                         <Dot on={active}/>
                       </div>
-                      <div style={{display:"flex",gap:14}}>
-                        <div style={{fontSize:12}}><span style={{color:MUTED}}>Rate: </span><span className="mono">R{s.rate}/h</span></div>
-                        <div style={{fontSize:12}}><span style={{color:MUTED}}>Shifts: </span><span className="mono">{shifts.length}</span></div>
-                        <div style={{fontSize:12}}><span style={{color:MUTED}}>Hrs: </span><span className="mono" style={{color:ACCENT}}>{hrs.toFixed(1)}</span></div>
-                      </div>
-                      {s.uniform&&<div style={{marginTop:8}}><Badge color={MUTED}>Uniform req.</Badge></div>}
+                      <div style={{fontSize:12}} className="mono">R{s.rate}/h · {hrs.toFixed(1)}h</div>
+                      {s.uniform&&<div style={{marginTop:8}}><Badge color={MUTED}>Uni</Badge></div>}
                     </div>);
                   })}
                 </div>
