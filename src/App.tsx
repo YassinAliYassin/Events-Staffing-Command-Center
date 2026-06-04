@@ -1092,34 +1092,23 @@ export default function App(){
             {adminTab==="roster"&&(
               <div>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:12}}>
-                  {filtered.map(s=>{
+                  {staff.map(s=>{
                     const active=records.some(r=>r.staffId===s.id&&!r.clockOut);
                     const shifts=records.filter(r=>r.staffId===s.id&&r.clockOut);
                     const hrs=shifts.reduce((a,r)=>a+(r.clockOut-r.clockIn)/3600000,0);
-                    return(<div key={s.id} style={{background:SURFACE,border:`1px solid ${active?ACCENT+"44":BORDER}`,borderRadius:12,padding:"16px 18px"}}>
-                      <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
-                        <div>
-                          <div style={{fontWeight:600,fontSize:14,marginBottom:2}}>{s.name}</div>
-                          <div style={{fontSize:12,color:MUTED}}>{s.department}</div>
+                    return(
+                      <div key={s.id} style={{background:SURFACE,border:`1px solid ${active?ACCENT+"44":BORDER}`,borderRadius:12,padding:"16px 18px"}}>
+                        <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
+                          <div>
+                            <div style={{fontWeight:600,fontSize:14,marginBottom:2}}>{s.name}</div>
+                            <div style={{fontSize:12,color:MUTED}}>{s.department}</div>
+                          </div>
+                          <Dot on={active}/>
                         </div>
-                        <Dot on={active}/>
+                        <div style={{fontSize:12}} className="mono">R{s.rate}/h · {hrs.toFixed(1)}h</div>
+                        {s.uniform&&<div style={{marginTop:8}}><Badge color={MUTED}>Uni</Badge></div>}
                       </div>
-                      <div style={{fontSize:12}} className="mono">R{s.rate}/h · {hrs.toFixed(1)}h</div>
-                      {s.uniform&&<div style={{marginTop:8}}><Badge color={MUTED}>Uni</Badge></div>}
-                      <div style={{display:"flex",gap:6,marginTop:10}}>
-                        <Btn onClick={()=>{
-                          addToast(`${s.name} selected`,"success");
-                        }} style={{flex:1,fontSize:11,padding:"4px 8px"}}>View</Btn>
-                        <Btn onClick={()=>{
-                          addToast(`Edit ${s.name} - Feature coming soon`,"warn");
-                        }} style={{flex:1,fontSize:11,padding:"4px 8px"}}>E</Btn>
-                        <Btn variant="danger" onClick={()=>{
-                          if(confirm(`Remove ${s.name} from roster?`)){
-                            addToast(`${s.name} removed`,"success");
-                          }
-                        }} style={{flex:1,fontSize:11,padding:"4px 8px"}}>X</Btn>
-                      </div>
-                    </div>;
+                    );
                   })}
                 </div>
               </div>
