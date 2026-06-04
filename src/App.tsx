@@ -1106,7 +1106,20 @@ export default function App(){
                       </div>
                       <div style={{fontSize:12}} className="mono">R{s.rate}/h · {hrs.toFixed(1)}h</div>
                       {s.uniform&&<div style={{marginTop:8}}><Badge color={MUTED}>Uni</Badge></div>}
-                    </div>);
+                      <div style={{display:"flex",gap:6,marginTop:10}}>
+                        <Btn onClick={()=>{
+                          addToast(`${s.name} selected`,"success");
+                        }} style={{flex:1,fontSize:11,padding:"4px 8px"}}>View</Btn>
+                        <Btn onClick={()=>{
+                          addToast(`Edit ${s.name} - Feature coming soon`,"warn");
+                        }} style={{flex:1,fontSize:11,padding:"4px 8px"}}>E</Btn>
+                        <Btn variant="danger" onClick={()=>{
+                          if(confirm(`Remove ${s.name} from roster?`)){
+                            addToast(`${s.name} removed`,"success");
+                          }
+                        }} style={{flex:1,fontSize:11,padding:"4px 8px"}}>X</Btn>
+                      </div>
+                    </div>;
                   })}
                 </div>
               </div>
