@@ -1,6 +1,6 @@
 // Google Calendar API endpoint (Vercel serverless function)
-// Uses REST API directly (no googleapis package needed)
-// Requires: GOOGLE_SERVICE_ACCOUNT_BASE64 environment variable
+// Fetches events from Google Calendar using iCal URL (read-only)
+// For writing: uses Nylas to push to Apple Calendar (which syncs to Google)
 
 export default async function handler(req, res) {
   // Set CORS headers
@@ -13,154 +13,165 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Parse service account from base64 env var
-    if (!process.env.GOOGLE_SERVICE_ACCOUNT_BASE64) {
-      return res.status(500).json({ error: 'Missing GOOGLE_SERVICE_ACCOUNT_BASE64' });
-    }
-
-    const serviceAccount = JSON.parse(
-      Buffer.from(process.env.GOOGLE_SERVICE_ACCOUNT_BASE64, 'base64').toString()
-    );
-
-    // Get access token using service account
-    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-        assertion: await createJWT(serviceAccount)
-      })
-    });
-
-    const tokenData = await tokenResponse.json();
-    if (!tokenData.access_token) {
-      return res.status(500).json({ error: 'Failed to get access token', details: tokenData });
-    }
-
-    const accessToken = tokenData.access_token;
-    const calendarId = 'primary'; // Use your calendar ID here
-
-    // GET - Fetch events from Google Calendar
+    // GET - Fetch events from Google Calendar via iCal URL
     if (req.method === 'GET') {
-      const timeMin = new Date().toISOString();
-      const timeMax = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+      // Your Google Calendar iCal URL
+      const icalUrl = 'https://calendar.google.com/calendar/ical/gq7gjllsghrfgr8ijgqvrbdijbu1i2ka%40import.calendar.google.com/public/basic.ics';
       
-      const response = await fetch(
-        `https://www.googleapis.com/calendar/v3/calendars/${calendarId}/events?timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&orderBy=startTime`,
-        {
-          headers: { 'Authorization': `Bearer ${accessToken}` }
-        }
-      );
-
-      const data = await response.json();
-      
+      const response = await fetch(icalUrl);
       if (!response.ok) {
-        return res.status(response.status).json({ error: 'Google API error', details: data });
+        return res.status(response.status).json({ 
+          error: 'Failed to fetch iCal data',
+          status: response.status 
+        });
       }
-
+      
+      const icalData = await response.text();
+      
+      // Parse iCal format (simplified parser)
+      const events = parseICal(icalData);
+      
       return res.status(200).json({
         success: true,
-        events: (data.items || []).map(event => ({
-          id: event.id,
-          title: event.summary || 'Untitled Event',
-          start: event.start?.dateTime || event.start?.date || new Date().toISOString(),
-          end: event.end?.dateTime || event.end?.date || new Date().toISOString(),
-          description: event.description || '',
-          location: event.location || ''
-        })),
-        count: data.items?.length || 0
+        events: events,
+        count: events.length
       });
     }
 
-    // POST - Add event to Google Calendar
+    // POST - Push to Apple Calendar via Nylas (which syncs to Google)
     if (req.method === 'POST') {
+      const apiKey = process.env.NYLAS_API_KEY;
+      const grantId = process.env.NYLAS_GRANT_ID;
+      
+      if (!apiKey || !grantId) {
+        return res.status(500).json({ 
+          error: 'Missing Nylas credentials',
+          hasCredentials: false 
+        });
+      }
+
       const { title, start, end, description, location } = req.body;
 
       const eventData = {
-        summary: title || 'New Event',
-        start: { dateTime: new Date(start).toISOString() },
-        end: { dateTime: new Date(end).toISOString() },
+        title: title || 'New Event',
+        when: {
+          start_time: Math.floor(new Date(start).getTime() / 1000),
+          end_time: Math.floor(new Date(end).getTime() / 1000)
+        },
         description: description || '',
         location: location || ''
       };
 
       const response = await fetch(
-        `https://www.googleapis.com/calendar/v3/calendars/${calendarId}/events`,
+        `https://api.us.nylas.com/v3/grants/${grantId}/events`,
         {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${accessToken}`,
+            'Authorization': `Bearer ${apiKey}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify(eventData)
         }
       );
 
-      const data = await response.json();
-      
       if (!response.ok) {
-        return res.status(response.status).json({ error: 'Failed to create event', details: data });
+        const errorText = await response.text();
+        return res.status(response.status).json({ 
+          error: 'Failed to create event in Nylas',
+          details: errorText 
+        });
       }
 
+      const data = await response.json();
+      
       return res.status(200).json({
         success: true,
-        eventId: data.id,
-        message: 'Event added to Google Calendar'
+        eventId: data.data?.id,
+        message: 'Event added to Apple Calendar (syncs to Google via iCal)'
       });
     }
 
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (error) {
-    console.error('Google Calendar API error:', error);
+    console.error('API error:', error);
     return res.status(500).json({ error: error.message });
   }
 }
 
-// Helper: Create JWT for Google Service Account authentication
-async function createJWT(serviceAccount) {
-  const header = { alg: 'RS256', typ: 'JWT' };
-  const now = Math.floor(Date.now() / 1000);
+// Simple iCal parser
+function parseICal(icalData) {
+  const events = [];
+  const lines = icalData.split('\n');
+  let currentEvent = null;
   
-  const claim = {
-    iss: serviceAccount.client_email,
-    sub: serviceAccount.client_email,
-    aud: 'https://oauth2.googleapis.com/token',
-    iat: now,
-    exp: now + 3600,
-    scope: 'https://www.googleapis.com/auth/calendar'
-  };
-
-  const encodedHeader = base64urlEncode(JSON.stringify(header));
-  const encodedClaim = base64urlEncode(JSON.stringify(claim));
-  const signatureInput = `${encodedHeader}.${encodedClaim}`;
-
-  // Import private key and sign
-  const privateKey = await crypto.subtle.importKey(
-    'pkcs8',
-    pemToArrayBuffer(serviceAccount.private_key),
-    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
-    false,
-    ['sign']
-  );
-
-  const signature = await crypto.subtle.sign(
-    'RSASSA-PKCS1-v1_5',
-    privateKey,
-    new TextEncoder().encode(signatureInput)
-  );
-
-  const encodedSignature = base64urlEncode(new Uint8Array(signature));
-  return `${signatureInput}.${encodedSignature}`;
-}
-
-function base64urlEncode(data) {
-  if (typeof data === 'string') {
-    data = new TextEncoder().encode(data);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    
+    if (trimmed === 'BEGIN:VEVENT') {
+      currentEvent = {};
+    } else if (trimmed === 'END:VEVENT') {
+      if (currentEvent && currentEvent.uid) {
+        events.push({
+          id: currentEvent.uid,
+          title: currentEvent.summary || 'Untitled Event',
+          start: currentEvent.dtstart || new Date().toISOString(),
+          end: currentEvent.dtend || new Date().toISOString(),
+          description: currentEvent.description || '',
+          location: currentEvent.location || ''
+        });
+      }
+      currentEvent = null;
+    } else if (currentEvent) {
+      const [key, ...valueParts] = trimmed.split(':');
+      const value = valueParts.join(':');
+      
+      switch (key) {
+        case 'UID':
+          currentEvent.uid = value;
+          break;
+        case 'SUMMARY':
+          currentEvent.summary = value;
+          break;
+        case 'DTSTART':
+          currentEvent.dtstart = parseICalDate(value);
+          break;
+        case 'DTEND':
+          currentEvent.dtend = parseICalDate(value);
+          break;
+        case 'DESCRIPTION':
+          currentEvent.description = value;
+          break;
+        case 'LOCATION':
+          currentEvent.location = value;
+          break;
+      }
+    }
   }
-  return Buffer.from(data).toString('base64url');
+  
+  return events;
 }
 
-function pemToArrayBuffer(pem) {
-  const b64 = pem.replace(/-----BEGIN[^-]+-----|-----END[^-]+-----|\n/g, '');
-  return Buffer.from(b64, 'base64');
+function parseICalDate(dateStr) {
+  // Simple iCal date parser (handles YYYYMMDDTHHMMSSZ format)
+  if (!dateStr) return new Date().toISOString();
+  
+  // Remove any parameters like ;TZID=...
+  dateStr = dateStr.split(';')[0];
+  
+  if (dateStr.includes('T')) {
+    // DateTime format
+    const year = dateStr.substring(0, 4);
+    const month = dateStr.substring(4, 6);
+    const day = dateStr.substring(6, 8);
+    const hour = dateStr.substring(9, 11);
+    const minute = dateStr.substring(11, 13);
+    const second = dateStr.substring(13, 15);
+    return `${year}-${month}-${day}T${hour}:${minute}:${second}Z`;
+  } else {
+    // Date only format
+    const year = dateStr.substring(0, 4);
+    const month = dateStr.substring(4, 6);
+    const day = dateStr.substring(6, 8);
+    return `${year}-${month}-${day}`;
+  }
 }
