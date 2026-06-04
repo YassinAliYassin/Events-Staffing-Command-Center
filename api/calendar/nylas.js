@@ -1,5 +1,6 @@
-// Nylas Calendar API endpoint (Vercel serverless function)
-// Uses existing NYLAS_API_KEY and NYLAS_GRANT_ID from Vercel env vars
+// Apple Calendar API endpoint (Vercel serverless function)
+// Uses Nylas (already configured in Vercel env vars)
+// Syncs to Google Calendar via iCloud sharing
 
 export default async function handler(req, res) {
   // Set CORS headers
@@ -18,7 +19,8 @@ export default async function handler(req, res) {
     if (!apiKey || !grantId) {
       return res.status(500).json({ 
         error: 'Missing Nylas credentials',
-        hasCredentials: false 
+        hasCredentials: false,
+        help: 'Set NYLAS_API_KEY and NYLAS_GRANT_ID in Vercel env vars'
       });
     }
 
@@ -45,7 +47,8 @@ export default async function handler(req, res) {
         console.error('Nylas API error:', errorText);
         return res.status(response.status).json({ 
           error: 'Failed to fetch events from Nylas',
-          details: errorText 
+          details: errorText,
+          hint: 'Check if NYLAS_GRANT_ID is correct in Vercel env vars'
         });
       }
 
@@ -60,8 +63,7 @@ export default async function handler(req, res) {
           start: event.when?.start_time ? new Date(event.when.start_time * 1000).toISOString() : new Date().toISOString(),
           end: event.when?.end_time ? new Date(event.when.end_time * 1000).toISOString() : new Date().toISOString(),
           description: event.description || '',
-          location: event.location || '',
-          participants: event.participants || []
+          location: event.location || ''
         })),
         count: data.data?.length || 0
       });
@@ -107,7 +109,7 @@ export default async function handler(req, res) {
       return res.status(200).json({
         success: true,
         eventId: data.data?.id,
-        message: 'Event added to Apple Calendar via Nylas'
+        message: 'Event added to Apple Calendar (syncs to Google via iCloud)'
       });
     }
 
@@ -116,7 +118,7 @@ export default async function handler(req, res) {
     console.error('Nylas Calendar API error:', error);
     return res.status(500).json({ 
       error: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      hint: 'Check Vercel function logs for more details'
     });
   }
 }
