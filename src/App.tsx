@@ -127,20 +127,25 @@ function Toast({msg,type="success",onDone}){
   );
 }
 
-// ─── Anthropic API call helper (used inside artifact) ─────────────────────────
+// ─── OpenRouter API call helper (used inside artifact) ──────────────────────
 async function callClaude(systemPrompt, userPrompt) {
-  const res = await fetch("https://api.anthropic.com/v1/messages",{
+  const res = await fetch("https://openrouter.ai/api/v1/chat/completions",{
     method:"POST",
-    headers:{"Content-Type":"application/json"},
+    headers:{
+      "Content-Type":"application/json",
+      "Authorization": `Bearer ${import.meta.env.VITE_OPENROUTER_API_KEY}`
+    },
     body:JSON.stringify({
-      model:"claude-sonnet-4-20250514",
+      model:"anthropic/claude-sonnet-4",
       max_tokens:1000,
-      system: systemPrompt,
-      messages:[{role:"user",content:userPrompt}]
+      messages:[
+        {role:"system",content:systemPrompt},
+        {role:"user",content:userPrompt}
+      ]
     })
   });
   const data = await res.json();
-  return data.content?.[0]?.text || "";
+  return data.choices?.[0]?.message?.content || "";
 }
 
 // ─── Document Print View (Invoice / Quote / Statement) ───────────────────────
@@ -698,15 +703,20 @@ Notes: ${ev.notes||"N/A"}
 Sign off from: Freshpeople Admin`
         );
 
-        // Create Gmail draft
-        await fetch("https://api.anthropic.com/v1/messages",{
+        // Create Gmail draft via OpenRouter
+        await fetch("https://openrouter.ai/api/v1/chat/completions",{
           method:"POST",
-          headers:{"Content-Type":"application/json"},
+          headers:{
+            "Content-Type":"application/json",
+            "Authorization": `Bearer ${import.meta.env.VITE_OPENROUTER_API_KEY}`
+          },
           body:JSON.stringify({
-            model:"claude-sonnet-4-20250514",
+            model:"anthropic/claude-sonnet-4",
             max_tokens:200,
-            system:"Create the Gmail draft as instructed. Confirm with: Draft created.",
-            messages:[{role:"user",content:`Create a Gmail draft email to: ${s.email}, subject: "Booking Confirmed: ${ev.title} — ${fmtDate(ev.date)}", body: ${JSON.stringify(body)}`}],
+            messages:[
+              {role:"system",content:"Create the Gmail draft as instructed. Confirm with: Draft created."},
+              {role:"user",content:`Create a Gmail draft email to: ${s.email}, subject: "Booking Confirmed: ${ev.title} — ${fmtDate(ev.date)}", body: ${JSON.stringify(body)}`}
+            ],
             mcp_servers:[{type:"url",url:"https://gmailmcp.googleapis.com/mcp/v1",name:"gmail"}]
           })
         });
