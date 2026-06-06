@@ -4,6 +4,108 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Fresh People Command Center | Dashboard</title>
+  <style>
+    /* ==========================================================================
+   FPCC CORE REDESIGN SYSTEM - PROTECTION LAYER
+   Aesthetic: Geometric Sans-Serif, Clean Lines, Centered Layouts
+   ========================================================================== */
+
+    :root {
+      --fpcc-font-main: 'Geometria', 'Inter', -apple-system, sans-serif;
+      --fpcc-bg: #FFFFFF;
+      --fpcc-text-primary: #111111;
+      --fpcc-text-muted: #666666;
+      --fpcc-border-clean: 1px solid #E5E5E5;
+      --fpcc-accent-apple: #FF9500;
+      --fpcc-radius: 0px; /* Sharp, clean geometric lines */
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: var(--fpcc-font-main);
+      background-color: var(--fpcc-bg);
+      color: var(--fpcc-text-primary);
+      -webkit-font-smoothing: antialiased;
+      font-smoothing: antialiased;
+    }
+
+    /* Unified Centered Layout Grid */
+    .dashboard-container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 2.5rem 1.5rem;
+    }
+
+    /* Clean Line Section Divider */
+    .section-divider {
+      border: 0;
+      border-top: var(--fpcc-border-clean);
+      margin: 2rem 0;
+    }
+
+    /* Metrics Display Card - Preserving Proportions */
+    .stat-card {
+      border: var(--fpcc-border-clean);
+      padding: 2rem;
+      text-align: center; /* Enforcing centered visual balance */
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .stat-value {
+      font-size: 2.5rem;
+      font-weight: 300; /* Light geometric weighting */
+      letter-spacing: -0.05em;
+      margin-bottom: 0.25rem;
+    }
+
+    /* ==========================================================================
+       RESPONSIVE BREAKPOINT PROTECTION (768px)
+       Ensures the premium look scales beautifully without breaking layout geometry
+       ========================================================================== */
+
+    @media (max-width: 768px) {
+      .dashboard-container {
+        padding: 1.5rem 1rem;
+      }
+      
+      /* Stacking columns cleanly while locking centered geometry */
+      .grid-layout-3col, .grid-layout-2col {
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+      }
+      
+      /* Buttons expand to uniform touch blocks but retain clean border lines */
+      .btn-action {
+        display: flex;
+        width: 100%;
+        justify-content: center;
+        align-items: center;
+        padding: 1rem;
+        border: var(--fpcc-border-clean);
+        background: transparent;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        font-size: 0.85rem;
+      }
+      
+      /* Text Truncation to prevent line breaking from blowing out card geometry */
+      .truncate-text {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 100%;
+      }
+    }
+  </style>
   </head>
   <body class="bg-[#050507] min-h-screen text-slate-200 antialiased overflow-x-hidden">
     <div id="root"></div>
