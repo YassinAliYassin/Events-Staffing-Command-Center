@@ -573,6 +573,8 @@ function CalendarTab({events,setEvents,staff,clients,addToast}){
   const [editEvt,setEditEvt]   = useState(null);
   const [gcalEvents,setGcalEvents] = useState([]);
   const [syncing,setSyncing]   = useState(false);
+  const [appleEvents,setAppleEvents] = useState([]);
+  const [syncingApple,setSyncingApple] = useState(false);
   const [bookingModal,setBookingModal] = useState(null); // event to send notifications for
   const [sendingNotifs,setSendingNotifs] = useState(false);
   const [form,setForm] = useState({title:"",date:"",venue:"",startTime:"09:00",endTime:"17:00",staffIds:[],clientId:"",color:ACCENT,notes:""});
@@ -613,6 +615,29 @@ function CalendarTab({events,setEvents,staff,clients,addToast}){
       addToast(`Google Calendar sync failed: ${e.message}`, "error"); 
     }
     setSyncing(false);
+  }
+
+  // Fetch Apple Calendar events
+  async function fetchApple() {
+    setSyncingApple(true);
+    try {
+      const resp = await fetch('/api/calendar');
+      if (!resp.ok) throw new Error('Failed to fetch calendar');
+      
+      const data = await resp.json();
+      const appleEvents = data.icloud || [];
+      
+      setAppleEvents(appleEvents.map(e => ({
+        ...e,
+        isApple: true,
+        color: "#FF9500"
+      })));
+      addToast(`Apple Calendar synced ✓ (${appleEvents.length} events)`, "success");
+    } catch(e) {
+      console.error('Apple sync error:', e);
+      addToast(`Apple Calendar sync failed: ${e.message}`, "error");
+    }
+    setSyncingApple(false);
   }
 
   // Parse iCal format (simple parser)
@@ -787,20 +812,26 @@ ${body}`;
   function toggleStaff(id){ setForm(f=>({...f,staffIds:f.staffIds.includes(id)?f.staffIds.filter(x=>x!==id):[...f.staffIds,id]})); }
 
   const upcomingEvs=events.filter(e=>e.date>=todayStr).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,5);
-  const allCells=[...events,...gcalEvents];
+  const allCells=[...events,...gcalEvents,...appleEvents];
 
   return(
     <div>
       {/* Sync banner */}
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,background:SURFACE2,border:`1px solid ${BORDER}`,borderRadius:10,padding:"10px 16px"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,background:SURFACE2,border:`1px solid ${BORDER}`,borderRadius:10,padding:"10px 16px",flexWrap:"wrap",gap:8}}>
         <div style={{fontSize:13}}>
           <span style={{color:MUTED}}>Google Calendar sync · </span>
           <span style={{color:ACCENT}}>{gcalEvents.length} events loaded</span>
-          <span style={{color:MUTED,fontSize:11,marginLeft:12}}>Apple Calendar syncs automatically via Google ↔ iCloud CalDAV</span>
+          <span style={{color:MUTED}}> · Apple Calendar · </span>
+          <span style={{color:"#FF9500"}}>{appleEvents.length} events</span>
         </div>
-        <Btn variant="accent" onClick={fetchGcal} disabled={syncing} style={{fontSize:12,padding:"6px 14px"}}>
-          {syncing?"Syncing…":"↻ Sync Google Calendar"}
-        </Btn>
+        <div style={{display:"flex",gap:8}}>
+          <Btn variant="accent" onClick={fetchGcal} disabled={syncing} style={{fontSize:12,padding:"6px 14px"}}>
+            {syncing?"Syncing…":"↻ Google"}
+          </Btn>
+          <Btn variant="accent" onClick={fetchApple} disabled={syncingApple} style={{fontSize:12,padding:"6px 14px",background:"#FF9500"}}>
+            {syncingApple?"Syncing…":"↻ Apple"}
+          </Btn>
+        </div>
       </div>
 
       <div style={{display:"grid",gridTemplateColumns:"1fr 290px",gap:20}}>
