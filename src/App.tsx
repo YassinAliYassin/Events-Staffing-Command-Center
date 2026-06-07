@@ -1620,6 +1620,45 @@ export default function App(){
         )}
       </div>
 
+      {/* WhatsApp Floating Button */}
+      <a
+        href="https://wa.me/27672961272?text=Hello%20Fresh%20People"
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{
+          position: 'fixed',
+          bottom: 24,
+          left: 24,
+          zIndex: 999,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '12px 20px',
+          background: '#25D366',
+          color: 'white',
+          borderRadius: '50px',
+          textDecoration: 'none',
+          fontSize: 14,
+          fontWeight: 600,
+          boxShadow: '0 4px 12px rgba(37, 211, 102, 0.4)',
+          transition: 'all 0.3s ease',
+          cursor: 'pointer'
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.transform = 'scale(1.05)';
+          e.currentTarget.style.boxShadow = '0 6px 20px rgba(37, 211, 102, 0.6)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.transform = 'scale(1)';
+          e.currentTarget.style.boxShadow = '0 4px 12px rgba(37, 211, 102, 0.4)';
+        }}
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M17.472 14.382c-.272-.135-1.605-.793-1.855-.884-.249-.09-.431-.135-.611.135-.181.27-.7.884-.86 1.066-.271.198-.541.223-.818.074-.272-.148-1.152-.424-2.194-1.352-1.041-.721-1.744-1.61-1.949-1.882-.204-.271-.022-.419.146-.587.15-.159.331-.38.496-.57.166-.188.221-.322.332-.537.11-.215.055-.403-.027-.538-.082-.135-.611-.884-1.348-1.225-.947-.331-1.663-.331-2.262-.331-.215 0-.611.074-1.021.537C9.64 7.534 8.5 9.186 8.5 10.838c0 1.652.554 3.245 1.665 4.425.998 1.18 2.194 2.08 3.636 2.349.421.075.749.06 1.003-.148.272-.222 1.605-.793 1.855-1.066.27-.27.27-.5.189-.787-.082-.287-.611-.884-1.348-1.225z"/>
+        </svg>
+         Message Us
+      </a>
+
       {/* Toast stack */}
       <div style={{position:"fixed",bottom:24,right:24,zIndex:999,display:"flex",flexDirection:"column",gap:8}}>
         {toasts.map(t=>(
