@@ -53,7 +53,7 @@ const loadLocal = (): LocalStore => {
   const raw = localStorage.getItem(KEY);
   if (!raw) {
     const fresh = seedStore();
-    localStorage.setItem(KEY, JSON.stringify(fresh));
+    try { localStorage.setItem(KEY, JSON.stringify(fresh)); } catch {}
     return fresh;
   }
   try {
