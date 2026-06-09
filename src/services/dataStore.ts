@@ -3,7 +3,7 @@ import { supabase, isSupabaseEnabled } from './supabaseClient';
 // ─── Local storage fallback ──────────────────────────────────────────────────
 const KEY = 'fpcc_local_store_v1';
 
-interface LocalStore {
+export interface LocalStore {
   staff: any[];
   clients: any[];
   events: any[];
@@ -86,13 +86,40 @@ const update = (mutator: (s: LocalStore) => void): LocalStore => {
 
 const syncToSupabase = async () => {
   if (!supabase) return;
-  await Promise.all([
-    supabase.from('staff').upsert(store.staff),
-    supabase.from('clients').upsert(store.clients),
-    supabase.from('events').upsert(store.events),
-    supabase.from('invoices').upsert(store.invoices),
-    supabase.from('quotes').upsert(store.quotes),
-  ]);
+
+  const tables = ['staff', 'clients', 'events', 'invoices', 'quotes'] as const;
+  const results = await Promise.all(
+    tables.map((table) =>
+      supabase.from(table).upsert(store[table], { onConflict: 'id' })
+    )
+  );
+
+  const failed = results.find((r) => r.error);
+  if (failed?.error) {
+    console.error('Supabase sync failed:', failed.error);
+  }
+};
+
+export const loadFromSupabase = async (): Promise<LocalStore | null> => {
+  if (!supabase) return null;
+
+  const tables = ['staff', 'clients', 'events', 'invoices', 'quotes'] as const;
+  const results = await Promise.all(tables.map((table) => supabase.from(table).select('*')));
+
+  const failed = results.find((r) => r.error);
+  if (failed?.error) {
+    console.error('Supabase load failed:', failed.error);
+    return null;
+  }
+
+  return {
+    staff: (results[0].data || []) as any[],
+    clients: (results[1].data || []) as any[],
+    events: (results[2].data || []) as any[],
+    invoices: (results[3].data || []) as any[],
+    quotes: (results[4].data || []) as any[],
+    messages: [],
+  };
 };
 
 // Staff

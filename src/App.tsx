@@ -7,6 +7,7 @@ import { FPCCCore } from './services/fpcc-core';
 import { FinanceApi } from './services/financeApi';
 import ModelPanel from './components/ModelPanel';
 import * as dataStore from './services/dataStore';
+import type { LocalStore } from './services/dataStore';
 
 // ─── Constants & Seed ────────────────────────────────────────────────────────
 const INITIAL_STAFF = [
@@ -1217,7 +1218,33 @@ export default function App(){
   const [currentModel,setCurrentModel] = useState('deepseek/deepseek-chat-v3-0324:free');
   const [currentTask,setCurrentTask] = useState('default');
 
-  // Refresh data from store whenever the user changes admin tab
+  const replaceStoreState = useCallback((s: LocalStore) => {
+    setStaff(s.staff);
+    setEvents(s.events);
+    setInvoices(s.invoices);
+    setQuotes(s.quotes);
+    setClients(s.clients);
+  }, []);
+
+  // Load remote Supabase data when configured, then fall back to local store.
+  useEffect(() => {
+    let cancelled = false;
+    dataStore.loadFromSupabase().then((remote) => {
+      if (cancelled || !remote) return;
+      replaceStoreState(remote);
+    }).catch((e) => console.warn('FPCC Supabase load failed', e))
+      .finally(() => {
+        if (cancelled) return;
+        setStaff(dataStore.listStaff());
+        setEvents(dataStore.listEvents());
+        setInvoices(dataStore.listInvoices());
+        setQuotes(dataStore.listQuotes());
+        setClients(dataStore.listClients());
+      });
+    return () => { cancelled = true; };
+  }, [replaceStoreState]);
+
+  // Refresh local state whenever the user changes admin tab.
   useEffect(() => {
     setStaff(dataStore.listStaff());
     setEvents(dataStore.listEvents());
