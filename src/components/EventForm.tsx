@@ -67,9 +67,13 @@ const EventForm: React.FC<{ onEventCreated?: () => void }> = ({ onEventCreated }
     
     try {
       console.log('EventForm: Sending fetch to /api/events with payload:', payload);
+      const eventToken = localStorage.getItem('fpcc_admin_token');
       const res = await fetch('/api/events', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(eventToken ? { 'Authorization': `Bearer ${eventToken}` } : {})
+        },
         body: JSON.stringify(payload)
       });
       

@@ -43,9 +43,13 @@ const StaffView = () => {
     try {
       const method = editingId ? 'PATCH' : 'POST';
       
+      const staffToken = localStorage.getItem('fpcc_admin_token');
       const res = await fetch('/api/staff', {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(staffToken ? { 'Authorization': `Bearer ${staffToken}` } : {})
+        },
         body: JSON.stringify(editingId ? { ...formData, id: editingId } : formData)
       });
 
@@ -78,9 +82,13 @@ const StaffView = () => {
     if (!confirm('Delete this staff member?')) return;
     
     try {
+      const staffToken = localStorage.getItem('fpcc_admin_token');
       const res = await fetch('/api/staff', { 
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(staffToken ? { 'Authorization': `Bearer ${staffToken}` } : {})
+        },
         body: JSON.stringify({ id })
       });
       if (!res.ok) throw new Error('Failed to delete staff');

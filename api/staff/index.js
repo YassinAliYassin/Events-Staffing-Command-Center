@@ -1,4 +1,20 @@
+import { checkAuth } from '../../lib/auth.js';
+
 export default async function handler(req, res) {
+  // Basic input validation
+  const body = req.body || {};
+  if (['POST', 'PATCH', 'DELETE'].includes(req.method)) {
+    if (req.method === 'POST' && !body.name) {
+      return res.status(400).json({ error: 'name is required for new staff' });
+    }
+    if (req.method === 'PATCH' && (!body.id || !body.name)) {
+      return res.status(400).json({ error: 'id and name required for update' });
+    }
+    if (req.method === 'DELETE' && !body.id) {
+      return res.status(400).json({ error: 'id required for delete' });
+    }
+  }
+
   try {
     const { Pool } = await import('pg');
     
@@ -34,6 +50,15 @@ export default async function handler(req, res) {
       const { rows } = await pool.query('SELECT id, name, phone, role, total_hours FROM staff ORDER BY name ASC');
       await pool.end();
       return res.json({ staff: rows });
+    }
+    
+    // Protect all writes with auth (shared secret / JWT)
+    if (['POST', 'PATCH', 'DELETE'].includes(req.method)) {
+      const authed = checkAuth(req, res);
+      if (!authed) {
+        await pool.end();
+        return; // response already sent
+      }
     }
     
     if (req.method === 'POST') {

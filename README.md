@@ -102,3 +102,19 @@ If the primary deployment fails, immediately switch to the fallback. Never let t
 
 ## License
 Proprietary - Fresh People Events Staffing Solutions
+
+---
+
+## 🔐 Security & Auth (Hardened)
+See [SECURITY.md](./SECURITY.md) for full audit findings, risks, changes, and setup.
+
+**Quick secrets for auth (post-hardening):**
+- Set `FPCC_ADMIN_PASSWORD` (strong secret) + `FPCC_JWT_SECRET` in your Vercel/Render env and local `.env`.
+- `POST /api/login` with `{ "password": "..." }` returns JWT for write routes (`/api/staff` mutations, `/api/events` writes, `/api/dispatch-staff`).
+- Admin PIN `0000` in UI now bootstraps token via prompt (stores in localStorage).
+- Timesheets (sibling): `JWT_SECRET` **required** (no weak default); role checks (`admin`/`manager`) on approvals/billing.
+
+**Before changes:** All FPCC write APIs were unauthenticated (anyone could mutate staff/events or trigger WhatsApp). Client PINs were source-exposed. Now protected with practical JWT bootstrap for internal team.
+
+Update envs and re-deploy after setting secrets. Default fallback is demo-only.
+

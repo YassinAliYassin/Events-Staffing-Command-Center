@@ -219,9 +219,13 @@ const Staff = () => {
         ? { ...formData, id: editingId, hourlyRate: formData.hourlyRate ? parseFloat(formData.hourlyRate) : undefined }
         : { ...formData, hourlyRate: formData.hourlyRate ? parseFloat(formData.hourlyRate) : undefined };
       
+      const staffToken = localStorage.getItem('fpcc_admin_token');
       const res = await fetch('/api/staff', {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(staffToken ? { 'Authorization': `Bearer ${staffToken}` } : {})
+        },
         body: JSON.stringify(payload)
       });
 
@@ -255,9 +259,13 @@ const Staff = () => {
     if (!confirm('Are you sure you want to delete this staff member?')) return;
     
     try {
+      const staffToken = localStorage.getItem('fpcc_admin_token');
       const res = await fetch('/api/staff', { 
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(staffToken ? { 'Authorization': `Bearer ${staffToken}` } : {})
+        },
         body: JSON.stringify({ id })
       });
       if (!res.ok) throw new Error('Failed to delete staff');
@@ -269,9 +277,13 @@ const Staff = () => {
 
   const handleAvailabilityChange = async (staffId: string, newAvailability: StaffMember['availability']) => {
     try {
+      const staffToken = localStorage.getItem('fpcc_admin_token');
       const res = await fetch('/api/staff', {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(staffToken ? { 'Authorization': `Bearer ${staffToken}` } : {})
+        },
         body: JSON.stringify({ id: staffId, availability: newAvailability })
       });
       if (!res.ok) throw new Error('Failed to update availability');

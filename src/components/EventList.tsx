@@ -29,7 +29,11 @@ const EventList: React.FC<{ refreshKey: number }> = ({ refreshKey }) => {
     setDeleteLoading(true);
     setDeleteError('');
     try {
-      const res = await fetch(`/api/events/${deleteTarget.id}`, { method: 'DELETE' });
+      const eventToken = localStorage.getItem('fpcc_admin_token');
+      const res = await fetch(`/api/events/${deleteTarget.id}`, { 
+        method: 'DELETE',
+        headers: eventToken ? { 'Authorization': `Bearer ${eventToken}` } : {}
+      });
       if (!res.ok) throw new Error('Failed to delete event');
       setDeleteTarget(null);
       fetchEvents();

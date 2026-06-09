@@ -5,10 +5,12 @@
 import crypto from 'crypto';
 import https from 'https';
 
+import { checkAuth } from '../../lib/auth.js';
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   
   if (req.method === 'OPTIONS') return res.status(200).end();
 
@@ -50,8 +52,10 @@ export default async function handler(req, res) {
       });
     }
 
-    // POST - Create event
+    // POST - Create event (protected)
     if (req.method === 'POST') {
+      const authed = checkAuth(req, res);
+      if (!authed) return;
       const { title, start, end, description, location } = req.body;
       
       const event = {

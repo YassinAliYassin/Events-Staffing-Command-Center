@@ -10,6 +10,7 @@ export default async function handler(req, res) {
 
   try {
     const { Pool } = await import('pg');
+    const { checkAuth } = await import('../../lib/auth.js');
     
     if (!process.env.DATABASE_URL) {
       return res.status(500).json({ error: 'DATABASE_URL not set' });
@@ -38,6 +39,25 @@ export default async function handler(req, res) {
     }
     
     const { id } = req.query;
+    
+    // Protect write operations (POST/PATCH/DELETE) with token from /api/login
+    const isWrite = ['POST', 'PATCH', 'DELETE'].includes(req.method);
+    if (isWrite) {
+      const authed = checkAuth(req, res);
+      if (!authed) {
+        await pool.end();
+        return;
+      }
+    }
+    
+    // Basic validation for writes
+    if (isWrite && req.method !== 'DELETE') {
+      const b = req.body || {};
+      if (!b.title || !b.date) {
+        await pool.end();
+        return res.status(400).json({ error: 'title and date are required' });
+      }
+    }
     
     // Single event operations
     if (id) {

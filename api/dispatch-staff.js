@@ -1,11 +1,12 @@
 // WhatsApp Staff Dispatch API v2 - Uses real DB (no mock data)
 // Sends booking notifications via WhatsApp Business API to staff assigned to an event.
 import { sanitizeEnvValue } from '../lib/ical.js';
+import { checkAuth } from '../lib/auth.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
   if (req.method === 'OPTIONS') return res.status(200).end();
 
@@ -34,6 +35,12 @@ export default async function handler(req, res) {
         error: 'staffIds must be a non-empty array',
         dispatched: 0
       });
+    }
+
+    // Require admin token for dispatch (write + WhatsApp cost)
+    const authed = checkAuth(req, res);
+    if (!authed) {
+      return; // error sent
     }
 
     if (!process.env.DATABASE_URL) {

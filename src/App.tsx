@@ -4,6 +4,7 @@ import Dashboard from './components/Dashboard';
 import Payroll from './pages/Payroll';
 import StaffCard from './components/StaffCard';
 import { FPCCCore } from './services/fpcc-core';
+import { FinanceApi } from './services/financeApi';
 import ModelPanel from './components/ModelPanel';
 import * as dataStore from './services/dataStore';
 
@@ -470,12 +471,37 @@ function DocForm({docType, clients, events, staff = [], existingDocs, onSave, on
 }
 
 // ─── Documents Tab (Invoices + Quotes + Statements) ──────────────────────────
-function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,events,staff}: any){
+function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,setClients,events,setEvents,staff,setStaff}: any){
   const [view,setView]         = useState("invoices"); // invoices | quotes | statements
   const [showForm,setShowForm] = useState(null);       // "invoice" | "quote" | null
   const [printDoc,setPrintDoc] = useState(null);
   const [stmtClient,setStmtClient] = useState("");
+  const [statement,setStatement] = useState(null);
   const [toast,setToast]       = useState(null);
+  const [loading,setLoading]   = useState(true);
+  const [saving,setSaving]     = useState(false);
+  const [apiError,setApiError] = useState("");
+
+  const loadDocs = useCallback(async () => {
+    setLoading(true);
+    setApiError("");
+    try {
+      const data = await FinanceApi.listDocs();
+      if (!data.success) throw new Error(data.error || "Failed to load finance documents");
+      setInvoices(data.invoices || []);
+      setQuotes(data.quotes || []);
+      if (Array.isArray(data.clients)) setClients(data.clients);
+      if (Array.isArray(data.events)) setEvents(data.events);
+      if (Array.isArray(data.staff)) setStaff(data.staff);
+    } catch (err) {
+      console.error("Finance API load failed", err);
+      setApiError(err instanceof Error ? err.message : "Backend finance API unavailable");
+    } finally {
+      setLoading(false);
+    }
+  }, [setClients,setEvents,setInvoices,setQuotes,setStaff]);
+
+  useEffect(() => { void loadDocs(); }, [loadDocs]);
 
   const allDocs = [...invoices,...quotes];
 
@@ -484,30 +510,56 @@ function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,events,staf
   const invOverdue= invoices.filter(i=>i.status==="overdue").length;
   const quoteConv = quotes.length ? Math.round(quotes.filter(q=>q.status==="accepted").length/quotes.length*100) : 0;
 
-  function setStatus(id, status, collection, setter){
-    setter(prev=>prev.map(d=>d.id===id?{...d,status}:d));
-    setToast({msg:`Status updated to ${status}`,type:"success"});
+  async function setStatus(id, status, collection, setter){
+    try {
+      const updated = await FinanceApi.updateDoc(Number(id), { status });
+      setter(prev=>prev.map(d=>d.id===id?{...d,status}:d));
+      setToast({msg:`Status updated to ${status}`,type:"success"});
+    } catch (err) {
+      console.error(err);
+      setApiError("Could not update document status on backend");
+    }
   }
-  function deleteDoc(id, setter){ setter(prev=>prev.filter(d=>d.id!==id)); }
+  async function deleteDoc(id, setter){
+    try {
+      await FinanceApi.deleteDoc(Number(id));
+      setter(prev=>prev.filter(d=>d.id!==id));
+      setToast({msg:"Document deleted",type:"success"});
+    } catch (err) {
+      console.error(err);
+      setApiError("Could not delete document on backend");
+    }
+  }
 
-  function convertToInvoice(quote){
-    const inv={
-      ...quote,
-      id:Date.now(),
-      docNo:nextDocNo(invoices,"FP-INV"),
-      type:"invoice",
-      dueDate:ymd(addDays(today,30)),
-      validUntil:undefined,
-      status:"draft",
-    };
-    setInvoices(prev=>[inv,...prev]);
-    setQuotes(prev=>prev.map(q=>q.id===quote.id?{...q,status:"accepted"}:q));
-    setToast({msg:`Quote converted to Invoice ${inv.docNo}`,type:"success"});
-    setView("invoices");
+  async function convertToInvoice(quote){
+    try {
+      const inv = await FinanceApi.convertQuote(Number(quote.id));
+      setInvoices(prev=>[inv,...prev]);
+      setQuotes(prev=>prev.map(q=>q.id===quote.id?{...q,status:"accepted"}:q));
+      setToast({msg:`Quote converted to Invoice ${inv.docNo}`,type:"success"});
+      setView("invoices");
+    } catch (err) {
+      console.error(err);
+      setApiError("Could not convert quote to invoice on backend");
+    }
   }
+
+  async function loadStatement(){
+    if (!stmtClient) return;
+    try {
+      const data = await FinanceApi.getStatement(Number(stmtClient));
+      if (!data.success) throw new Error(data.error || "Failed to load statement");
+      setStatement(data);
+    } catch (err) {
+      console.error(err);
+      setApiError("Could not load statement from backend");
+      setStatement(null);
+    }
+  }
+  useEffect(() => { void loadStatement(); }, [stmtClient]);
 
   const renderDocs = (docs, setter, isInvoice) => {
-    if(!docs.length) return <div style={{textAlign:"center",padding:48,color:MUTED,fontSize:14}}>No documents found</div>;
+    if(!docs.length) return <div style={{textAlign:"center",padding:48,color:MUTED,fontSize:14}}>No backend documents found</div>;
     return(
       <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,overflow:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
@@ -518,7 +570,7 @@ function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,events,staf
           </tr></thead>
           <tbody>{docs.map(doc=>{
             const client=clients.find(c=>c.id===doc.clientId);
-            const event=events.find(e=>e.id===doc.eventId);
+            const event=events.find(e=>String(e.id)===String(doc.eventId));
             const sub=docSubtotal(doc.lines);
             const tax = doc.includeTax !== false ? sub * (Number(doc.taxRate) || 15) / 100 : 0;
             const total=(sub+tax).toFixed(2);
@@ -554,6 +606,9 @@ function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,events,staf
 
   return(
     <div>
+      {apiError && <div style={{background:RED+"22",border:`1px solid ${RED}55`,color:TEXT,borderRadius:10,padding:"12px 14px",marginBottom:16,fontSize:13}}>
+        Backend sync issue: {apiError}
+      </div>}
       {/* Stats */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:24}}>
         <Stat label="Invoiced (incl VAT)"  value={`R ${invTotal.toFixed(0)}`}    accent={ACCENT} />
@@ -574,8 +629,17 @@ function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,events,staf
         ))}
       </div>
 
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+        <div style={{fontSize:12,color:MUTED}}>
+          {loading ? "Syncing backend finance data…" : "Backend connected — invoices, quotations and statements are server-side."}
+        </div>
+        {view!=="statements"&&<Btn variant="primary" disabled={saving} onClick={async ()=>{setSaving(true); try { await loadDocs(); setToast({msg:"Backend documents refreshed",type:"success"}); } finally { setSaving(false); } }} style={{fontSize:12,padding:"6px 12px"}}>
+          {saving ? "Syncing…" : "Refresh backend"}
+        </Btn>}
+      </div>
+
       {/* Controls - simplified */}
-      {view!=="statements"&&(
+      {view!=="statements"&&loading===false&&(
         <div style={{display:"flex",justifyContent:"flex-end",marginBottom:16}}>
           <Btn variant="primary" onClick={()=>setShowForm(view==="invoices"?"invoice":"quote")}>
             + New {view==="invoices"?"Invoice":"Quote"}
@@ -584,9 +648,10 @@ function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,events,staf
       )}
 
       {/* Content */}
-      {view==="invoices" && renderDocs(invoices, setInvoices, true)}
-      {view==="quotes"   && renderDocs(quotes, setQuotes, false)}
-      {view==="statements"&&(
+      {loading ? <div style={{textAlign:"center",padding:48,color:MUTED}}>Loading backend documents…</div> : null}
+      {!loading && view==="invoices" && renderDocs(invoices, setInvoices, true)}
+      {!loading && view==="quotes"   && renderDocs(quotes, setQuotes, false)}
+      {!loading && view==="statements"&&(
         <div>
           <div style={{marginBottom:20,maxWidth:320}}>
             <Lbl>Select Client to generate statement</Lbl>
@@ -595,20 +660,35 @@ function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,events,staf
               {clients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
-          {stmtClient&&(()=>{
+          {stmtClient&&statement&&statement.success&&(()=>{
             const c=clients.find(x=>x.id===Number(stmtClient));
-            const cDocs=allDocs.filter(d=>d.clientId===Number(stmtClient));
-            const outstanding=cDocs.filter(d=>d.status!=="paid").reduce((a,d)=>a+docSubtotal(d.lines)*1.15,0);
-            const paid=cDocs.filter(d=>d.status==="paid").reduce((a,d)=>a+docSubtotal(d.lines)*1.15,0);
+            const s=statement.summary;
             return(
               <div>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:20}}>
-                  <Stat label="Total invoiced" value={`R ${(outstanding+paid).toFixed(0)}`}/>
-                  <Stat label="Paid" value={`R ${paid.toFixed(0)}`} accent={ACCENT}/>
-                  <Stat label="Balance due" value={`R ${outstanding.toFixed(0)}`} accent={outstanding>0?RED:MUTED}/>
+                  <Stat label="Total invoiced" value={`R ${(s.totalInvoiced||0).toFixed(0)}`}/>
+                  <Stat label="Paid" value={`R ${(s.paid||0).toFixed(0)}`} accent={ACCENT}/>
+                  <Stat label="Balance due" value={`R ${(s.balanceDue||0).toFixed(0)}`} accent={(s.balanceDue||0)>0?RED:MUTED}/>
+                </div>
+                <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,overflow:"auto",marginBottom:16}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                    <thead><tr style={{background:SURFACE2}}>
+                      {["Doc No","Date","Due","Amount","Status"].map(h=><th key={h} style={{padding:"10px 12px",textAlign:"left",color:MUTED,fontSize:11,textTransform:"uppercase"}}>{h}</th>)}
+                    </tr></thead>
+                    <tbody>{statement.docs.map(d=>{
+                      const totals=docTotalsLocal(d);
+                      return <tr key={d.id} style={{borderTop:`1px solid ${BORDER}33`}}>
+                        <td style={{padding:"10px 12px",fontFamily:"'DM Mono',monospace",color:ACCENT}}>{d.docNo}</td>
+                        <td style={{padding:"10px 12px"}}>{fmtDate(d.issueDate)}</td>
+                        <td style={{padding:"10px 12px"}}>{fmtDate(d.dueDate)}</td>
+                        <td style={{padding:"10px 12px",fontFamily:"'DM Mono',monospace"}}>R {totals.total.toFixed(2)}</td>
+                        <td style={{padding:"10px 12px"}}><Badge color={STATUS_COLOR[d.status]||MUTED}>{d.status}</Badge></td>
+                      </tr>;
+                    })}</tbody>
+                  </table>
                 </div>
                 <Btn variant="accent" onClick={()=>setPrintDoc({
-                  doc:{...c,docNo:`FP-STMT-${Date.now()}`,clientId:Number(stmtClient),issueDate:ymd(today),lines:[],notes:"",status:"statement"},
+                  doc:{...c,docNo:statement.statement.docNo,clientId:Number(stmtClient),issueDate:statement.statement.issueDate,lines:[],notes:statement.statement.notes,status:"statement"},
                   docType:"statement"
                 })}>View / Print Statement</Btn>
               </div>
@@ -618,34 +698,38 @@ function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,events,staf
       )}
 
       {/* Modals */}
-      {showForm&&(
+      {showForm&&loading===false&&(
         <DocForm
           docType={showForm}
           clients={clients}
           events={events}
           staff={staff}
           existingDocs={showForm==="invoice"?invoices:quotes}
-          onSave={doc=>{
-            if(showForm==="invoice") {
-              const created = dataStore.addInvoice(doc);
-              setInvoices(p=>[created,...p]);
-            } else {
-              const created = dataStore.addQuote(doc);
-              setQuotes(p=>[created,...p]);
+          onSave={async doc=>{
+            setSaving(true);
+            try {
+              const created = await FinanceApi.createDoc(doc);
+              if(showForm==="invoice") setInvoices(p=>[created,...p]);
+              else setQuotes(p=>[created,...p]);
+              setShowForm(null);
+              const t = showForm==="invoice" ? "Invoice" : "Quote";
+              setToast({msg: t + " " + doc.docNo + " created on backend", type: "success"});
+            } catch (err) {
+              console.error(err);
+              setApiError("Could not create document on backend");
+            } finally {
+              setSaving(false);
             }
-            setShowForm(null);
-            const t = showForm==="invoice" ? "Invoice" : "Quote";
-            setToast({msg: t + " " + doc.docNo + " created", type: "success"});
           }}
           onClose={()=>setShowForm(null)}
         />
       )}
-      {printDoc&&(
+      {printDoc&&loading===false&&(
         <DocPrint
           doc={printDoc.doc}
           docType={printDoc.docType}
           client={clients.find(c=>c.id===printDoc.doc.clientId)}
-          event={events.find(e=>e.id===printDoc.doc.eventId)}
+          event={events.find(e=>String(e.id)===String(printDoc.doc.eventId))}
           allDocs={allDocs}
           onClose={()=>setPrintDoc(null)}
         />
@@ -655,6 +739,13 @@ function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,events,staf
   );
 }
 
+function docTotalsLocal(doc) {
+  const sub = docSubtotal(doc.lines || []);
+  const tax = doc.includeTax !== false ? sub * (Number(doc.taxRate) || 15) / 100 : 0;
+  return { subtotal: sub, tax, total: sub + tax };
+}
+
+// ─── Calendar Tab (with Google Calendar sync) ─────────────────────────────────
 // ─── Calendar Tab (with Google Calendar sync) ─────────────────────────────────
 function CalendarTab({events,setEvents,staff,clients,addToast,currentModel}: any){
   const [viewDate,setViewDate] = useState(new Date(today.getFullYear(),today.getMonth(),1));
@@ -1159,7 +1250,32 @@ export default function App(){
   },[]);
 
   function handleLogin(member,adminFlag){
-    if(adminFlag){setIsAdmin(true);setCS(null);setPage("admin");}
+    if(adminFlag){
+      setIsAdmin(true);setCS(null);setPage("admin");
+      // Bootstrap API token for write-protected routes (staff/events/dispatch).
+      // Prompts for server-side admin password (set via FPCC_ADMIN_PASSWORD env).
+      // Token stored in localStorage; re-enter on new sessions or when expired.
+      setTimeout(async () => {
+        try {
+          const stored = localStorage.getItem('fpcc_admin_token');
+          if (stored) return; // already have
+          const pw = window.prompt('Enter FPCC admin password (from FPCC_ADMIN_PASSWORD env) to enable staff/event writes & dispatch. (Cancel to use read-only for now)');
+          if (!pw) return;
+          const r = await fetch('/api/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password: pw })
+          });
+          const j = await r.json();
+          if (j.token) {
+            localStorage.setItem('fpcc_admin_token', j.token);
+            console.log('[FPCC] Admin token obtained for API writes.');
+          } else {
+            alert('Token bootstrap failed: ' + (j.error || 'unknown'));
+          }
+        } catch (e) { console.warn('Token bootstrap skipped', e); }
+      }, 200);
+    }
     else{setCS(member);setIsAdmin(false);setPage("staff");}
   }
   function clockIn(id){if(!records.find(r=>r.staffId===id&&!r.clockOut))setRecords(p=>[...p,{id:Date.now(),staffId:id,clockIn:Date.now(),clockOut:null}]);}
@@ -1407,9 +1523,13 @@ export default function App(){
                           try {
                             for (const event of todayEvents) {
                               if (event.staffIds?.length > 0) {
+                                const dispatchToken = localStorage.getItem('fpcc_admin_token');
                                 await fetch('/api/dispatch-staff', {
                                   method: 'POST',
-                                  headers: { 'Content-Type': 'application/json' },
+                                  headers: { 
+                                    'Content-Type': 'application/json',
+                                    ...(dispatchToken ? { 'Authorization': `Bearer ${dispatchToken}` } : {})
+                                  },
                                   body: JSON.stringify({ eventId: event.id, staffIds: event.staffIds })
                                 });
                               }

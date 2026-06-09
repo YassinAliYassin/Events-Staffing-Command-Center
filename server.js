@@ -6,6 +6,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { fetchAndParseICalendar, DEFAULT_ICLOUD_URL } from './lib/ical.js';
+import { signToken, verifyToken } from './lib/auth.js';
+import { handleFinanceRequest } from './lib/finance-core.js';
 
 dotenv.config();
 
@@ -16,10 +18,60 @@ const app = express();
 const PORT = 3001;
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
+
+// Basic in-memory rate limiting for writes (per IP, simple for small team / dev)
+const rateLimitMap = new Map();
+const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 min
+const RATE_LIMIT_MAX = 30; // writes per window
+
+function rateLimitWrites(req, res, next) {
+  if (req.method === 'GET' || req.method === 'OPTIONS') return next();
+  const ip = req.ip || req.connection?.remoteAddress || 'unknown';
+  const now = Date.now();
+  const entry = rateLimitMap.get(ip) || { count: 0, reset: now + RATE_LIMIT_WINDOW_MS };
+  if (now > entry.reset) {
+    entry.count = 0;
+    entry.reset = now + RATE_LIMIT_WINDOW_MS;
+  }
+  entry.count++;
+  rateLimitMap.set(ip, entry);
+  if (entry.count > RATE_LIMIT_MAX) {
+    return res.status(429).json({ error: 'Rate limit exceeded. Try again later.' });
+  }
+  next();
+}
+
+// Basic login for token bootstrap (mirrors /api/login serverless)
+app.post('/api/login', (req, res) => {
+  const { password, pin } = req.body || {};
+  const provided = password || pin;
+  if (!provided) return res.status(400).json({ error: 'password or pin required' });
+
+  const adminPass = process.env.FPCC_ADMIN_PASSWORD || process.env.ADMIN_PASSWORD || 'change-this-strong-secret-now';
+  const fallback = '0000';
+  const valid = provided === adminPass || (provided === fallback && !process.env.FPCC_ADMIN_PASSWORD);
+
+  if (!valid) {
+    return res.status(401).json({ error: 'Invalid credentials' });
+  }
+  const token = signToken({ role: 'admin', sub: 'ops' });
+  res.json({ success: true, token, expiresIn: '8h' });
+});
+
+function requireWriteAuth(req, res, next) {
+  const authHeader = req.headers['authorization'] || req.headers['Authorization'];
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : req.headers['x-admin-token'];
+  const user = verifyToken(token);
+  if (!user) {
+    return res.status(401).json({ error: 'Unauthorized - admin token required (POST /api/login)' });
+  }
+  req.user = user;
+  next();
+}
 
 // Apple Calendar API - mirrors api/calendar/apple.js (uses shared lib)
-app.post('/api/calendar/apple', async (req, res) => {
+app.post('/api/calendar/apple', rateLimitWrites, async (req, res) => {
   try {
     const icloudUrl = req.body?.calendarUrl || process.env.ICLOUD_CALENDAR_URL || DEFAULT_ICLOUD_URL;
     if (!icloudUrl) {
@@ -68,7 +120,7 @@ app.get('/api/calendar', async (req, res) => {
 
 // WhatsApp Staff Dispatch - mirrors api/dispatch-staff.js
 // For local dev, returns mock response (no real DB)
-app.post('/api/dispatch-staff', async (req, res) => {
+app.post('/api/dispatch-staff', rateLimitWrites, requireWriteAuth, async (req, res) => {
   const { eventId, staffIds } = req.body || {};
   if (!eventId || !Array.isArray(staffIds) || staffIds.length === 0) {
     return res.status(400).json({ success: false, error: 'eventId and staffIds required', dispatched: 0 });
@@ -76,7 +128,7 @@ app.post('/api/dispatch-staff', async (req, res) => {
   // Local mock: just confirm the request shape is valid
   return res.json({
     success: true,
-    note: 'Local dev: WhatsApp dispatch is mock. Production: api/dispatch-staff.js uses real DB + Meta API.',
+    note: 'Local dev: WhatsApp dispatch is mock. Production: api/dispatch-staff.js uses real DB + Meta API. Authenticated.',
     eventId,
     dispatched: staffIds.length,
     details: staffIds.map(id => ({ staffId: id, status: 'mock-sent' })),
@@ -92,6 +144,11 @@ app.post('/api/calendar/google', (req, res) => {
   });
 });
 
+// Finance API - invoices, quotations, statements, and staff-hours reconciliation.
+app.use('/api/finance', rateLimitWrites, async (req, res) => {
+  await handleFinanceRequest(req, res);
+});
+
 // Serve static build
 app.use(express.static(path.join(__dirname, 'dist')));
 
@@ -104,5 +161,9 @@ app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
   console.log(`📅 Apple Calendar: POST http://localhost:${PORT}/api/calendar/apple`);
   console.log(`📅 Calendar JSON: GET http://localhost:${PORT}/api/calendar?format=json`);
-  console.log(`📤 Dispatch: POST http://localhost:${PORT}/api/dispatch-staff`);
+  console.log(`📤 Dispatch: POST http://localhost:${PORT}/api/dispatch-staff (protected)`);
+  console.log(`🧾 Finance: GET/POST/PATCH/DELETE http://localhost:${PORT}/api/finance?resource=docs`);
+  console.log(`⏱️ Staff hours: GET/POST http://localhost:${PORT}/api/finance?resource=staff-hours`);
+  console.log(`🔐 Login for token: POST http://localhost:${PORT}/api/login {password: '...'}`);
+  console.log(`🛡️ Writes to /api/staff and /api/events now require admin token (see SECURITY.md)`);
 });

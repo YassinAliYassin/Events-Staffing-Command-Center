@@ -26,6 +26,12 @@ services:
         sync: false
       - key: WHATSAPP_VERIFY_TOKEN
         value: fresh_people_verify_token
+      # Auth hardening (see SECURITY.md)
+      - key: FPCC_ADMIN_PASSWORD
+        sync: false
+      - key: FPCC_JWT_SECRET
+        sync: false
+      # Or reuse JWT_SECRET if set globally for both projects
 
 databases:
   - name: fpcc-db

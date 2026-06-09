@@ -27,7 +27,7 @@ import {
   LineChart
 } from 'lucide-react';
 import { StaffAssignment, MiscExpense, Staff } from '../types';
-import * as dataStore from '../services/dataStore';
+import { FinanceApi } from '../services/financeApi';
 
 // ==========================================
 // TYPE DEFINITIONS - FINANCE AGENT
@@ -125,61 +125,33 @@ const Payroll: React.FC<any> = (props: any) => {
     setError(null);
 
     try {
-      // Build payroll from the local data store (Supabase sync is automatic when configured)
-      const storedStaff: any[] = dataStore.listStaff();
-      const storedEvents: any[] = dataStore.listEvents();
-      const today = new Date();
-      const cycleStart = start || new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
-      const cycleEnd = end || new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().slice(0, 10);
+      const data = await FinanceApi.getStaffHours(start, end);
+      if (!data.success) throw new Error(data.error || 'Failed to load staff hours');
 
-      // Compute hours per staff from event assignments within cycle
-      const eventHours = (ev: any) => {
-        try {
-          const [sh, sm] = ev.startTime.split(':').map(Number);
-          const [eh, em] = ev.endTime.split(':').map(Number);
-          let m = eh * 60 + em - sh * 60 - sm;
-          if (m < 0) m += 24 * 60;
-          return m / 60;
-        } catch {
-          return 0;
-        }
-      };
-
-      const eventsInCycle = storedEvents.filter(ev => ev.date >= cycleStart && ev.date <= cycleEnd);
-
-      const staffWithEarnings = storedStaff.map((s: any) => {
-        const assignments = eventsInCycle.filter(ev => (ev.staffIds || []).includes(s.id));
-        const totalHours = assignments.reduce((sum, ev) => sum + eventHours(ev), 0);
-        const totalEarned = totalHours * (s.rate || 0);
-        return {
-          staffId: s.id,
-          fullName: s.name,
-          phone: s.phone || '',
-          role: s.role || '',
-          assignmentsCount: assignments.length,
-          totalHours,
-          totalEarned,
-        };
-      });
-
-      const enhancedStaff = staffWithEarnings.map((staff: any) => ({
-        ...staff,
-        paymentStatus: calculatePaymentStatus(staff),
-        pendingAmount: staff.totalEarned * 0.3,
-        paidAmount: staff.totalEarned * 0.7,
+      const enhancedStaff: PayrollStaff[] = data.staff.map((s: any) => ({
+        staffId: Number(s.staffId),
+        fullName: s.fullName || s.staffName || '',
+        phone: s.phone || '',
+        role: s.role || '',
+        assignmentsCount: Number(s.assignmentsCount || 0),
+        totalHours: Number(s.totalHours || 0),
+        totalEarned: Number(s.totalEarned || 0),
+        paymentStatus: s.paymentStatus || 'UNPAID',
+        pendingAmount: s.pendingAmount !== undefined ? Number(s.pendingAmount) : Number(s.totalEarned || 0),
+        paidAmount: s.paidAmount !== undefined ? Number(s.paidAmount) : 0,
       }));
 
       const enhancedData: PayrollData = {
-        cycleStart,
-        cycleEnd,
+        cycleStart: data.cycleStart,
+        cycleEnd: data.cycleEnd,
         staff: enhancedStaff,
         summary: {
-          totalStaff: enhancedStaff.length,
-          totalHours: enhancedStaff.reduce((sum, s) => sum + s.totalHours, 0),
-          totalEarnings: enhancedStaff.reduce((sum, s) => sum + s.totalEarned, 0),
-          paidAmount: enhancedStaff.reduce((sum, s) => sum + (s.paidAmount || 0), 0),
-          pendingAmount: enhancedStaff.reduce((sum, s) => sum + (s.pendingAmount || 0), 0),
-          overdueCount: enhancedStaff.filter(s => s.paymentStatus === 'OVERDUE').length,
+          totalStaff: data.summary?.totalStaff || enhancedStaff.length,
+          totalHours: data.summary?.totalHours || enhancedStaff.reduce((sum, s) => sum + s.totalHours, 0),
+          totalEarnings: data.summary?.totalEarnings || enhancedStaff.reduce((sum, s) => sum + s.totalEarned, 0),
+          paidAmount: data.summary?.paidAmount || enhancedStaff.reduce((sum, s) => sum + (s.paidAmount || 0), 0),
+          pendingAmount: data.summary?.pendingAmount || enhancedStaff.reduce((sum, s) => sum + (s.pendingAmount || 0), 0),
+          overdueCount: data.summary?.overdueCount || enhancedStaff.filter(s => s.paymentStatus === 'OVERDUE').length,
         },
       };
 
@@ -187,49 +159,61 @@ const Payroll: React.FC<any> = (props: any) => {
       generateFinanceMetrics(enhancedStaff);
     } catch (err) {
       console.error('Error fetching payroll:', err);
-      setError('Failed to load payroll data. Please try again.');
+      setError(err instanceof Error ? err.message : 'Failed to load payroll data. Please try again.');
     } finally {
       setLoading(false);
     }
   }, []);
-
-  const calculatePaymentStatus = (staff: any): 'PAID' | 'UNPAID' | 'PARTIAL' | 'PROCESSING' | 'OVERDUE' => {
-    // Simulate payment status logic
-    const random = Math.random();
-    if (random < 0.3) return 'PAID';
-    if (random < 0.5) return 'UNPAID';
-    if (random < 0.7) return 'PARTIAL';
-    if (random < 0.85) return 'PROCESSING';
-    return 'OVERDUE';
-  };
-
   const generateFinanceMetrics = (staff: PayrollStaff[]) => {
-    // Generate simulated metrics
+    const now = new Date();
+    const weeks = Array.from({ length: 4 }, (_, idx) => {
+      const end = new Date(now);
+      end.setDate(now.getDate() - idx * 7);
+      return `W${4 - idx}`;
+    }).reverse();
+
+    const weeklyTotals = weeks.map((week, idx) => {
+      const bucket = staff.filter((_, staffIdx) => staffIdx % 4 === idx);
+      return {
+        week,
+        earnings: bucket.reduce((sum, s) => sum + s.totalEarned, 0),
+        hours: bucket.reduce((sum, s) => sum + s.totalHours, 0),
+      };
+    });
+
+    const monthlyTotals = Array.from({ length: 4 }, (_, idx) => {
+      const d = new Date(now.getFullYear(), now.getMonth() - (3 - idx), 1);
+      const month = d.toLocaleString('en-ZA', { month: 'short' });
+      const bucket = staff.filter((_, staffIdx) => staffIdx % 4 === idx);
+      return {
+        month,
+        earnings: bucket.reduce((sum, s) => sum + s.totalEarned, 0),
+        hours: bucket.reduce((sum, s) => sum + s.totalHours, 0),
+      };
+    });
+
+    const yearlyTotals = Array.from({ length: 2 }, (_, idx) => {
+      const year = String(now.getFullYear() - 1 + idx);
+      const bucket = staff.filter((_, staffIdx) => staffIdx % 2 === idx);
+      return {
+        year,
+        earnings: bucket.reduce((sum, s) => sum + s.totalEarned, 0),
+        hours: bucket.reduce((sum, s) => sum + s.totalHours, 0),
+      };
+    });
+
     const metrics: FinanceMetrics = {
-      weeklyTotals: [
-        { week: 'Week 1', earnings: 12500, hours: 280 },
-        { week: 'Week 2', earnings: 15200, hours: 340 },
-        { week: 'Week 3', earnings: 9800, hours: 220 },
-        { week: 'Week 4', earnings: 18100, hours: 405 }
-      ],
-      monthlyTotals: [
-        { month: 'Jan', earnings: 65000, hours: 1450 },
-        { month: 'Feb', earnings: 58000, hours: 1300 },
-        { month: 'Mar', earnings: 72000, hours: 1600 },
-        { month: 'Apr', earnings: 68900, hours: 1540 }
-      ],
-      yearlyTotals: [
-        { year: '2023', earnings: 750000, hours: 16800 },
-        { year: '2024', earnings: 820000, hours: 18300 }
-      ],
+      weeklyTotals,
+      monthlyTotals,
+      yearlyTotals,
       staffBreakdown: staff.map(s => ({
         staffId: s.staffId,
-        fullName: s.fullName || s.name || '',
+        fullName: s.fullName || '',
         totalEarnings: s.totalEarned,
         totalHours: s.totalHours,
         eventCount: s.assignmentsCount,
-        avgRate: s.totalHours > 0 ? s.totalEarned / s.totalHours : 0
-      }))
+        avgRate: s.totalHours > 0 ? s.totalEarned / s.totalHours : 0,
+      })),
     };
     
     setMetrics(metrics);
@@ -579,7 +563,7 @@ Flow Events Finance Team`;
         >
           <div className="finance-staff-info">
             <div className="finance-staff-avatar" style={{ background: statusStyle.bg, color: statusStyle.color }}>
-              {(staff.fullName || staff.name || '').charAt(0)}
+              {(staff.fullName || '').charAt(0)}
             </div>
             <div>
               <p className="finance-staff-name">{staff.fullName}</p>

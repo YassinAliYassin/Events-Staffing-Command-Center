@@ -47,9 +47,13 @@ export class FPCCCore {
         };
       }
 
+      const dispatchToken = typeof localStorage !== 'undefined' ? localStorage.getItem('fpcc_admin_token') : null;
       const response = await fetch(`${this.baseURL}/api/dispatch-staff`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(dispatchToken ? { 'Authorization': `Bearer ${dispatchToken}` } : {})
+        },
         body: JSON.stringify({ eventId, staffIds })
       });
 
