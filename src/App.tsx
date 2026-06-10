@@ -329,9 +329,13 @@ function DocPrint({doc, docType, client, event: evt, allDocs, onClose}){
 
 // ─── Document Form (Invoice or Quote) ────────────────────────────────────────
 function DocForm({docType, clients, events, staff = [], existingDocs, onSave, onClose}){
+  const clientsSafe = Array.isArray(clients) ? clients : [];
+  const eventsSafe = Array.isArray(events) ? events : [];
+  const staffSafe = Array.isArray(staff) ? staff : [];
+  const existingDocsSafe = Array.isArray(existingDocs) ? existingDocs : [];
   const prefix = docType==="invoice" ? "FP-INV" : "FP-QTE";
   const [form,setForm] = useState<any>({
-    docNo: nextDocNo(existingDocs, prefix),
+    docNo: nextDocNo(existingDocsSafe, prefix),
     clientId:"", eventId:"",
     issueDate:ymd(today),
     dueDate: docType==="invoice" ? ymd(addDays(today,30)) : "",
@@ -344,14 +348,14 @@ function DocForm({docType, clients, events, staff = [], existingDocs, onSave, on
   });
 
   function prefill(eventId){
-    const ev=events.find(e=>e.id===Number(eventId));
+    const ev=eventsSafe.find(e=>e.id===Number(eventId));
     if(!ev){ setForm(f=>({...f,eventId})); return; }
     const hrs=eventHours(ev);
-    const client = clients.find(c=>c.id===ev.clientId);
+    const client = clientsSafe.find(c=>c.id===ev.clientId);
     const clientRate = client?.hourlyRate || 0;
     // Build line items from the staff assigned to this event
-    const lines = ev.staffIds.map(id=>{
-      const s=staff.find(x=>x.id===id);
+    const lines = (ev.staffIds || []).map(id=>{
+      const s=staffSafe.find(x=>x.id===id);
       const rate = s?.rate || 0;
       const total = (hrs * rate).toFixed(2);
       return {
@@ -398,13 +402,13 @@ function DocForm({docType, clients, events, staff = [], existingDocs, onSave, on
         <Fld label="Client *">
           <select value={form.clientId} onChange={e=>setForm(f=>({...f,clientId:e.target.value}))} style={{width:"100%"}}>
             <option value="">— Select client —</option>
-            {clients.map(c=><option key={c.id} value={c.id}>{c.name} (R{c.hourlyRate||90}/h)</option>)}
+            {clientsSafe.map(c=><option key={c.id} value={c.id}>{c.name} (R{c.hourlyRate||90}/h)</option>)}
           </select>
         </Fld>
         <Fld label="Link Event (auto-fills from staff & hours)">
           <select value={form.eventId} onChange={e=>prefill(e.target.value)} style={{width:"100%"}}>
             <option value="">— None —</option>
-            {events.map(ev=><option key={ev.id} value={ev.id}>{ev.title} ({fmtDate(ev.date)})</option>)}
+            {eventsSafe.map(ev=><option key={ev.id} value={ev.id}>{ev.title} ({fmtDate(ev.date)})</option>)}
           </select>
         </Fld>
         <Fld label="Issue Date"><input type="date" value={form.issueDate} onChange={e=>setForm(f=>({...f,issueDate:e.target.value}))} style={{width:"100%"}}/></Fld>
@@ -473,6 +477,11 @@ function DocForm({docType, clients, events, staff = [], existingDocs, onSave, on
 
 // ─── Documents Tab (Invoices + Quotes + Statements) ──────────────────────────
 function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,setClients,events,setEvents,staff,setStaff}: any){
+  const invoicesSafe = Array.isArray(invoices) ? invoices : [];
+  const quotesSafe = Array.isArray(quotes) ? quotes : [];
+  const clientsSafe = Array.isArray(clients) ? clients : [];
+  const eventsSafe = Array.isArray(events) ? events : [];
+  const staffSafe = Array.isArray(staff) ? staff : [];
   const [view,setView]         = useState("invoices"); // invoices | quotes | statements
   const [showForm,setShowForm] = useState(null);       // "invoice" | "quote" | null
   const [printDoc,setPrintDoc] = useState(null);
@@ -504,12 +513,12 @@ function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,setClients,
 
   useEffect(() => { void loadDocs(); }, [loadDocs]);
 
-  const allDocs = [...invoices,...quotes];
+  const allDocs = [...invoicesSafe,...quotesSafe];
 
-  const invTotal  = invoices.reduce((a,i)=>a + docSubtotal(i.lines) * (i.includeTax !== false ? (1 + (Number(i.taxRate) || 15) / 100) : 1), 0);
-  const invPaid   = invoices.filter(i=>i.status==="paid").reduce((a,i)=>a + docSubtotal(i.lines) * (i.includeTax !== false ? (1 + (Number(i.taxRate) || 15) / 100) : 1), 0);
-  const invOverdue= invoices.filter(i=>i.status==="overdue").length;
-  const quoteConv = quotes.length ? Math.round(quotes.filter(q=>q.status==="accepted").length/quotes.length*100) : 0;
+  const invTotal  = invoicesSafe.reduce((a,i)=>a + docSubtotal(i.lines) * (i.includeTax !== false ? (1 + (Number(i.taxRate) || 15) / 100) : 1), 0);
+  const invPaid   = invoicesSafe.filter(i=>i.status==="paid").reduce((a,i)=>a + docSubtotal(i.lines) * (i.includeTax !== false ? (1 + (Number(i.taxRate) || 15) / 100) : 1), 0);
+  const invOverdue= invoicesSafe.filter(i=>i.status==="overdue").length;
+  const quoteConv = quotesSafe.length ? Math.round(quotesSafe.filter(q=>q.status==="accepted").length/quotesSafe.length*100) : 0;
 
   async function setStatus(id, status, collection, setter){
     try {
@@ -560,7 +569,8 @@ function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,setClients,
   useEffect(() => { void loadStatement(); }, [stmtClient]);
 
   const renderDocs = (docs, setter, isInvoice) => {
-    if(!docs.length) return <div style={{textAlign:"center",padding:48,color:MUTED,fontSize:14}}>No backend documents found</div>;
+    const docsSafe = Array.isArray(docs) ? docs : [];
+    if(!docsSafe.length) return <div style={{textAlign:"center",padding:48,color:MUTED,fontSize:14}}>No backend documents found</div>;
     return(
       <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,overflow:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
@@ -569,9 +579,9 @@ function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,setClients,
               <th key={h} style={{padding:"12px 14px",textAlign:"left",color:MUTED,fontWeight:500,fontSize:11,textTransform:"uppercase",letterSpacing:"0.05em"}}>{h}</th>
             ))}
           </tr></thead>
-          <tbody>{docs.map(doc=>{
-            const client=clients.find(c=>c.id===doc.clientId);
-            const event=events.find(e=>String(e.id)===String(doc.eventId));
+          <tbody>{docsSafe.map(doc=>{
+            const client=clientsSafe.find(c=>c.id===doc.clientId);
+            const event=eventsSafe.find(e=>String(e.id)===String(doc.eventId));
             const sub=docSubtotal(doc.lines);
             const tax = doc.includeTax !== false ? sub * (Number(doc.taxRate) || 15) / 100 : 0;
             const total=(sub+tax).toFixed(2);
@@ -615,7 +625,7 @@ function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,setClients,
         <Stat label="Invoiced (incl VAT)"  value={`R ${invTotal.toFixed(0)}`}    accent={ACCENT} />
         <Stat label="Collected"            value={`R ${invPaid.toFixed(0)}`}      accent={ACCENT} />
         <Stat label="Overdue invoices"     value={invOverdue}                     accent={invOverdue?RED:MUTED} />
-        <Stat label="Quote conversion"     value={`${quoteConv}%`}               accent={AMBER} sub={`${quotes.length} quotes total`}/>
+        <Stat label="Quote conversion"     value={`${quoteConv}%`}               accent={AMBER} sub={`${quotesSafe.length} quotes total`}/>
       </div>
 
       {/* Sub-tabs */}
@@ -650,19 +660,19 @@ function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,setClients,
 
       {/* Content */}
       {loading ? <div style={{textAlign:"center",padding:48,color:MUTED}}>Loading backend documents…</div> : null}
-      {!loading && view==="invoices" && renderDocs(invoices, setInvoices, true)}
-      {!loading && view==="quotes"   && renderDocs(quotes, setQuotes, false)}
+      {!loading && view==="invoices" && renderDocs(invoicesSafe, setInvoices, true)}
+      {!loading && view==="quotes"   && renderDocs(quotesSafe, setQuotes, false)}
       {!loading && view==="statements"&&(
         <div>
           <div style={{marginBottom:20,maxWidth:320}}>
             <Lbl>Select Client to generate statement</Lbl>
             <select value={stmtClient} onChange={e=>setStmtClient(e.target.value)} style={{width:"100%"}}>
               <option value="">— Choose client —</option>
-              {clients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+              {clientsSafe.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
-          {stmtClient&&statement&&statement.success&&(()=>{
-            const c=clients.find(x=>x.id===Number(stmtClient));
+          {stmtClient&&statement&&statement.success&&Array.isArray(statement.docs)&&(()=>{
+            const c=clientsSafe.find(x=>x.id===Number(stmtClient));
             const s=statement.summary;
             return(
               <div>
@@ -705,7 +715,7 @@ function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,setClients,
           clients={clients}
           events={events}
           staff={staff}
-          existingDocs={showForm==="invoice"?invoices:quotes}
+          existingDocs={showForm==="invoice"?invoicesSafe:quotesSafe}
           onSave={async doc=>{
             setSaving(true);
             try {
@@ -729,8 +739,8 @@ function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,setClients,
         <DocPrint
           doc={printDoc.doc}
           docType={printDoc.docType}
-          client={clients.find(c=>c.id===printDoc.doc.clientId)}
-          event={events.find(e=>String(e.id)===String(printDoc.doc.eventId))}
+          client={clientsSafe.find(c=>c.id===printDoc.doc.clientId)}
+          event={eventsSafe.find(e=>String(e.id)===String(printDoc.doc.eventId))}
           allDocs={allDocs}
           onClose={()=>setPrintDoc(null)}
         />
@@ -1205,7 +1215,12 @@ export default function App(){
   const [staff,setStaff]      = useState(() => dataStore.listStaff());
   const [records,setRecords]     = useState([]);
   const [now,setNow]             = useState(Date.now());
-  const [adminTab,setAdminTab]   = useState("dashboard");
+  const [adminTab,setAdminTab]   = useState(() => {
+    const path = typeof window !== 'undefined' ? window.location.pathname.replace(/^\/+|\/+$/g, '') : '';
+    if (path === 'payroll') return 'payroll';
+    if (path === 'documents' || path === 'billing') return 'documents';
+    return 'dashboard';
+  });
   const [events,setEvents]       = useState(() => dataStore.listEvents());
   const todayStr = ymd(today);
   const todayEvents = events.filter(e => e.date === todayStr);
@@ -1251,6 +1266,12 @@ export default function App(){
     setInvoices(dataStore.listInvoices());
     setQuotes(dataStore.listQuotes());
     setClients(dataStore.listClients());
+  }, [adminTab]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const path = adminTab === 'dashboard' ? '/' : `/${adminTab}`;
+    if (window.location.pathname !== path) window.history.replaceState(null, '', path);
   }, [adminTab]);
 
   useEffect(()=>{ const t=setInterval(()=>setNow(Date.now()),10000); return()=>clearInterval(t); },[]);
@@ -1673,9 +1694,9 @@ export default function App(){
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
                   <div style={{fontSize:14,color:MUTED}}>{completed.length} completed shifts</div>
                   <Btn variant="accent" onClick={()=>{
-                    const h="Name,Dept,Clock In,Clock Out,Hours,Pay (R)";
+                    const payrollHeader="Name,Dept,Clock In,Clock Out,Hours,Pay (R)";
                     const lines=completed.map(r=>{const s=staff.find(x=>x.id===r.staffId);const dur=r.clockOut-r.clockIn;return `${s?.name},${s?.department},${fmtTime(r.clockIn)},${fmtTime(r.clockOut)},${(dur/3600000).toFixed(2)},${calcPay(dur,s?.rate||0).toFixed(2)}`;});
-                    navigator.clipboard.writeText([h,...lines].join("\n"));
+                    navigator.clipboard.writeText([payrollHeader,...lines].join("\n"));
                     addToast("Payroll CSV copied to clipboard","success");
                   }}>Export Payroll CSV</Btn>
                 </div>
@@ -1684,7 +1705,7 @@ export default function App(){
                   :<div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,overflow:"auto"}}>
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                       <thead style={{background:SURFACE2}}><tr>
-                        {["Staff","Dept","Clock In","Clock Out","Duration","Pay"].map(h=><th key={h} style={{padding:"12px 14px",textAlign:"left",color:MUTED,fontWeight:500,fontSize:11,textTransform:"uppercase",letterSpacing:"0.05em"}}>{h}</th>)}
+                        {["Staff","Dept","Clock In","Clock Out","Duration","Pay"].map(label=><th key={label} style={{padding:"12px 14px",textAlign:"left",color:MUTED,fontWeight:500,fontSize:11,textTransform:"uppercase",letterSpacing:"0.05em"}}>{label}</th>)}
                       </tr></thead>
                       <tbody>{completed.slice().reverse().map(r=>{
                         const s=staff.find(x=>x.id===r.staffId); const dur=r.clockOut-r.clockIn;
