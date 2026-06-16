@@ -1,4 +1,4 @@
-import { supabase, isSupabaseEnabled } from './supabaseClient';
+import { isFirestoreEnabled, pushTables, pullTables } from './firestoreClient';
 
 // ─── Local storage fallback ──────────────────────────────────────────────────
 const KEY = 'fpcc_local_store_v1';
@@ -13,12 +13,12 @@ export interface LocalStore {
 }
 
 const DEFAULT_STAFF = [
-  { id:1, name:"Amara Diallo",   role:"Bar Staff",   rate:40, pin:"1111", uniform:true,  department:"Bar",        email:"amara@freshpeople.co.za",   phone:"+27 71 001 0001" },
-  { id:2, name:"Themba Nkosi",   role:"Floor Staff", rate:40, pin:"2222", uniform:true,  department:"Floor",      email:"themba@freshpeople.co.za",   phone:"+27 71 001 0002" },
-  { id:3, name:"Priya Moodley",  role:"Supervisor",  rate:55, pin:"3333", uniform:false, department:"Management", email:"priya@freshpeople.co.za",    phone:"+27 71 001 0003" },
-  { id:4, name:"Lerato Khumalo", role:"Bar Staff",   rate:40, pin:"4444", uniform:true,  department:"Bar",        email:"lerato@freshpeople.co.za",   phone:"+27 71 001 0004" },
-  { id:5, name:"Sipho Dlamini",  role:"Security",    rate:45, pin:"5555", uniform:true,  department:"Security",   email:"sipho@freshpeople.co.za",    phone:"+27 71 001 0005" },
-  { id:6, name:"Naledi Tau",     role:"Floor Staff", rate:40, pin:"6666", uniform:false, department:"Floor",      email:"naledi@freshpeople.co.za",   phone:"+27 71 001 0006" },
+  { id:1, name:"Amara Diallo",   role:"Bar Staff",   rate:40, pin:"1111", uniform:true,  department:"Bar",        phone:"+27 71 001 0001" },
+  { id:2, name:"Themba Nkosi",   role:"Floor Staff", rate:40, pin:"2222", uniform:true,  department:"Floor",      phone:"+27 71 001 0002" },
+  { id:3, name:"Priya Moodley",  role:"Supervisor",  rate:55, pin:"3333", uniform:false, department:"Management", phone:"+27 71 001 0003" },
+  { id:4, name:"Lerato Khumalo", role:"Bar Staff",   rate:40, pin:"4444", uniform:true,  department:"Bar",        phone:"+27 71 001 0004" },
+  { id:5, name:"Sipho Dlamini",  role:"Security",    rate:45, pin:"5555", uniform:true,  department:"Security",   phone:"+27 71 001 0005" },
+  { id:6, name:"Naledi Tau",     role:"Floor Staff", rate:40, pin:"6666", uniform:false, department:"Floor",      phone:"+27 71 001 0006" },
 ];
 
 const seedStore = (): LocalStore => {
@@ -70,57 +70,44 @@ const saveLocal = (s: LocalStore) => {
 };
 
 // ─── Public service API ──────────────────────────────────────────────────────
-// Always works locally; transparently syncs to Supabase when configured.
+// Always works locally; transparently syncs to Firestore when configured.
 
 const store = loadLocal();
 
 const update = (mutator: (s: LocalStore) => void): LocalStore => {
   mutator(store);
   saveLocal(store);
-  if (isSupabaseEnabled()) {
-    // Fire-and-forget sync of the entire store to Supabase.
-    syncToSupabase().catch((e) => console.warn('Supabase sync failed', e));
+  if (isFirestoreEnabled()) {
+    // Fire-and-forget sync of the entire store to Firestore.
+    syncToFirestore().catch((e) => console.warn('Firestore sync failed', e));
   }
   return store;
 };
 
-const syncToSupabase = async () => {
-  if (!supabase) return;
-
-  const tables = ['staff', 'clients', 'events', 'invoices', 'quotes'] as const;
-  const results = await Promise.all(
-    tables.map((table) =>
-      supabase.from(table).upsert(store[table], { onConflict: 'id' })
-    )
-  );
-
-  const failed = results.find((r) => r.error);
-  if (failed?.error) {
-    console.error('Supabase sync failed:', failed.error);
-  }
+const syncToFirestore = async () => {
+  await pushTables({
+    staff: store.staff,
+    clients: store.clients,
+    events: store.events,
+    invoices: store.invoices,
+    quotes: store.quotes,
+  });
 };
 
-export const loadFromSupabase = async (): Promise<LocalStore | null> => {
-  if (!supabase) return null;
-
-  const tables = ['staff', 'clients', 'events', 'invoices', 'quotes'] as const;
-  const results = await Promise.all(tables.map((table) => supabase.from(table).select('*')));
-
-  const failed = results.find((r) => r.error);
-  if (failed?.error) {
-    console.error('Supabase load failed:', failed.error);
-    return null;
-  }
-
+export const loadFromCloud = async (): Promise<LocalStore | null> => {
+  const remote = await pullTables();
+  if (!remote) return null;
   return {
-    staff: (results[0].data || []) as any[],
-    clients: (results[1].data || []) as any[],
-    events: (results[2].data || []) as any[],
-    invoices: (results[3].data || []) as any[],
-    quotes: (results[4].data || []) as any[],
+    staff: remote.staff || [],
+    clients: remote.clients || [],
+    events: remote.events || [],
+    invoices: remote.invoices || [],
+    quotes: remote.quotes || [],
     messages: [],
   };
 };
+
+// loadFromCloud is the canonical cloud loader (Firestore-backed).
 
 // Staff
 export const listStaff = () => store.staff;

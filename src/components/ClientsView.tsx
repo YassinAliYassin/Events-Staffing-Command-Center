@@ -94,7 +94,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({ onSelectClient }) => {
 
   const fetchClients = useCallback(() => {
     setLoading(true);
-    // Use local data store (Supabase sync is automatic when configured)
+    // Use local data store (Firestore sync is automatic when configured)
     const stored = dataStore.listClients();
     const clientsWithStatus = (stored || []).map((client: any) => ({
       ...client,

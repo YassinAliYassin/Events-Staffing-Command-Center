@@ -31,9 +31,17 @@ export default async function handler(req, res) {
           title TEXT,
           date TEXT,
           duration INTEGER DEFAULT 5,
-          staff_assigned TEXT
+          staff_assigned TEXT,
+          staff_ids TEXT
         )
       `);
+      await pool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS staff_ids TEXT`);
+      await pool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS start_time TEXT`);
+      await pool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS end_time TEXT`);
+      await pool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS venue TEXT`);
+      await pool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS client_id INTEGER`);
+      await pool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS notes TEXT`);
+      await pool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS color TEXT`);
     } catch (e) {
       console.log('Table creation note:', e.message);
     }
@@ -69,14 +77,16 @@ export default async function handler(req, res) {
         }
         const event = {
           ...rows[0],
-          staff_assigned: typeof rows[0].staff_assigned === 'string' ? JSON.parse(rows[0].staff_assigned) : rows[0].staff_assigned
+          date: dateOnly(rows[0].date),
+          staff_assigned: parseStaffArray(rows[0].staff_assigned),
+          staff_ids: parseStaffArray(rows[0].staff_ids)
         };
         await pool.end();
         return res.json({ event });
       }
       
       if (req.method === 'PATCH') {
-        const { title, date, duration, staff_assigned } = req.body;
+        const { title, date, duration, staff_assigned, staff_ids, startTime, endTime, venue, clientId, notes, color } = req.body;
         
         // Validate minimum 5-hour charge if duration is being updated
         if (duration !== undefined && duration < 5) {
@@ -85,8 +95,21 @@ export default async function handler(req, res) {
         }
         
         await pool.query(
-          'UPDATE events SET title=$1, date=$2, duration=$3, staff_assigned=$4 WHERE id=$5',
-          [title, date, duration, JSON.stringify(staff_assigned), id]
+          'UPDATE events SET title=COALESCE($1,title), date=COALESCE($2,date), duration=COALESCE($3,duration), staff_assigned=$4, staff_ids=$5, start_time=COALESCE($6,start_time), end_time=COALESCE($7,end_time), venue=COALESCE($8,venue), client_id=COALESCE($9,client_id), notes=COALESCE($10,notes), color=COALESCE($11,color) WHERE id=$12',
+          [
+            title,
+            date ? dateOnly(date) : null,
+            duration,
+            JSON.stringify(parseStaffArray(staff_assigned)),
+            JSON.stringify(parseStaffArray(staff_ids)),
+            startTime || null,
+            endTime || null,
+            venue || null,
+            clientId || null,
+            notes || null,
+            color || null,
+            id
+          ]
         );
         
         // Recalculate staff total hours after update
@@ -113,14 +136,17 @@ export default async function handler(req, res) {
       const { rows } = await pool.query('SELECT * FROM events ORDER BY date ASC');
       const events = rows.map(row => ({
         ...row,
-        staff_assigned: typeof row.staff_assigned === 'string' ? JSON.parse(row.staff_assigned) : row.staff_assigned
+        date: dateOnly(row.date),
+        staff_assigned: parseStaffArray(row.staff_assigned),
+        staff_ids: parseStaffArray(row.staff_ids)
       }));
       await pool.end();
       return res.json({ events });
     }
     
     if (req.method === 'POST') {
-      const { id, title, date, duration, staff_assigned, sendWhatsApp } = req.body;
+      const { id, title, date, duration, staff_assigned, staff_ids, startTime, endTime, venue, clientId, notes, color, sendWhatsApp } = req.body;
+      const parsedStaffIds = parseStaffArray(staff_ids ?? staff_assigned);
       
       // Validate minimum 5-hour charge
       if (!duration || duration < 5) {
@@ -129,22 +155,23 @@ export default async function handler(req, res) {
       }
       
       await pool.query(
-        'INSERT INTO events (id, title, date, duration, staff_assigned) VALUES ($1, $2, $3, $4, $5)',
-        [id, title, date, duration, JSON.stringify(staff_assigned)]
+        'INSERT INTO events (id, title, date, duration, staff_assigned, staff_ids, start_time, end_time, venue, client_id, notes, color) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)',
+        [id, title, date, duration, JSON.stringify(staff_assigned || parsedStaffIds), JSON.stringify(parsedStaffIds), startTime || null, endTime || null, venue || null, clientId || null, notes || null, color || null]
       );
       
       // Send WhatsApp notifications if requested
       let whatsappResults = [];
-      if (sendWhatsApp && staff_assigned && staff_assigned.length > 0) {
+      if (sendWhatsApp && parsedStaffIds.length > 0) {
         const eventDate = new Date(date);
         const whatsappMessage = `📅 NEW BOOKING ASSIGNED\n\nEvent: ${title}\nDate: ${eventDate.toLocaleDateString()}\nTime: ${eventDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}\nDuration: ${duration || 5}hrs (Minimum 5-hour charge applies)\n\nPlease confirm availability. Thank you!`;
         
-        for (const staffName of staff_assigned) {
-          const staffResult = await pool.query('SELECT phone FROM staff WHERE name = $1', [staffName]);
+        for (const staffId of parsedStaffIds) {
+          const staffResult = await pool.query('SELECT id, name, phone FROM staff WHERE id = $1', [staffId]);
           if (staffResult.rows.length > 0 && staffResult.rows[0].phone) {
-            const phone = staffResult.rows[0].phone;
+            const staff = staffResult.rows[0];
+            const phone = staff.phone;
             const sent = await sendWhatsAppMessage(phone, whatsappMessage);
-            whatsappResults.push({ staff: staffName, phone, sent });
+            whatsappResults.push({ staff: staff.name, staffId, phone, sent });
           }
         }
       }
@@ -167,6 +194,48 @@ export default async function handler(req, res) {
     console.error('API Error:', error);
     return res.status(500).json({ error: error.message || 'Server error' });
   }
+}
+
+function parseStaffArray(value) {
+  if (Array.isArray(value)) return value.map(item => Number(item)).filter(Number.isFinite);
+  if (value === null || value === undefined || value === '') return [];
+  const text = String(value).trim();
+  if (!text) return [];
+  if (text.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed)) return parsed.map(item => Number(item)).filter(Number.isFinite);
+    } catch {
+      return [];
+    }
+  }
+  if (text.includes(',')) return text.split(',').map(item => Number(item.trim())).filter(Number.isFinite);
+  return [Number(text)].filter(Number.isFinite);
+}
+
+function parseStaffNames(value) {
+  if (Array.isArray(value)) return value.map(item => String(item)).filter(Boolean);
+  if (value === null || value === undefined || value === '') return [];
+  const text = String(value).trim();
+  if (!text) return [];
+  if (text.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed)) return parsed.map(item => String(item)).filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
+  if (text.includes(',')) return text.split(',').map(item => String(item).trim()).filter(Boolean);
+  return [text].filter(Boolean);
+}
+
+function dateOnly(value) {
+  if (!value) return '';
+  const text = String(value);
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? text.slice(0, 10) : parsed.toISOString().slice(0, 10);
 }
 
 function formatE164(phone) {
@@ -225,7 +294,7 @@ async function recalculateStaffHours() {
     
     // Get all events in current cycle with their staff assignments and duration
     const eventsResult = await pool.query(`
-      SELECT staff_assigned, duration, date FROM events 
+      SELECT staff_ids, staff_assigned, duration, date FROM events 
       WHERE date >= $1 AND date <= $2
     `, [cycle.start, cycle.end]);
     
@@ -233,35 +302,42 @@ async function recalculateStaffHours() {
     const staffHours = {};
     
     for (const event of eventsResult.rows) {
-      const staffAssigned = typeof event.staff_assigned === 'string' 
-        ? JSON.parse(event.staff_assigned) 
-        : event.staff_assigned;
-      const duration = event.duration || 5;
+      const duration = Number(event.duration || 5);
+      const staffIds = parseStaffArray(event.staff_ids);
+      let staffKeys = staffIds.length ? staffIds : [];
       
-      if (Array.isArray(staffAssigned)) {
-        for (const staffName of staffAssigned) {
-          if (!staffHours[staffName]) {
-            staffHours[staffName] = 0;
+      if (staffKeys.length === 0) {
+        const staffNames = parseStaffNames(event.staff_assigned);
+        for (const staffName of staffNames) {
+          const staffResult = await pool.query('SELECT id FROM staff WHERE name = $1', [staffName]);
+          if (staffResult.rows.length > 0) {
+            staffKeys.push(Number(staffResult.rows[0].id));
           }
-          staffHours[staffName] += duration;
         }
+      }
+      
+      for (const staffId of staffKeys) {
+        if (!staffHours[staffId]) {
+          staffHours[staffId] = 0;
+        }
+        staffHours[staffId] += duration;
       }
     }
     
     // Update each staff member's total hours
-    for (const [staffName, totalHours] of Object.entries(staffHours)) {
+    for (const [staffId, totalHours] of Object.entries(staffHours)) {
       await pool.query(`
-        UPDATE staff SET total_hours = $1 WHERE name = $2
-      `, [totalHours, staffName]);
+        UPDATE staff SET total_hours = $1 WHERE id = $2
+      `, [totalHours, staffId]);
     }
     
     // Reset total hours for staff not in current cycle events
-    const allStaff = await pool.query('SELECT name FROM staff');
+    const allStaff = await pool.query('SELECT id FROM staff');
     for (const staff of allStaff.rows) {
-      if (!staffHours[staff.name]) {
+      if (!staffHours[staff.id]) {
         await pool.query(`
-          UPDATE staff SET total_hours = 0 WHERE name = $1
-        `, [staff.name]);
+          UPDATE staff SET total_hours = 0 WHERE id = $1
+        `, [staff.id]);
       }
     }
     

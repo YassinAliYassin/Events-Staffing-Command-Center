@@ -1,0 +1,14 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // FPCC uses app-level PIN auth, not Firebase Auth.
+    // Allow read/write to the synced business collections only.
+    match /staff/{doc}    { allow read, write: if true; }
+    match /clients/{doc}  { allow read, write: if true; }
+    match /events/{doc}   { allow read, write: if true; }
+    match /invoices/{doc} { allow read, write: if true; }
+    match /quotes/{doc}   { allow read, write: if true; }
+    // Everything else denied.
+    match /{document=**}  { allow read, write: if false; }
+  }
+}

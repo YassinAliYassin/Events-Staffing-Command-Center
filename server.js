@@ -42,6 +42,54 @@ function rateLimitWrites(req, res, next) {
   next();
 }
 
+const localStaff = [
+  { id: 1, name: 'Amara Diallo', phone: '+27 71 001 0001', role: 'Bar Staff', total_hours: 0 },
+  { id: 2, name: 'Themba Nkosi', phone: '+27 71 001 0002', role: 'Floor Staff', total_hours: 0 },
+  { id: 3, name: 'Priya Moodley', phone: '+27 71 001 0003', role: 'Supervisor', total_hours: 0 },
+  { id: 4, name: 'Lerato Khumalo', phone: '+27 71 001 0004', role: 'Bar Staff', total_hours: 0 },
+  { id: 5, name: 'Sipho Dlamini', phone: '+27 71 001 0005', role: 'Security', total_hours: 0 },
+  { id: 6, name: 'Naledi Tau', phone: '+27 71 001 0006', role: 'Floor Staff', total_hours: 0 },
+];
+
+const localEvents = [
+  { id: '1', title: 'Sandton Jazz Festival', date: '2026-06-14', duration: 6, staff_assigned: '[1,2,5]', staff_ids: '[1,2,5]', start_time: '17:00', end_time: '23:00', venue: 'Sandton Convention Centre', client_id: 1, notes: 'Smart dress code. Parking in basement.', color: '#00e5a0' },
+  { id: '2', title: 'Corporate Gala — MTN', date: '2026-06-17', duration: 4, staff_assigned: '[3,4,6]', staff_ids: '[3,4,6]', start_time: '18:00', end_time: '22:00', venue: 'Hyatt Regency JHB', client_id: 2, notes: 'Formal.', color: '#7c6af7' },
+];
+
+function parseStaffArray(value) {
+  if (Array.isArray(value)) return value.map(item => Number(item)).filter(Number.isFinite);
+  if (value === null || value === undefined || value === '') return [];
+  const text = String(value).trim();
+  if (!text) return [];
+  if (text.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed)) return parsed.map(item => Number(item)).filter(Number.isFinite);
+    } catch {}
+  }
+  if (text.includes(',')) return text.split(',').map(item => Number(item.trim())).filter(Number.isFinite);
+  return [Number(text)].filter(Number.isFinite);
+}
+
+function localStaffById(id) {
+  return localStaff.find(staff => Number(staff.id) === Number(id));
+}
+
+function localStaffByName(name) {
+  return localStaff.find(staff => staff.name === name);
+}
+
+function recalculateLocalStaffHours() {
+  for (const staff of localStaff) staff.total_hours = 0;
+  for (const event of localEvents) {
+    const staffIds = parseStaffArray(event.staff_ids || event.staff_assigned);
+    for (const staffId of staffIds) {
+      const staff = localStaffById(staffId);
+      if (staff) staff.total_hours += Number(event.duration || 5);
+    }
+  }
+}
+
 // Basic login for token bootstrap (mirrors /api/login serverless)
 app.post('/api/login', (req, res) => {
   const { password, pin } = req.body || {};
@@ -125,14 +173,102 @@ app.post('/api/dispatch-staff', rateLimitWrites, requireWriteAuth, async (req, r
   if (!eventId || !Array.isArray(staffIds) || staffIds.length === 0) {
     return res.status(400).json({ success: false, error: 'eventId and staffIds required', dispatched: 0 });
   }
-  // Local mock: just confirm the request shape is valid
+  const event = localEvents.find(item => String(item.id) === String(eventId));
+  if (!event) {
+    return res.status(404).json({ success: false, error: `Event ${eventId} not found`, dispatched: 0 });
+  }
+  const details = staffIds.map(id => {
+    const staff = localStaffById(id);
+    return staff?.phone ? { staffId: Number(id), name: staff.name, phone: staff.phone, status: 'mock-sent' } : { staffId: Number(id), status: 'skipped', reason: 'no phone' };
+  });
   return res.json({
     success: true,
     note: 'Local dev: WhatsApp dispatch is mock. Production: api/dispatch-staff.js uses real DB + Meta API. Authenticated.',
     eventId,
-    dispatched: staffIds.length,
-    details: staffIds.map(id => ({ staffId: id, status: 'mock-sent' })),
+    eventTitle: event.title,
+    dispatched: details.filter(item => item.status === 'mock-sent').length,
+    sent: details.filter(item => item.status === 'mock-sent').length,
+    skipped: details.filter(item => item.status === 'skipped').length,
+    failed: 0,
+    details,
   });
+});
+
+// Staff API - mirrors api/staff/index.js for local dev
+app.get('/api/staff', (req, res) => res.json({ staff: localStaff }));
+app.post('/api/staff', rateLimitWrites, requireWriteAuth, (req, res) => {
+  const { name, phone, role, total_hours = 0 } = req.body || {};
+  if (!name) return res.status(400).json({ error: 'name is required for new staff' });
+  const id = Math.max(0, ...localStaff.map(item => Number(item.id))) + 1;
+  const staff = { id, name: name || '', phone: phone || '', role: role || '', total_hours: Number(total_hours) || 0 };
+  localStaff.push(staff);
+  return res.json({ staff, message: 'Staff added successfully' });
+});
+app.patch('/api/staff', rateLimitWrites, requireWriteAuth, (req, res) => {
+  const { id, name, phone, role } = req.body || {};
+  const staff = localStaffById(id);
+  if (!staff) return res.status(404).json({ error: 'Staff not found' });
+  Object.assign(staff, { name: name ?? staff.name, phone: phone ?? staff.phone, role: role ?? staff.role });
+  return res.json({ message: 'Staff updated successfully' });
+});
+app.delete('/api/staff', rateLimitWrites, requireWriteAuth, (req, res) => {
+  const { id } = req.body || {};
+  const before = localStaff.length;
+  const staff = localStaff.filter(item => String(item.id) !== String(id));
+  if (staff.length === before) return res.status(404).json({ error: 'Staff not found' });
+  localStaff.splice(0, localStaff.length, ...staff);
+  return res.json({ message: 'Staff deleted successfully' });
+});
+
+// Events API - mirrors api/events/index.js for local dev
+app.get('/api/events', (req, res) => {
+  const { id } = req.query || {};
+  if (id) {
+    const event = localEvents.find(item => String(item.id) === String(id));
+    if (!event) return res.status(404).json({ error: 'Event not found' });
+    return res.json({ event: { ...event, staff_assigned: parseStaffArray(event.staff_assigned), staff_ids: parseStaffArray(event.staff_ids), date: String(event.date).slice(0, 10) } });
+  }
+  return res.json({ events: localEvents.map(event => ({ ...event, staff_assigned: parseStaffArray(event.staff_assigned), staff_ids: parseStaffArray(event.staff_ids), date: String(event.date).slice(0, 10) })) });
+});
+app.post('/api/events', rateLimitWrites, requireWriteAuth, (req, res) => {
+  const { id, title, date, duration, staff_assigned, staff_ids, startTime, endTime, venue, clientId, notes, color } = req.body || {};
+  if (!title || !date) return res.status(400).json({ error: 'title and date are required' });
+  if (!duration || Number(duration) < 5) return res.status(400).json({ error: 'Minimum event duration is 5 hours' });
+  const parsedStaffIds = parseStaffArray(staff_ids ?? staff_assigned);
+  const event = { id: String(id || (Math.max(0, ...localEvents.map(item => Number(item.id))) + 1)), title, date: String(date).slice(0, 10), duration: Number(duration), staff_assigned: JSON.stringify(staff_assigned || parsedStaffIds), staff_ids: JSON.stringify(parsedStaffIds), start_time: startTime || null, end_time: endTime || null, venue: venue || null, client_id: clientId || null, notes: notes || null, color: color || null };
+  localEvents.push(event);
+  recalculateLocalStaffHours();
+  return res.json({ id: event.id, message: 'Event created successfully' });
+});
+app.patch('/api/events', rateLimitWrites, requireWriteAuth, (req, res) => {
+  const { id, title, date, duration, staff_assigned, staff_ids, startTime, endTime, venue, clientId, notes, color } = req.body || {};
+  const event = localEvents.find(item => String(item.id) === String(id));
+  if (!event) return res.status(404).json({ error: 'Event not found' });
+  if (duration !== undefined && Number(duration) < 5) return res.status(400).json({ error: 'Minimum event duration is 5 hours' });
+  Object.assign(event, {
+    title: title ?? event.title,
+    date: date ? String(date).slice(0, 10) : event.date,
+    duration: duration ?? event.duration,
+    staff_assigned: staff_assigned !== undefined ? JSON.stringify(staff_assigned) : event.staff_assigned,
+    staff_ids: staff_ids !== undefined ? JSON.stringify(parseStaffArray(staff_ids)) : event.staff_ids,
+    start_time: startTime !== undefined ? startTime : event.start_time,
+    end_time: endTime !== undefined ? endTime : event.end_time,
+    venue: venue !== undefined ? venue : event.venue,
+    client_id: clientId !== undefined ? clientId : event.client_id,
+    notes: notes !== undefined ? notes : event.notes,
+    color: color !== undefined ? color : event.color,
+  });
+  recalculateLocalStaffHours();
+  return res.json({ id, message: 'Event updated successfully' });
+});
+app.delete('/api/events', rateLimitWrites, requireWriteAuth, (req, res) => {
+  const { id } = req.body || {};
+  const before = localEvents.length;
+  const events = localEvents.filter(item => String(item.id) !== String(id));
+  if (events.length === before) return res.status(404).json({ error: 'Event not found' });
+  localEvents.splice(0, localEvents.length, ...events);
+  recalculateLocalStaffHours();
+  return res.json({ message: 'Event deleted successfully' });
 });
 
 // Google Calendar API (mock for local dev)

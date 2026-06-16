@@ -11,12 +11,12 @@ import type { LocalStore } from './services/dataStore';
 
 // ─── Constants & Seed ────────────────────────────────────────────────────────
 const INITIAL_STAFF = [
-  { id:1, name:"Amara Diallo",   role:"Bar Staff",   rate:40, pin:"1111", uniform:true,  department:"Bar",        email:"amara@freshpeople.co.za",   phone:"+27 71 001 0001" },
-  { id:2, name:"Themba Nkosi",   role:"Floor Staff", rate:40, pin:"2222", uniform:true,  department:"Floor",      email:"themba@freshpeople.co.za",   phone:"+27 71 001 0002" },
-  { id:3, name:"Priya Moodley",  role:"Supervisor",  rate:55, pin:"3333", uniform:false, department:"Management", email:"priya@freshpeople.co.za",    phone:"+27 71 001 0003" },
-  { id:4, name:"Lerato Khumalo", role:"Bar Staff",   rate:40, pin:"4444", uniform:true,  department:"Bar",        email:"lerato@freshpeople.co.za",   phone:"+27 71 001 0004" },
-  { id:5, name:"Sipho Dlamini",  role:"Security",    rate:45, pin:"5555", uniform:true,  department:"Security",   email:"sipho@freshpeople.co.za",    phone:"+27 71 001 0005" },
-  { id:6, name:"Naledi Tau",     role:"Floor Staff", rate:40, pin:"6666", uniform:false, department:"Floor",      email:"naledi@freshpeople.co.za",   phone:"+27 71 001 0006" },
+  { id:1, name:"Amara Diallo",   role:"Bar Staff",   rate:40, pin:"1111", uniform:true,  department:"Bar",        phone:"+27 71 001 0001" },
+  { id:2, name:"Themba Nkosi",   role:"Floor Staff", rate:40, pin:"2222", uniform:true,  department:"Floor",      phone:"+27 71 001 0002" },
+  { id:3, name:"Priya Moodley",  role:"Supervisor",  rate:55, pin:"3333", uniform:false, department:"Management", phone:"+27 71 001 0003" },
+  { id:4, name:"Lerato Khumalo", role:"Bar Staff",   rate:40, pin:"4444", uniform:true,  department:"Bar",        phone:"+27 71 001 0004" },
+  { id:5, name:"Sipho Dlamini",  role:"Security",    rate:45, pin:"5555", uniform:true,  department:"Security",   phone:"+27 71 001 0005" },
+  { id:6, name:"Naledi Tau",     role:"Floor Staff", rate:40, pin:"6666", uniform:false, department:"Floor",      phone:"+27 71 001 0006" },
 ];
 
 const today   = new Date();
@@ -874,46 +874,26 @@ function CalendarTab({events,setEvents,staff,clients,addToast,currentModel}: any
     }
   }
 
-  // Send staff booking notifications via Gmail drafts
+  // Send staff booking notifications via WhatsApp Business API
   async function sendBookingNotifications(ev){
     setSendingNotifs(true);
     const staffToNotify=ev.staffIds.map(id=>staff.find(s=>s.id===id)).filter(Boolean);
-    const hrs=eventHours(ev).toFixed(1);
-    const pay=staffToNotify.map(s=>({...s,total:(eventHours(ev)*s.rate).toFixed(2)}));
-    let successCount=0;
-
-    for(const s of pay){
-      try{
-        // Generate personalised email body via Claude
-        const body=await callClaude(
-          "You write concise, professional staff booking emails for Freshpeople Events Staffing. Be warm but brief. Plain text only, no markdown.",
-          `Write a booking confirmation email to ${s.name} (${s.role}) for:
-Event: ${ev.title}
-Date: ${fmtDate(ev.date)}
-Time: ${ev.startTime} – ${ev.endTime}
-Venue: ${ev.venue||"TBC"}
-Hours: ${hrs}h
-Pay: R${s.total} (R${s.rate}/h)
-Notes: ${ev.notes||"N/A"}
-Sign off from: Freshpeople Admin`,
-          currentModel
-        );
-        
-        // For now, copy to clipboard as Gmail draft creation requires OAuth2 setup
-        const emailContent = `To: ${s.email}
-Subject: Booking Confirmed: ${ev.title} — ${fmtDate(ev.date)}
-
-${body}`;
-        
-        await navigator.clipboard.writeText(emailContent);
-        successCount++;
-      }catch(e){}
-    }
-    setSendingNotifs(false);
-    setBookingModal(null);
-    addToast(`${successCount}/${staffToNotify.length} booking emails generated & copied to clipboard ✓`,"success");
-    if(successCount > 0) {
-      addToast("Paste from clipboard into Gmail to send","warn");
+    try{
+      const result = await FPCCCore.sendWhatsApp(Number(ev.id), ev.staffIds.map(Number));
+      setSendingNotifs(false);
+      setBookingModal(null);
+      if (result.success) {
+        addToast(`WhatsApp booking notices sent to ${result.dispatched || staffToNotify.length} staff ✓`,"success");
+        if (result.skipped || result.failed) {
+          addToast(`${result.skipped || 0} skipped, ${result.failed || 0} failed`,"warn");
+        }
+      } else {
+        addToast(`WhatsApp dispatch failed: ${result.message || result.error || 'Unknown error'}`,"error");
+      }
+    } catch(e) {
+      console.error('WhatsApp dispatch error:', e);
+      setSendingNotifs(false);
+      addToast("WhatsApp dispatch failed","error");
     }
   }
 
@@ -1142,7 +1122,7 @@ ${body}`;
             <div style={{fontSize:13,color:MUTED}}>{fmtDate(bookingModal.date)} · {bookingModal.startTime}–{bookingModal.endTime} · {bookingModal.venue}</div>
           </div>
           <div style={{marginBottom:20}}>
-            <Lbl>Staff receiving booking emails ({bookingModal.staffIds.length})</Lbl>
+            <Lbl>Staff receiving WhatsApp booking notices ({bookingModal.staffIds.length})</Lbl>
             {bookingModal.staffIds.map(id=>{
               const s=staff.find(x=>x.id===id);
               if(!s) return null;
@@ -1151,7 +1131,7 @@ ${body}`;
                 <div key={id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",background:SURFACE2,borderRadius:8,marginBottom:6}}>
                   <div>
                     <div style={{fontWeight:500,fontSize:13}}>{s.name}</div>
-                    <div style={{fontSize:11,color:MUTED}}>{s.email}</div>
+                    <div style={{fontSize:11,color:MUTED}}>{s.phone || "No phone on file"}</div>
                   </div>
                   <div style={{textAlign:"right"}}>
                     <div style={{fontSize:13,color:ACCENT,fontFamily:"'DM Mono',monospace"}}>R {pay}</div>
@@ -1162,11 +1142,11 @@ ${body}`;
             })}
           </div>
           <div style={{background:SURFACE2,borderRadius:8,padding:"10px 14px",fontSize:12,color:MUTED,marginBottom:20}}>
-            💡 Claude will write a personalised email for each staff member and save it as a Gmail draft. You review and send from your Gmail Drafts folder.
+            💡 Sends a WhatsApp booking notice to each assigned staff member and records the dispatch result.
           </div>
           <div style={{display:"flex",gap:10}}>
             <Btn variant="primary" onClick={()=>sendBookingNotifications(bookingModal)} disabled={sendingNotifs} style={{flex:1,padding:"11px"}}>
-              {sendingNotifs?"Drafting emails…":"📧 Draft All Booking Emails"}
+              {sendingNotifs?"Sending WhatsApp notices…":"📱 Send Booking Notices"}
             </Btn>
             <Btn variant="ghost" onClick={()=>setBookingModal(null)} style={{flex:1,padding:"11px"}}>Cancel</Btn>
           </div>
@@ -1228,7 +1208,7 @@ export default function App(){
   const [quotes,setQuotes]       = useState(() => dataStore.listQuotes());
   const [clients,setClients]     = useState(() => dataStore.listClients());
   const [toasts,setToasts]       = useState([]);
-  const [newStaff,setNewStaff]   = useState({name:"",role:"",rate:"",pin:"",department:"Bar",uniform:false,email:"",phone:""});
+  const [newStaff,setNewStaff]   = useState({name:"",role:"",rate:"",pin:"",department:"Bar",uniform:false,phone:""});
   const [editingStaffId,setEditingStaffId] = useState(null);
   const [currentModel,setCurrentModel] = useState('deepseek/deepseek-chat-v3-0324:free');
   const [currentTask,setCurrentTask] = useState('default');
@@ -1241,13 +1221,13 @@ export default function App(){
     setClients(s.clients);
   }, []);
 
-  // Load remote Supabase data when configured, then fall back to local store.
+  // Load remote Firestore data when configured, then fall back to local store.
   useEffect(() => {
     let cancelled = false;
-    dataStore.loadFromSupabase().then((remote) => {
+    dataStore.loadFromCloud().then((remote) => {
       if (cancelled || !remote) return;
       replaceStoreState(remote);
-    }).catch((e) => console.warn('FPCC Supabase load failed', e))
+    }).catch((e) => console.warn('FPCC Firestore load failed', e))
       .finally(() => {
         if (cancelled) return;
         setStaff(dataStore.listStaff());
@@ -1671,7 +1651,7 @@ export default function App(){
                         hrs={hrs}
                         onView={()=>alert(s.name)}
                         onEdit={()=>{
-                          setNewStaff({name:s.name,role:s.role,rate:String(s.rate),pin:s.pin,department:s.department,uniform:s.uniform,email:s.email,phone:s.phone});
+                          setNewStaff({name:s.name,role:s.role,rate:String(s.rate),pin:s.pin,department:s.department,uniform:s.uniform,phone:s.phone});
                           setEditingStaffId(s.id);
                           setAdminTab("add staff");
                         }}
@@ -1744,7 +1724,6 @@ export default function App(){
                         <input type={f.t||"text"} placeholder={f.p} maxLength={f.mx} value={newStaff[f.k]} onChange={e=>setNewStaff(p=>({...p,[f.k]:e.target.value}))} style={{width:"100%"}}/>
                       </div>
                     ))}
-                    <div><Lbl>Email</Lbl><input value={newStaff.email} onChange={e=>setNewStaff(p=>({...p,email:e.target.value}))} placeholder="name@freshpeople.co.za" style={{width:"100%"}}/></div>
                     <div><Lbl>Phone</Lbl><input value={newStaff.phone} onChange={e=>setNewStaff(p=>({...p,phone:e.target.value}))} placeholder="+27 71 000 0000" style={{width:"100%"}}/></div>
                   </div>
                   <div>
@@ -1779,7 +1758,7 @@ export default function App(){
                       setStaff(prev=>[...prev, created]);
                       addToast(`${newStaff.name} added to roster`,"success");
                     }
-                    setNewStaff({name:"",role:"",rate:"",pin:"",department:"Bar",uniform:false,email:"",phone:""}); 
+                    setNewStaff({name:"",role:"",rate:"",pin:"",department:"Bar",uniform:false,phone:""}); 
                   }} style={{padding:"12px 24px",fontSize:14}}>{editingStaffId?"Update Staff Member":"Add Staff Member"}</Btn>
                 </div>
               </div>
