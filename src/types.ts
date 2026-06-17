@@ -4,11 +4,12 @@
  */
 
 export interface Client {
-  id: number;
+  id: string;
   name: string;
-  contactPerson: string;
+  contact: string;
   email: string;
   phone: string;
+  notes: string;
 }
 
 export interface Venue {
@@ -17,6 +18,17 @@ export interface Venue {
   address: string;
   capacity: number;
   tier: string; // "Luxury Class" | "Premium Estate" | "Aesthetic Loft" | "Superyacht Deck"
+  notes: string;
+}
+
+export interface Staff {
+  id: string;
+  name: string;
+  surname: string;
+  role: string;
+  rate: number;
+  phone: string;
+  email: string;
   notes: string;
 }
 
@@ -45,60 +57,4 @@ export interface ActivityLog {
   type: 'auth' | 'event_create' | 'event_delete' | 'sync' | 'direct_booking' | 'call' | 'staff_reply';
   message: string;
   isUrgent?: boolean;
-}
-
-export interface Staff {
-  id: number;
-  fullName: string;
-  phone: string;
-  role: 'Bartender' | 'Server' | 'Barista' | 'Mixologist' | 'Barback' | 'Setup Team' | 'Promoter' | 'Usher';
-  rate?: number;
-  notes?: string;
-  created_at?: string;
-}
-
-export interface StaffAssignment {
-  id: number;
-  eventId: string;
-  staffId: number;
-  fullName: string;
-  phone: string;
-  role: string;
-  shiftType: 'Full Shift' | 'Shift A' | 'Shift B' | 'Double Shift';
-  status: 'Pending' | 'Confirmed' | 'Unavailable';
-  totalHours?: number;
-  earnedAmount?: number;
-  dateWorked?: string;
-  staff?: Staff;
-}
-
-export interface MiscExpense {
-  id: string;
-  category: 'Transport' | 'Food' | 'Equipment' | 'Materials' | 'Other';
-  description: string;
-  amount: number;
-  date: string; // YYYY-MM-DD
-}
-
-export interface BackendEvent {
-  id: string;
-  title: string;
-  date: string;
-  duration: number;
-  staffName?: string;  // Legacy single-assignment
-  staffPhone?: string;
-  staffEmail?: string;
-  assignedStaff?: StaffAssignment[];  // Many-to-many roster
-  clientId?: number;
-  clientName?: string;
-  clientBudget?: number;
-  clientPhone?: string;
-  clientEmail?: string;
-  dressCode: string;  // From server (camelCase)
-  uniformType?: string;
-  arrivalTime: string;
-  miscExpenses?: MiscExpense[];
-  totalEventCost?: number;
-  netProfit?: number;
-  createdAt?: string;
 }

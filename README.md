@@ -1,120 +1,20 @@
-# Fresh People Command Center
+<div align="center">
+<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
+</div>
 
-> Events Staffing Operations Management System
+# Run and deploy your AI Studio app
 
-## 🌐 Live Deployments
+This contains everything you need to run your app locally.
 
-**Primary Site (Vercel):**  
-https://freshpeople-app.vercel.app
+View your app in AI Studio: https://ai.studio/apps/ba649f65-5bba-4137-95cb-89ca5f74606f
 
-**Fallback Site (GitHub Pages):**  
-https://yassinaliyassin.github.io/freshpeople-command-center/
+## Run Locally
 
-> **Note:** Solidsolutions.africa + SolidAI sites must NEVER be down/blank. Always maintain 2+ deployment targets. If primary fails, the fallback takes over automatically.
+**Prerequisites:**  Node.js
 
----
 
-## Features
-
-### Staff Portal
-- **PIN-based login** (staff pins + admin: 0000)
-- **Clock In/Out** with live earnings timer
-- **Shift history** with duration and pay calculation
-- **Personal stats** (hours worked, earnings)
-
-### Admin Dashboard
-- **Real-time stats** (total staff, active shifts, hours logged, payroll)
-- **Department views** (Bar, Floor, Management, Security)
-- **Roster management** with filterable staff list
-- **Timesheets** with export to CSV
-
-### Event Management
-- **Calendar view** with Google Calendar sync
-- **Event creation** with staff assignment
-- **GCal integration** (push events to Google Calendar)
-- **Booking notifications** via Gmail drafts (personalized emails per staff)
-
-### Billing & Documents
-- **Invoices** with line items, VAT calculation, print-ready views
-- **Quotations** with auto-fill from events
-- **Account statements** per client
-- **Status tracking** (draft → sent → paid)
-- **Document conversion** (quote → invoice)
-
----
-
-## Tech Stack
-- **Frontend:** React + TypeScript + Vite
-- **Styling:** Custom dark theme (Outfit + DM Mono fonts)
-- **State:** React hooks (useState, useEffect, useCallback)
-- **Integrations:** Google Calendar MCP, Gmail MCP, Anthropic Claude API
-- **Deployments:** Vercel (primary) + GitHub Pages (fallback)
-
----
-
-## Quick Start
-
-```bash
-# Install dependencies
-npm install
-
-# Run locally
-npm run dev
-
-# Build for production
-npm run build
-```
-
----
-
-## PIN Codes (Demo)
-| Staff Member      | PIN  | Role         |
-|------------------|------|--------------|
-| Amara Diallo     | 1111 | Bar Staff    |
-| Themba Nkosi     | 2222 | Floor Staff  |
-| Priya Moodley    | 3333 | Supervisor   |
-| Lerato Khumalo   | 4444 | Bar Staff    |
-| Sipho Dlamini    | 5555 | Security     |
-| Naledi Tau       | 6666 | Floor Staff  |
-| **Admin**         | 0000 | Full Access  |
-
----
-
-## Project Structure
-```
-src/
-├── App.tsx              # Main application component
-├── components/         # UI components (Dashboard, Calendar, etc.)
-├── assets/            # Static assets
-└── ...
-```
-
----
-
-## Business Rule
-This system maintains **2+ deployment targets** at all times:
-1. **Vercel** (primary) - https://freshpeople-app.vercel.app
-2. **GitHub Pages** (fallback) - https://yassinaliyassin.github.io/freshpeople-command-center/
-
-If the primary deployment fails, immediately switch to the fallback. Never let the site be down/blank.
-
----
-
-## License
-Proprietary - Fresh People Events Staffing Solutions
-
----
-
-## 🔐 Security & Auth (Hardened)
-See [SECURITY.md](./SECURITY.md) for full audit findings, risks, changes, and setup.
-
-**Quick secrets for auth (post-hardening):**
-- Set `FPCC_ADMIN_PASSWORD` (strong secret) + `FPCC_JWT_SECRET` in your Vercel/Render env and local `.env`.
-- `POST /api/login` with `{ "password": "..." }` returns JWT for write routes (`/api/staff` mutations, `/api/events` writes, `/api/dispatch-staff`).
-- Admin PIN `0000` in UI now bootstraps token via prompt (stores in localStorage).
-- Timesheets (sibling): `JWT_SECRET` **required** (no weak default); role checks (`admin`/`manager`) on approvals/billing.
-
-**Before changes:** All FPCC write APIs were unauthenticated (anyone could mutate staff/events or trigger WhatsApp). Client PINs were source-exposed. Now protected with practical JWT bootstrap for internal team.
-
-Update envs and re-deploy after setting secrets. Default fallback is demo-only.
-
+1. Install dependencies:
+   `npm install`
+2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+3. Run the app:
+   `npm run dev`

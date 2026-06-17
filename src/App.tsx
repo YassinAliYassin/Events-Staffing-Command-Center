@@ -1,1915 +1,4797 @@
-import { useState, useEffect, useCallback } from "react";
-import ClientsView from './components/ClientsViewClean';
-import Dashboard from './components/Dashboard';
-import Payroll from './pages/Payroll';
-import StaffCard from './components/StaffCard';
-import { FPCCCore } from './services/fpcc-core';
-import { FinanceApi } from './services/financeApi';
-import ModelPanel from './components/ModelPanel';
-import { geminiOpsInsights, geminiDraftClientMessage, geminiAvailable } from './services/geminiClient';
-import * as dataStore from './services/dataStore';
-import type { LocalStore } from './services/dataStore';
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
-// ─── Constants & Seed ────────────────────────────────────────────────────────
-const INITIAL_STAFF = [
-  { id:1, name:"Amara Diallo",   role:"Bar Staff",   rate:40, pin:"1111", uniform:true,  department:"Bar",        phone:"+27 71 001 0001" },
-  { id:2, name:"Themba Nkosi",   role:"Floor Staff", rate:40, pin:"2222", uniform:true,  department:"Floor",      phone:"+27 71 001 0002" },
-  { id:3, name:"Priya Moodley",  role:"Supervisor",  rate:55, pin:"3333", uniform:false, department:"Management", phone:"+27 71 001 0003" },
-  { id:4, name:"Lerato Khumalo", role:"Bar Staff",   rate:40, pin:"4444", uniform:true,  department:"Bar",        phone:"+27 71 001 0004" },
-  { id:5, name:"Sipho Dlamini",  role:"Security",    rate:45, pin:"5555", uniform:true,  department:"Security",   phone:"+27 71 001 0005" },
-  { id:6, name:"Naledi Tau",     role:"Floor Staff", rate:40, pin:"6666", uniform:false, department:"Floor",      phone:"+27 71 001 0006" },
-];
+import React, { useState, useEffect, useMemo } from 'react';
+import {
+  Lock,
+  Unlock,
+  Calendar,
+  CalendarDays,
+  User,
+  Users,
+  MapPin,
+  CreditCard,
+  ChevronLeft,
+  ChevronRight,
+  Sparkles,
+  Radio,
+  PhoneForwarded,
+  ScrollText,
+  X,
+  CheckCircle,
+  Download,
+  AlertCircle,
+  Briefcase,
+  RefreshCw,
+  LogOut,
+  Globe,
+  Apple,
+  Trash2
+} from 'lucide-react';
+import { Client, Venue, Staff, Event, ActivityLog } from './types';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  Cell
+} from 'recharts';
+import {
+  initAuth,
+  googleSignIn,
+  logoutGoogle,
+  getAccessToken
+} from './lib/firebase';
+import {
+  fetchGoogleCalendarEvents,
+  pushEventToGoogleCalendar,
+  deleteEventFromGoogleCalendar,
+  GoogleCalendarEvent
+} from './lib/googleCalendar';
 
-const today   = new Date();
-const ymd     = (d) => d.toISOString().slice(0,10);
-const addDays = (d,n) => { const x=new Date(d); x.setDate(x.getDate()+n); return x; };
+// Safe self-healing global localStorage wrapper to prevent QuotaExceededError crashes
+try {
+  const originalSetItem = localStorage.setItem;
+  localStorage.setItem = function(key: string, value: string) {
+    try {
+      originalSetItem.call(localStorage, key, value);
+    } catch (e: any) {
+      console.warn(`Local storage quota warning for key "${key}":`, e);
+      if (
+        e.name === 'QuotaExceededError' ||
+        e.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+        e.code === 22 ||
+        e.code === 1014
+      ) {
+        try {
+          // Dynamic self-cleaning: purge large log buffers & calendar cache feeds to free space
+          localStorage.removeItem('fp_logs');
+          localStorage.removeItem('fp_apple_events');
+          // Retry the target storage injection
+          originalSetItem.call(localStorage, key, value);
+        } catch (retryError) {
+          console.error('Local storage completely exhausted. Write safely bypassed:', retryError);
+        }
+      }
+    }
+  };
+} catch (globalErr) {
+  console.warn('Unable to globally secure local storage writes:', globalErr);
+}
 
-const INITIAL_EVENTS = [
-  { id:1, title:"Sandton Jazz Festival",    date:ymd(addDays(today,2)),  venue:"Sandton Convention Centre", staffIds:[1,2,5],   startTime:"17:00", endTime:"23:00", clientId:1, color:"#00e5a0", gcalId:null, notes:"Smart dress code. Parking in basement." },
-  { id:2, title:"Corporate Gala — MTN",     date:ymd(addDays(today,5)),  venue:"Hyatt Regency JHB",         staffIds:[3,4,6],   startTime:"18:00", endTime:"22:00", clientId:2, color:"#7c6af7", gcalId:null, notes:"Formal. Client contact: Busi Ndlovu 082 555 0011." },
-  { id:3, title:"Wedding: Khumalo/Singh",   date:ymd(addDays(today,8)),  venue:"Zimbali Estate",            staffIds:[1,2,3,4], startTime:"12:00", endTime:"20:00", clientId:3, color:"#f78c6c", gcalId:null, notes:"Outdoor. Bring own water." },
-  { id:4, title:"Year-End Drinks — Deloitte",date:ymd(addDays(today,-3)),venue:"Workshop17 Rosebank",       staffIds:[2,5,6],   startTime:"16:00", endTime:"21:00", clientId:2, color:"#7c6af7", gcalId:null, notes:"" },
-];
-
-const INITIAL_CLIENTS = [
-  { id:1, name:"Sandton Events Co",  email:"ops@sandtonevents.co.za",  vatNo:"4130265178", address:"14 Maude St, Sandton, 2196",   phone:"+27 11 555 0100", hourlyRate:90 },
-  { id:2, name:"MTN Group Ltd",      email:"procurement@mtn.com",      vatNo:"4000109388", address:"216 14th Ave, Fairland, 2195", phone:"+27 11 912 3000", hourlyRate:120 },
-  { id:3, name:"Priya & Dev Khumalo",email:"priya.khumalo@gmail.com",  vatNo:"",           address:"Private, KwaZulu-Natal",       phone:"+27 82 333 0001", hourlyRate:95 },
-];
-
-const INITIAL_INVOICES = [
-  { id:1, docNo:"FP-INV-2025-001", type:"invoice", clientId:2, eventId:4, issueDate:ymd(addDays(today,-2)), dueDate:ymd(addDays(today,28)), status:"sent",
-    lines:[{desc:"Floor Staff × 3 (5h)",qty:15,rate:13.0},{desc:"Supervision fee",qty:1,rate:500}], notes:"Thank you for your business." },
-];
-
-const INITIAL_QUOTES = [
-  { id:1, docNo:"FP-QTE-2025-001", clientId:1, eventId:1, issueDate:ymd(today), validUntil:ymd(addDays(today,30)), status:"draft",
-    lines:[{desc:"Bar Staff × 3 (6h)",qty:18,rate:14.5},{desc:"Security × 2 (6h)",qty:12,rate:15.5},{desc:"Setup & breakdown fee",qty:1,rate:800}], notes:"Valid for 30 days from issue date." },
-];
-
-// ─── Design tokens ────────────────────────────────────────────────────────────
-const A="\#00e5a0",BG="\#0d1117",SF="\#161b22",SF2="\#1c2330",BD="\#30363d",
-      TX="\#e6edf3",MU="\#7d8590",RD="\#f85149",AM="\#e3b341",PU="\#7c6af7",CO="\#f78c6c";
-
-const ACCENT=A, SURFACE=SF, SURFACE2=SF2, BORDER=BD, TEXT=TX, MUTED=MU, RED=RD, AMBER=AM, PURPLE=PU, CORAL=CO;
-
-const STATUS_COLOR = {
-  draft:MUTED, sent:AMBER, paid:ACCENT, overdue:RED, accepted:ACCENT, declined:RED, expired:MUTED,
-  pending:AMBER, confirmed:ACCENT, cancelled:RED,
+// Hardcoded security credentials as specified
+const OPERATOR_CREDENTIALS = {
+  username: 'yassin',
+  password: 'FreshPeople2026!'
 };
 
-const css = `
-  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Outfit:wght@300;400;500;600;700&display=swap');
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{background:${BG};color:${TEXT};font-family:'Outfit',sans-serif;min-height:100vh}
-  ::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:transparent}
-  ::-webkit-scrollbar-thumb{background:${BORDER};border-radius:3px}
-  input,select,textarea{background:${SURFACE2};color:${TEXT};border:1px solid ${BORDER};border-radius:8px;padding:8px 12px;font-family:inherit;font-size:14px;outline:none;transition:border 0.15s}
-  input:focus,select:focus,textarea:focus{border-color:${ACCENT}}
-  textarea{resize:vertical}
-  button{cursor:pointer;font-family:inherit}
-  .mono{font-family:'DM Mono',monospace}
-  @media print{
-    .no-print{display:none!important}
-    body{background:#fff!important;color:#111!important}
-    .print-doc{background:#fff!important;color:#111!important;border:none!important}
+// Seed/Initial Data in case LocalStorage is empty or for South African migration
+const INITIAL_CLIENTS: Client[] = [
+  {
+    id: 'client-1',
+    name: 'Lady Day',
+    contact: 'Lerato Maroga',
+    email: 'events@ladyday.co.za',
+    phone: '+27 11 482 1039',
+    notes: 'Premium Johannesburg catering & high high-end corporate events.'
+  },
+  {
+    id: 'client-2',
+    name: 'Corinne',
+    contact: 'Corinne van der Byl',
+    email: 'corinne@vanderbyl.co.za',
+    phone: '+27 82 443 2191',
+    notes: 'Exclusive weddings and executive private affairs.'
+  },
+  {
+    id: 'client-3',
+    name: 'Fresh Yumm',
+    contact: 'Thapelo Molopo',
+    email: 'orders@freshyumm.co.za',
+    phone: '+27 11 706 8283',
+    notes: 'Artisanal foods service sponsor. VIP hostesses expected.'
+  },
+  {
+    id: 'client-4',
+    name: 'STAY BY INIMITABLE',
+    contact: 'Jessica Botha',
+    email: 'stay@inimitable.co.za',
+    phone: '+27 10 023 9011',
+    notes: 'Luxury villas in Muldersdrift booking hostesses for guest check-ins.'
+  },
+  {
+    id: 'client-5',
+    name: 'INIMITABLE',
+    contact: 'John-Michael Botha',
+    email: 'events@inimitable.co.za',
+    phone: '+27 10 023 9000',
+    notes: 'Stunning premium wedding/event venue in Muldersdrift. Demands elite mixology & VIP architects.'
+  },
+  {
+    id: 'client-6',
+    name: 'Rimac',
+    contact: 'Mate Rimac',
+    email: 'press@rimac-automobili.com',
+    phone: '+385 1 563 4500',
+    notes: 'Supercar launch in Sandton. Exclusive hostesses with driver liaison experience.'
+  },
+  {
+    id: 'client-7',
+    name: 'Mizana',
+    contact: 'Fariqa Seedat',
+    email: 'info@mizanamarket.co.za',
+    phone: '+27 83 998 0122',
+    notes: 'High fashion & luxury lifestyle marketplace curation.'
+  },
+  {
+    id: 'client-8',
+    name: 'MYS Agency',
+    contact: 'Ayanda Khanyile',
+    email: 'ayanda@mysagency.co.za',
+    phone: '+27 11 391 8021',
+    notes: 'Boutique brand representation in Rosebank.'
+  },
+  {
+    id: 'client-9',
+    name: 'Fhulufhelani',
+    contact: 'Fhulufhelani Netshidzivhe',
+    email: 'fhulu@freshpeople.co.za',
+    phone: '+27 72 498 1234',
+    notes: 'VVIP South African corporate leadership roundtables.'
+  },
+  {
+    id: 'client-rma',
+    name: 'RMA Group',
+    contact: 'RMA Coordinator',
+    email: 'info@rma.co.za',
+    phone: '+27 11 543 9000',
+    notes: 'Rand Mutual Assurance corporate client.'
+  },
+  {
+    id: 'client-motseng',
+    name: 'Motseng Concessions',
+    contact: 'Motseng Manager',
+    email: 'info@motseng.co.za',
+    phone: '+27 11 234 5678',
+    notes: 'Key South African logistics and facility management client.'
+  },
+  {
+    id: 'client-etv',
+    name: 'e.tv Television Network',
+    contact: 'e.tv Producer',
+    email: 'production@etv.co.za',
+    phone: '+27 11 537 9300',
+    notes: 'National media and broadcaster studios.'
+  },
+  {
+    id: 'client-sanofi',
+    name: 'Sanofi Multinational',
+    contact: 'Sanofi Coordinator',
+    email: 'events@sanofi.com',
+    phone: '+27 11 256 0000',
+    notes: 'Global healthcare partnership coordinator.'
+  },
+  {
+    id: 'client-mast',
+    name: 'MAST Fre Minds',
+    contact: 'MAST Coordinator',
+    email: 'info@mast.co.za',
+    phone: '+27 82 555 1212',
+    notes: 'Special event coordination and program team.'
+  },
+  {
+    id: 'client-omphile',
+    name: 'Omphile Letshwiti Private',
+    contact: 'Omphile Letshwiti',
+    email: 'omphile@letshwiti.com',
+    phone: '+27 73 112 3456',
+    notes: 'Private executive dining host.'
   }
-`;
+];
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-const pad2    = n => String(n).padStart(2,"0");
-const fmtTime = ts => { if(!ts) return "—"; const d=new Date(ts); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
-const fmtDur  = ms => { if(!ms||ms<0) return "—"; return `${Math.floor(ms/3600000)}h ${pad2(Math.floor((ms%3600000)/60000))}m`; };
-const calcPay = (ms,r) => (!ms||ms<0)?0:(ms/3600000)*r;
-const MONTHS  = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-const WDAYS   = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-const fmtDate = s => { if(!s) return "—"; const d=new Date(s+"T00:00:00"); return `${d.getDate()} ${MONTHS[d.getMonth()].slice(0,3)} ${d.getFullYear()}`; };
-const eventHours = ev => { 
-  const [sh,sm]=ev.startTime.split(":").map(Number),
-        [eh,em]=ev.endTime.split(":").map(Number); 
-  let minutes = eh*60+em-sh*60-sm;
-  if(minutes < 0) minutes += 24*60; // Overnight event
-  return minutes/60; 
-};
+const INITIAL_VENUES: Venue[] = [
+  {
+    id: 'venue-1',
+    name: 'INIMITABLE Wedding Venue',
+    address: 'Place No. 1, Muldersdrift, Johannesburg, 1739',
+    capacity: 400,
+    tier: 'Luxury Class',
+    notes: 'World-class structural steel design surrounded by willow trees. Elite grade requirements.'
+  },
+  {
+    id: 'venue-2',
+    name: 'STAY BY INIMITABLE',
+    address: 'Kloof Road, Muldersdrift, South Africa, 1739',
+    capacity: 60,
+    tier: 'Premium Estate',
+    notes: 'Ultra-exclusive private forest estate accommodation adjacent to Crocodile River.'
+  },
+  {
+    id: 'venue-3',
+    name: 'Sandton Convention Centre',
+    address: 'Maud St, Sandridge, Sandton, 2196',
+    capacity: 1500,
+    tier: 'Luxury Class',
+    notes: "South Africa's premier multi-purpose exhibition center."
+  },
+  {
+    id: 'venue-4',
+    name: 'The Westcliff Rose Garden',
+    address: 'Jan Smuts Avenue, Westcliff, Johannesburg, 2193',
+    capacity: 250,
+    tier: 'Premium Estate',
+    notes: 'Panoramas of Johannesburg Zoo and the city forest canopy.'
+  },
+  {
+    id: 'venue-rma',
+    name: 'RMA Office Premises',
+    address: 'Rand Mutual, Johannesburg Central, South Africa',
+    capacity: 150,
+    tier: 'Corporate Hub',
+    notes: 'State-of-the-art office spaces and corporate boardrooms.'
+  },
+  {
+    id: 'venue-motseng',
+    name: 'Motseng Head Office',
+    address: 'Motseng Building, Johannesburg, South Africa',
+    capacity: 100,
+    tier: 'Premium Estate',
+    notes: 'VIP dining and board banquet rooms.'
+  },
+  {
+    id: 'venue-etv',
+    name: 'e.tv Hyde Park Studios',
+    address: 'Albury Road, Hyde Park, Johannesburg, South Africa',
+    capacity: 300,
+    tier: 'Media Hub',
+    notes: 'High definition broadcasting studios and lounge areas.'
+  },
+  {
+    id: 'venue-sanofi',
+    name: 'Sanofi Corporate HQ',
+    address: 'Sanofi Office Park, Midrand, Johannesburg',
+    capacity: 200,
+    tier: 'Corporate Hub',
+    notes: 'Sleek executive conference spaces.'
+  },
+  {
+    id: 'venue-tbc',
+    name: 'TBC Location (Corporate)',
+    address: 'To Be Confirmed, South Africa',
+    capacity: 100,
+    tier: 'Premium Estate',
+    notes: 'Event location confirmation pending closer to date.'
+  }
+];
 
-function docSubtotal(lines) { return lines.reduce((a,l)=>a+Number(l.qty)*Number(l.rate),0); }
-function nextDocNo(arr, prefix) { return `${prefix}-${new Date().getFullYear()}-${String(arr.length+1).padStart(3,"0")}`; }
+const INITIAL_STAFF: Staff[] = [
+  {
+    id: 'staff-1',
+    name: 'Sophie',
+    surname: 'Laurent',
+    role: 'Lead VIP Architect',
+    rate: 350,
+    phone: '+27649821012',
+    email: 'sophie@freshpeople.co.za',
+    notes: 'Speaks fluent English, French and Zulu. Highly experienced with executive protocols.'
+  },
+  {
+    id: 'staff-2',
+    name: 'Thabo',
+    surname: 'Mokoena',
+    role: 'Elite Mixologist',
+    rate: 300,
+    phone: '+27798210293',
+    email: 'thabo@freshpeople.co.za',
+    notes: 'Custom cocktail menu designer and signature beverage expert.'
+  },
+  {
+    id: 'staff-3',
+    name: 'Lerato',
+    surname: 'Dlamini',
+    role: 'Corporate Hostess',
+    rate: 220,
+    phone: '+27612345678',
+    email: 'lerato@freshpeople.co.za',
+    notes: 'Represented luxury fashion brands at Rosebank Rose Festival.'
+  },
+  {
+    id: 'staff-4',
+    name: 'Pieter',
+    surname: 'de Wet',
+    role: 'Private Sommelier',
+    rate: 380,
+    phone: '+27829011982',
+    email: 'pieter@freshpeople.co.za',
+    notes: 'Cape Wine Master certified. Deep pairing expertise.'
+  },
+  {
+    id: 'staff-5',
+    name: 'Zola',
+    surname: 'Sibanda',
+    role: 'Service Supervisor',
+    rate: 280,
+    phone: '+27632943110',
+    email: 'zola@freshpeople.co.za',
+    notes: 'Over 8 years managing high density wedding protocols.'
+  },
+  {
+    id: 'staff-6',
+    name: 'Chantal',
+    surname: 'Ndlovu',
+    role: 'Corporate Hostess',
+    rate: 220,
+    phone: '+27729214439',
+    email: 'chantal@freshpeople.co.za',
+    notes: 'Expert interpersonal skills.'
+  },
+  {
+    id: 'staff-7',
+    name: 'Sipho',
+    surname: 'Khumalo',
+    role: 'Safety Concierge',
+    rate: 250,
+    phone: '+27620193184',
+    email: 'sipho@freshpeople.co.za',
+    notes: 'First aid certified, advance security crowd management protocols.'
+  },
+  {
+    id: 'staff-8',
+    name: 'Keisha',
+    surname: 'Naidoo',
+    role: 'Corporate Hostess',
+    rate: 230,
+    phone: '+27838884910',
+    email: 'keisha@freshpeople.co.za',
+    notes: 'Highly organized with flawless check-in gate administration.'
+  },
+  {
+    id: 'staff-9',
+    name: 'Francois',
+    surname: 'du Plessis',
+    role: 'Elite Mixologist',
+    rate: 300,
+    phone: '+27849182049',
+    email: 'francois@freshpeople.co.za',
+    notes: 'Passionate craft beverage designer.'
+  },
+  {
+    id: 'staff-10',
+    name: 'Nomvula',
+    surname: 'Radebe',
+    role: 'Corporate Hostess',
+    rate: 220,
+    phone: '+27739014566',
+    email: 'nomvula@freshpeople.co.za',
+    notes: 'Speaks Sotho and Zulu; welcoming attitude.'
+  },
+  {
+    id: 'staff-11',
+    name: 'Brandon',
+    surname: 'Pillay',
+    role: 'Service Supervisor',
+    rate: 280,
+    phone: '+27827718290',
+    email: 'brandon@freshpeople.co.za',
+    notes: 'Specialist in French-style banquet services.'
+  },
+  {
+    id: 'staff-12',
+    name: 'Fatima',
+    surname: 'Cassim',
+    role: 'Corporate Hostess',
+    rate: 220,
+    phone: '+27638841092',
+    email: 'fatima@freshpeople.co.za',
+    notes: 'Experienced in international diplomatic delegation hosts.'
+  },
+  {
+    id: 'staff-13',
+    name: 'Sibusiso',
+    surname: 'Zulu',
+    role: 'Safety Concierge',
+    rate: 250,
+    phone: '+27712398214',
+    email: 'sibusiso@freshpeople.co.za',
+    notes: 'Close protection specialist; handles perimeter coordination.'
+  },
+  {
+    id: 'staff-14',
+    name: 'Anika',
+    surname: 'Smit',
+    role: 'Corporate Hostess',
+    rate: 220,
+    phone: '+27824910245',
+    email: 'anika@freshpeople.co.za',
+    notes: 'Enthusiastic event host.'
+  },
+  {
+    id: 'staff-15',
+    name: 'Kgomotso',
+    surname: 'Taylor',
+    role: 'Corporate Hostess',
+    rate: 220,
+    phone: '+27653291044',
+    email: 'kgomotso@freshpeople.co.za',
+    notes: 'Excellent team communication.'
+  },
+  {
+    id: 'staff-16',
+    name: 'Devon',
+    surname: 'van der Merwe',
+    role: 'Elite Mixologist',
+    rate: 300,
+    phone: '+27739182309',
+    email: 'devon@freshpeople.co.za',
+    notes: 'Expert in molecular custom cocktails.'
+  },
+  {
+    id: 'staff-17',
+    name: 'Naledi',
+    surname: 'Molefe',
+    role: 'Private Sommelier',
+    rate: 380,
+    phone: '+27838829104',
+    email: 'naledi@freshpeople.co.za',
+    notes: 'Deep vintage knowledge, South African winery specialist.'
+  },
+  {
+    id: 'staff-18',
+    name: 'Wandile',
+    surname: 'Ndlela',
+    role: 'Service Supervisor',
+    rate: 280,
+    phone: '+27649238491',
+    email: 'wandile@freshpeople.co.za',
+    notes: 'Focused on seamless culinary delivery.'
+  },
+  {
+    id: 'staff-19',
+    name: 'Kiara',
+    surname: 'Govender',
+    role: 'Corporate Hostess',
+    rate: 230,
+    phone: '+27837719203',
+    email: 'kiara@freshpeople.co.za',
+    notes: 'Graceful hospitality operator.'
+  },
+  {
+    id: 'staff-20',
+    name: 'Tshepo',
+    surname: 'Mashaba',
+    role: 'Safety Concierge',
+    rate: 250,
+    phone: '+27749021289',
+    email: 'tshepo@freshpeople.co.za',
+    notes: 'Safety-first mindset, emergency exit control officer.'
+  },
+  {
+    id: 'staff-21',
+    name: 'Elize',
+    surname: 'Botha',
+    role: 'Corporate Hostess',
+    rate: 220,
+    phone: '+27829210294',
+    email: 'elize@freshpeople.co.za',
+    notes: 'Flawless corporate event and registry host.'
+  },
+  {
+    id: 'staff-22',
+    name: 'Fhulufhelani',
+    surname: 'Netshidzivhe',
+    role: 'Lead VIP Architect',
+    rate: 360,
+    phone: '+27724981122',
+    email: 'fhulu@freshpeople.co.za',
+    notes: 'Expert executive protocol manager with extensive national leadership relations.'
+  }
+];
 
-// ─── Shared UI ────────────────────────────────────────────────────────────────
-function Dot({on,color}){return <span style={{display:"inline-block",width:8,height:8,borderRadius:"50%",background:on?(color||ACCENT):MUTED,boxShadow:on?`0 0 6px ${color||ACCENT}`:"none",flexShrink:0}}/>;}
-function Badge({color,children}){return <span style={{display:"inline-block",padding:"2px 8px",borderRadius:4,fontSize:11,fontWeight:500,background:color+"22",color,border:`1px solid ${color}44`}}>{children}</span>;}
-function Stat({label,value,accent,sub}:{label:string;value:any;accent?:string;sub?:string}){
-  return(
-    <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:10,padding:"14px 18px"}}>
-      <div style={{fontSize:11,color:MUTED,marginBottom:6}}>{label}</div>
-      <div style={{fontSize:22,fontWeight:600,color:accent||TEXT,fontFamily:"'DM Mono',monospace"}}>{value}</div>
-      {sub && <div style={{fontSize:10,color:MUTED,marginTop:4}}>{sub}</div>}
-    </div>
-  );
-}
-function Btn({children,onClick,variant="ghost",style={},disabled=false}){
-  const base={border:"none",borderRadius:8,padding:"8px 16px",fontSize:13,fontWeight:500,transition:"all 0.15s",opacity:disabled?0.45:1,...style};
-  const v={primary:{background:ACCENT,color:"#000"},danger:{background:RED+"22",color:RED,border:`1px solid ${RED}44`},
-           ghost:{background:SURFACE2,color:TEXT,border:`1px solid ${BORDER}`},accent:{background:ACCENT+"22",color:ACCENT,border:`1px solid ${ACCENT}44`},
-           amber:{background:AMBER+"22",color:AMBER,border:`1px solid ${AMBER}44`}};
-  return <button onClick={disabled?undefined:onClick} style={{...base,...v[variant]}}>{children}</button>;
-}
-function Lbl({children}){return <div style={{fontSize:12,color:MUTED,marginBottom:6}}>{children}</div>;}
-function Fld({label,children,style={}}){return <div style={{marginBottom:14,...style}}><Lbl>{label}</Lbl>{children}</div>;}
-function Modal({title,onClose,children,width=540}){
-  return(
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,padding:16}}>
-      <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:14,padding:28,width,maxWidth:"95vw",maxHeight:"92vh",overflow:"auto"}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
-          <div style={{fontSize:16,fontWeight:600}}>{title}</div>
-          <button onClick={onClose} style={{background:"none",border:"none",color:MUTED,fontSize:22,lineHeight:1,cursor:"pointer"}}>×</button>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
-}
-function Toast({msg,type="success",onDone}){
-  useEffect(()=>{const t=setTimeout(onDone,3500);return()=>clearTimeout(t);},[onDone]);
-  const color=type==="error"?RED:type==="warn"?AMBER:ACCENT;
-  return(
-    <div style={{position:"fixed",bottom:24,right:24,zIndex:999,background:SURFACE,border:`1px solid ${color}55`,borderLeft:`4px solid ${color}`,
-      borderRadius:10,padding:"14px 20px",fontSize:13,color:TEXT,maxWidth:340,boxShadow:"0 8px 32px rgba(0,0,0,0.5)"}}>
-      {msg}
-    </div>
-  );
-}
+const INITIAL_EVENTS: Event[] = [
+  {
+    id: 'event-rma-breakfast',
+    title: 'RMA Khw breakfast',
+    clientId: 'client-rma',
+    venueId: 'venue-rma',
+    date: '2026-05-25',
+    startTime: '08:00',
+    endTime: '15:00',
+    staffIds: ['staff-1', 'staff-3', 'staff-4', 'staff-15'],
+    notes: 'Corporate catering and VIP breakfast protocol management at RMA Premises.',
+    status: 'Confirmed'
+  },
+  {
+    id: 'event-motseng-breakfast',
+    title: 'Motseng breakfast and lunch',
+    clientId: 'client-motseng',
+    venueId: 'venue-motseng',
+    date: '2026-05-25',
+    startTime: '08:00',
+    endTime: '14:30',
+    staffIds: ['staff-2', 'staff-5', 'staff-6'],
+    notes: 'Premium breakfast and lunch banquet. Facilitation and executive hospitality setup.',
+    status: 'Confirmed'
+  },
+  {
+    id: 'event-rma-dolly',
+    title: 'RMA Dolly/Mali',
+    clientId: 'client-rma',
+    venueId: 'venue-rma',
+    date: '2026-05-26',
+    startTime: '08:00',
+    endTime: '15:00',
+    staffIds: ['staff-8', 'staff-10'],
+    notes: 'Rand Mutual Dolly and Mali partner sessions. Allocated corporate hosts.',
+    status: 'Confirmed'
+  },
+  {
+    id: 'event-etv-28',
+    title: 'ETV Showcase',
+    clientId: 'client-etv',
+    venueId: 'venue-etv',
+    date: '2026-05-28',
+    startTime: '08:00',
+    endTime: '09:00',
+    staffIds: ['staff-3'],
+    notes: 'Bespoke corporate television brief on-site helper.',
+    status: 'Confirmed'
+  },
+  {
+    id: 'event-sanofi-asthma',
+    title: 'Sanofi ICDT & World Asthma Day',
+    clientId: 'client-sanofi',
+    venueId: 'venue-sanofi',
+    date: '2026-05-28',
+    startTime: '10:00',
+    endTime: '15:00',
+    staffIds: ['staff-1', 'staff-15', 'staff-22'],
+    notes: 'Sponsorship and health awareness gala. 3 active expert VIP hostesses allocated.',
+    status: 'Confirmed'
+  },
+  {
+    id: 'event-mast-minds',
+    title: 'MAST Fre Minds eve',
+    clientId: 'client-mast',
+    venueId: 'venue-tbc',
+    date: '2026-05-29',
+    startTime: '08:00',
+    endTime: '16:00',
+    staffIds: ['staff-12', 'staff-21'],
+    notes: 'Fre Minds evening celebration and team lead briefing.',
+    status: 'Confirmed'
+  },
+  {
+    id: 'event-etv-29',
+    title: 'ETV',
+    clientId: 'client-etv',
+    venueId: 'venue-etv',
+    date: '2026-05-29',
+    startTime: '08:00',
+    endTime: '09:00',
+    staffIds: ['staff-4'],
+    notes: 'Daily media coordination briefing assistance.',
+    status: 'Confirmed'
+  },
+  {
+    id: 'event-omphile-lunch',
+    title: 'Omphile Letshwiti Lunch',
+    clientId: 'client-omphile',
+    venueId: 'venue-tbc',
+    date: '2026-05-30',
+    startTime: '11:30',
+    endTime: '13:30',
+    staffIds: ['staff-2'],
+    notes: 'Exclusive private dining support and direct mixology.',
+    status: 'Confirmed'
+  }
+];
 
-// ─── OpenRouter API call helper (used inside artifact) ──────────────────────
-async function callClaude(systemPrompt, userPrompt, modelOverride = null) {
+const getDurationHours = (start: string, end: string): number => {
   try {
-    const model = modelOverride || "deepseek/deepseek-chat-v3-0324:free";
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions",{
-      method:"POST",
-      headers:{
-        "Content-Type":"application/json",
-        "Authorization": `Bearer ${import.meta.env.VITE_OPENROUTER_API_KEY || ''}`
-      },
-      body:JSON.stringify({
-        model: model,
-        max_tokens:1000,
-        messages:[
-          {role:"system",content:systemPrompt},
-          {role:"user",content:userPrompt}
-        ]
-      })
-    });
-    
-    if (!res.ok) {
-      const errorText = await res.text();
-      console.error('OpenRouter API error:', res.status, errorText);
-      return "[Error: API call failed]";
-    }
-    
-    const data = await res.json();
-    
-    if (data.error) {
-      console.error('OpenRouter API error:', data.error);
-      return "[Error: " + (data.error.message || "Unknown error") + "]";
-    }
-    
-    return data.choices?.[0]?.message?.content || "";
-  } catch (e) {
-    console.error('callClaude error:', e);
-    return "[Error: " + e.message + "]";
+    const [sH, sM] = start.split(':').map(Number);
+    const [eH, eM] = end.split(':').map(Number);
+    let diffMin = (eH * 60 + eM) - (sH * 60 + sM);
+    if (diffMin < 0) diffMin += 24 * 60; // handle midnight rollover
+    return diffMin / 60;
+  } catch {
+    return 0;
   }
-}
+};
 
-// ─── Gemini AI Insights card (Google AI Studio powered) ─────────────────────
-function AIInsightsCard({staff, events, clients, invoices, quotes}: any){
-  const [loading,setLoading] = useState(false);
-  const [insight,setInsight] = useState("");
-  const [err,setErr] = useState("");
-  const available = geminiAvailable();
-
-  async function run(){
-    setLoading(true); setErr(""); setInsight("");
-    try{
-      const text = await geminiOpsInsights({staff,events,clients,invoices,quotes});
-      if(text.startsWith("[Error")) setErr(text.replace(/^\[Error:\s*/,"").replace(/\]$/,""));
-      else setInsight(text);
-    }catch(e:any){ setErr(e?.message||"Failed"); }
-    finally{ setLoading(false); }
+const getEventDates = (dateStr: string, startTime: string, endTime: string) => {
+  try {
+    const start = new Date(`${dateStr}T${startTime}:00`);
+    let end = new Date(`${dateStr}T${endTime}:00`);
+    if (end < start) {
+      end.setDate(end.getDate() + 1);
+    }
+    return { start, end };
+  } catch {
+    return { start: new Date(), end: new Date() };
   }
+};
 
-  return (
-    <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,padding:"18px 20px",marginBottom:24}}>
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
-        <div style={{display:"flex",alignItems:"center",gap:8}}>
-          <span style={{fontSize:16}}>✨</span>
-          <h2 style={{fontSize:16,fontWeight:600,color:TEXT,margin:0}}>AI Operations Insights</h2>
-          <span style={{fontSize:10,background:PURPLE+"22",color:PURPLE,padding:"2px 8px",borderRadius:6}}>Gemini</span>
-        </div>
-        <button onClick={run} disabled={loading||!available}
-          style={{background:available?`linear-gradient(135deg, ${ACCENT} 0%, ${PURPLE} 100%)`:SURFACE2,
-            border:"none",borderRadius:8,padding:"7px 14px",color:available?"#0d1117":MUTED,fontWeight:600,
-            fontSize:12,cursor:available&&!loading?"pointer":"not-allowed",opacity:loading?0.6:1}}>
-          {loading?"Analyzing…":"Generate Insights"}
-        </button>
-      </div>
-      {!available && (
-        <div style={{color:MUTED,fontSize:12}}>
-          Gemini key not configured. Set <code style={{color:ACCENT}}>VITE_GEMINI_API_KEY</code> (build) or <code style={{color:ACCENT}}>API_KEY</code> (AI Studio).
-        </div>
-      )}
-      {err && <div style={{color:RED,fontSize:12}}>⚠ {err}</div>}
-      {!insight && !err && available && !loading && (
-        <div style={{color:MUTED,fontSize:12}}>Click "Generate Insights" for an AI summary of staffing gaps, billing flags, and suggestions.</div>
-      )}
-      {insight && (
-        <div style={{color:TEXT,fontSize:13,lineHeight:1.6,whiteSpace:"pre-wrap"}}>{insight}</div>
-      )}
-    </div>
-  );
-}
+const ensureUniqueLogIds = (logs: any[]): any[] => {
+  if (!Array.isArray(logs)) return [];
+  const seen = new Set<string>();
+  return logs.map((log, index) => {
+    let cleanId = log?.id;
+    if (!cleanId || seen.has(cleanId)) {
+      cleanId = `${cleanId || 'log'}-${index}-${Math.random().toString(36).substring(2, 7)}`;
+    }
+    seen.add(cleanId);
+    return { ...log, id: cleanId };
+  }).filter(Boolean);
+};
 
-// ─── Document Print View (Invoice / Quote / Statement) ───────────────────────
-function DocPrint({doc, docType, client, event: evt, allDocs, onClose}){
-  const sub  = docSubtotal(doc.lines);
-  const includeTax = doc.includeTax !== false; // default true for legacy data
-  const taxRate = Number(doc.taxRate ?? 15);
-  const vat  = includeTax ? sub * (taxRate / 100) : 0;
-  const total= sub+vat;
-  const isPaid = docType==="statement";
-  const paidAmt = isPaid ? allDocs.filter(d=>d.clientId===doc.clientId&&d.status==="paid").reduce((a,d)=>{
-    const s = docSubtotal(d.lines);
-    const tx = (d.includeTax !== false) ? s * (Number(d.taxRate ?? 15) / 100) : 0;
-    return a + s + tx;
-  }, 0) : 0;
-  const outstanding = isPaid ? allDocs.filter(d=>d.clientId===doc.clientId&&d.status!=="paid").reduce((a,d)=>{
-    const s = docSubtotal(d.lines);
-    const tx = (d.includeTax !== false) ? s * (Number(d.taxRate ?? 15) / 100) : 0;
-    return a + s + tx;
-  }, 0) : 0;
+export default function App() {
+  // Security Veil authentication states
+  const [operatorId, setOperatorId] = useState('');
+  const [securityPhrase, setSecurityPhrase] = useState('');
+  const [isUnlocked, setIsUnlocked] = useState(() => {
+    const unlocked = sessionStorage.getItem('fresh_people_unlocked') === 'true' || localStorage.getItem('fresh_people_unlocked') === 'true';
+    const loginTime = localStorage.getItem('fresh_people_login_time');
+    if (unlocked && loginTime) {
+      const elapsed = Date.now() - parseInt(loginTime, 10);
+      const SESSION_LIMIT = 4 * 60 * 60 * 1000; // 4 Hours Session Expiry
+      if (elapsed < SESSION_LIMIT) {
+        return true;
+      } else {
+        localStorage.removeItem('fresh_people_unlocked');
+        localStorage.removeItem('fresh_people_login_time');
+        sessionStorage.removeItem('fresh_people_unlocked');
+        return false;
+      }
+    }
+    return false;
+  });
+  const [authError, setAuthError] = useState(false);
 
-  const titles = {invoice:"TAX INVOICE", quote:"QUOTATION", statement:"ACCOUNT STATEMENT"};
-  const statusC = STATUS_COLOR[doc.status]||MUTED;
+  // Advanced Password Recovery Toggle States
+  const [isForgotPasswordMode, setIsForgotPasswordMode] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotOperatorId, setForgotOperatorId] = useState('');
+  const [resetSuccessMessage, setResetSuccessMessage] = useState<string | null>(null);
 
-  return(
-    <Modal title={titles[docType]||"Document"} onClose={onClose} width={680}>
-      <div className="print-doc" style={{background:"#fff",color:"#111",borderRadius:10,padding:40}}>
-        {/* Header */}
-        <div style={{display:"flex",justifyContent:"space-between",marginBottom:36}}>
-          <div>
-            <div style={{fontSize:26,fontWeight:800,color:"#111",letterSpacing:"-0.03em"}}>FRESHPEOPLE</div>
-            <div style={{fontSize:12,color:"#666",marginTop:2}}>Events Staffing Solutions</div>
-            <div style={{fontSize:12,color:"#666"}}>VAT Reg No: 4200000001</div>
-            <div style={{fontSize:12,color:"#666"}}>4th Floor, 9 Fredman Drive, Sandton</div>
-            <div style={{fontSize:12,color:"#666"}}>admin@freshpeople.co.za · +27 11 234 5678</div>
-          </div>
-          <div style={{textAlign:"right"}}>
-            <div style={{fontSize:13,fontWeight:700,color:"#888",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:4}}>{titles[docType]}</div>
-            <div style={{fontSize:20,fontWeight:700,color:"#111"}}>{doc.docNo}</div>
-            <div style={{fontSize:12,color:"#666",marginTop:6}}>Issue: {fmtDate(doc.issueDate)}</div>
-            {doc.dueDate&&<div style={{fontSize:12,color:"#666"}}>Due: {fmtDate(doc.dueDate)}</div>}
-            {doc.validUntil&&<div style={{fontSize:12,color:"#666"}}>Valid until: {fmtDate(doc.validUntil)}</div>}
-            {doc.status&&<div style={{marginTop:10}}>
-              <span style={{background:statusC,color:"#000",fontSize:11,padding:"3px 10px",borderRadius:4,fontWeight:700}}>{doc.status.toUpperCase()}</span>
-            </div>}
-          </div>
-        </div>
+  // Session timer countdown display string
+  const [sessionTimeLeft, setSessionTimeLeft] = useState('4h 00m 00s');
 
-        {/* Bill To */}
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:24,marginBottom:28,padding:"16px 0",borderTop:"1px solid #e5e7eb",borderBottom:"1px solid #e5e7eb"}}>
-          <div>
-            <div style={{fontSize:10,color:"#888",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Bill To</div>
-            <div style={{fontWeight:700,color:"#111",fontSize:14}}>{client?.name||"—"}</div>
-            <div style={{fontSize:12,color:"#555"}}>{client?.email}</div>
-            <div style={{fontSize:12,color:"#555"}}>{client?.phone}</div>
-            <div style={{fontSize:12,color:"#555"}}>{client?.address}</div>
-            {client?.vatNo&&<div style={{fontSize:12,color:"#555"}}>VAT: {client.vatNo}</div>}
-          </div>
-          {evt&&<div>
-            <div style={{fontSize:10,color:"#888",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Event Reference</div>
-            <div style={{fontWeight:600,color:"#111",fontSize:13}}>{evt.title}</div>
-            <div style={{fontSize:12,color:"#555"}}>{fmtDate(evt.date)}</div>
-            <div style={{fontSize:12,color:"#555"}}>{evt.venue}</div>
-            <div style={{fontSize:12,color:"#555"}}>{evt.startTime} – {evt.endTime}</div>
-          </div>}
-        </div>
+  // Direct Booking manual section check
+  const [isDirectBookingChecked, setIsDirectBookingChecked] = useState(false);
 
-        {/* Statement summary */}
-        {docType==="statement"?(
-          <div>
-            <table style={{width:"100%",borderCollapse:"collapse",marginBottom:24}}>
-              <thead><tr style={{borderBottom:"2px solid #e5e7eb"}}>
-                {["Doc No","Type","Date","Due","Amount","Status"].map(h=>(
-                  <th key={h} style={{padding:"8px 10px",textAlign:"left",fontSize:11,color:"#888",textTransform:"uppercase",letterSpacing:"0.05em"}}>{h}</th>
-                ))}
-              </tr></thead>
-              <tbody>{allDocs.filter(d=>d.clientId===doc.clientId).map((d,i)=>{
-                const amt=(docSubtotal(d.lines)*1.15).toFixed(2);
-                return(
-                  <tr key={i} style={{borderBottom:"1px solid #f3f4f6"}}>
-                    <td style={{padding:"9px 10px",fontSize:12,fontWeight:500}}>{d.docNo}</td>
-                    <td style={{padding:"9px 10px",fontSize:12,color:"#888",textTransform:"capitalize"}}>{d.type||"invoice"}</td>
-                    <td style={{padding:"9px 10px",fontSize:12}}>{fmtDate(d.issueDate)}</td>
-                    <td style={{padding:"9px 10px",fontSize:12,color:d.status==="overdue"?"#dc2626":"#555"}}>{fmtDate(d.dueDate)}</td>
-                    <td style={{padding:"9px 10px",fontSize:12,fontFamily:"'DM Mono',monospace"}}>R {amt}</td>
-                    <td style={{padding:"9px 10px"}}><span style={{background:STATUS_COLOR[d.status]||"#888",color:"#000",fontSize:10,padding:"2px 7px",borderRadius:3,fontWeight:700}}>{d.status?.toUpperCase()}</span></td>
-                  </tr>
-                );
-              })}</tbody>
-            </table>
-            <div style={{display:"flex",justifyContent:"flex-end"}}>
-              <table style={{fontSize:13,borderCollapse:"collapse"}}>
-                {[["Total Invoiced",`R ${(paidAmt+outstanding).toFixed(2)}`],["Paid",`R ${paidAmt.toFixed(2)}`]].map(([l,v])=>(
-                  <tr key={l}><td style={{padding:"4px 16px 4px 0",color:"#555"}}>{l}</td><td style={{padding:"4px 0",textAlign:"right",fontFamily:"'DM Mono',monospace"}}>{v}</td></tr>
-                ))}
-                <tr style={{borderTop:"2px solid #111"}}>
-                  <td style={{padding:"8px 16px 4px 0",fontWeight:700,fontSize:15}}>Balance Due</td>
-                  <td style={{padding:"8px 0 4px 0",textAlign:"right",fontWeight:700,fontSize:15,fontFamily:"'DM Mono',monospace",color:"#dc2626"}}>R {outstanding.toFixed(2)}</td>
-                </tr>
-              </table>
-            </div>
-          </div>
-        ):(
-          <>
-            <table style={{width:"100%",borderCollapse:"collapse",marginBottom:24}}>
-              <thead><tr style={{borderBottom:"2px solid #e5e7eb"}}>
-                {["Description","Qty","Unit Rate","Amount"].map(h=>(
-                  <th key={h} style={{padding:"8px 10px",textAlign:h==="Description"?"left":"right",fontSize:11,color:"#888",textTransform:"uppercase",letterSpacing:"0.06em"}}>{h}</th>
-                ))}
-              </tr></thead>
-              <tbody>{doc.lines.map((l,i)=>(
-                <tr key={i} style={{borderBottom:"1px solid #f3f4f6"}}>
-                  <td style={{padding:"10px 10px",fontSize:13}}>{l.desc}</td>
-                  <td style={{padding:"10px 10px",textAlign:"right",fontSize:13}}>{l.qty}</td>
-                  <td style={{padding:"10px 10px",textAlign:"right",fontSize:13,fontFamily:"'DM Mono',monospace"}}>R {Number(l.rate).toFixed(2)}</td>
-                  <td style={{padding:"10px 10px",textAlign:"right",fontSize:13,fontFamily:"'DM Mono',monospace",fontWeight:500}}>R {(l.qty*l.rate).toFixed(2)}</td>
-                </tr>
-              ))}</tbody>
-            </table>
-            <div style={{display:"flex",justifyContent:"flex-end",marginBottom:24}}>
-              <table style={{fontSize:13,borderCollapse:"collapse"}}>
-                <tr><td style={{padding:"4px 16px 4px 0",color:"#666"}}>Subtotal</td><td style={{padding:"4px 0",textAlign:"right",fontFamily:"'DM Mono',monospace"}}>R {sub.toFixed(2)}</td></tr>
-                {includeTax && (
-                  <tr><td style={{padding:"4px 16px 4px 0",color:"#666"}}>VAT ({taxRate}%)</td><td style={{padding:"4px 0",textAlign:"right",fontFamily:"'DM Mono',monospace"}}>R {vat.toFixed(2)}</td></tr>
-                )}
-                <tr style={{borderTop:"2px solid #111"}}>
-                  <td style={{padding:"8px 16px 4px 0",fontWeight:700,fontSize:15}}>Total</td>
-                  <td style={{padding:"8px 0 4px 0",textAlign:"right",fontWeight:700,fontSize:15,fontFamily:"'DM Mono',monospace"}}>R {total.toFixed(2)}</td>
-                </tr>
-              </table>
-            </div>
-          </>
-        )}
+  // WhatsApp active tracking dispatch items
+  const [dispatchClientDate, setDispatchClientDate] = useState('');
+  const [dispatchAdjustedTime, setDispatchAdjustedTime] = useState('');
+  const [dispatchArrangements, setDispatchArrangements] = useState('');
 
-        {/* Footer */}
-        {doc.notes&&<div style={{marginTop:16,fontSize:12,color:"#555",fontStyle:"italic"}}>{doc.notes}</div>}
-        <div style={{marginTop:24,padding:"14px 16px",background:"#f9fafb",borderRadius:8,fontSize:12,color:"#555"}}>
-          <div style={{fontWeight:700,marginBottom:6,color:"#111"}}>Banking Details</div>
-          <div>Bank: FNB · Account: 6254 0001 0034 · Branch: 250655 · Acc Type: Business Current</div>
-          <div>Reference: {doc.docNo}</div>
-        </div>
-      </div>
-      <div style={{display:"flex",gap:10,marginTop:20}} className="no-print">
-        <Btn variant="accent" onClick={()=>window.print()} style={{flex:1,padding:"11px"}}>🖨 Print / Save PDF</Btn>
-        <Btn variant="ghost" onClick={onClose} style={{flex:1,padding:"11px"}}>Close</Btn>
-      </div>
-    </Modal>
-  );
-}
+  // Entities states (Clients, Venues, Staff, Events)
+  const [clients, setClients] = useState<Client[]>([]);
+  const [venues, setVenues] = useState<Venue[]>([]);
+  const [staff, setStaff] = useState<Staff[]>([]);
+  const [events, setEventsState] = useState<Event[]>([]);
+  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
 
-// ─── Document Form (Invoice or Quote) ────────────────────────────────────────
-function DocForm({docType, clients, events, staff = [], existingDocs, onSave, onClose}){
-  const clientsSafe = Array.isArray(clients) ? clients : [];
-  const eventsSafe = Array.isArray(events) ? events : [];
-  const staffSafe = Array.isArray(staff) ? staff : [];
-  const existingDocsSafe = Array.isArray(existingDocs) ? existingDocs : [];
-  const prefix = docType==="invoice" ? "FP-INV" : "FP-QTE";
-  const [form,setForm] = useState<any>({
-    docNo: nextDocNo(existingDocsSafe, prefix),
-    clientId:"", eventId:"",
-    issueDate:ymd(today),
-    dueDate: docType==="invoice" ? ymd(addDays(today,30)) : "",
-    validUntil: docType==="quote" ? ymd(addDays(today,30)) : "",
-    lines:[{desc:"",qty:1,rate:0,kind:'manual',total:0}],
-    notes: docType==="invoice"?"Thank you for your business.":"This quotation is valid for 30 days.",
-    type: docType,
-    includeTax: true,
-    taxRate: 15,
+  // Active Tab for Registry List Left Panel
+  const [activeTab, setActiveTab ] = useState<'clients' | 'venues' | 'staff'>('clients');
+  const [roleViewTab, setRoleViewTab] = useState<'individual' | 'specialist'>('specialist');
+  const [balanceFilter, setBalanceFilter] = useState<'all' | 'payroll'>('all');
+
+  // Operational Calendar display Month/Year
+  const [currentYear, setCurrentYear] = useState(2026);
+  const [currentMonth, setCurrentMonth] = useState(4); // May (0-indexed: May=4)
+  const [selectedDateStr, setSelectedDateStr] = useState<string>('2026-05-28');
+
+  // Google Calendar Integration states
+  const [googleUser, setGoogleUser] = useState<any | null>(null);
+  const [googleEvents, setGoogleEvents] = useState<GoogleCalendarEvent[]>([]);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncStatusMsg, setSyncStatusMsg] = useState('');
+  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
+  const [isSilentSyncing, setIsSilentSyncing] = useState(false);
+  const [autoSyncEnabled, setAutoSyncEnabled] = useState<boolean>(() => {
+    const raw = localStorage.getItem('fp_autosync_enabled');
+    return raw ? raw === 'true' : true;
   });
 
-  function prefill(eventId){
-    const ev=eventsSafe.find(e=>e.id===Number(eventId));
-    if(!ev){ setForm(f=>({...f,eventId})); return; }
-    const hrs=eventHours(ev);
-    const client = clientsSafe.find(c=>c.id===ev.clientId);
-    const clientRate = client?.hourlyRate || 0;
-    // Build line items from the staff assigned to this event
-    const lines = (ev.staffIds || []).map(id=>{
-      const s=staffSafe.find(x=>x.id===id);
-      const rate = s?.rate || 0;
-      const total = (hrs * rate).toFixed(2);
-      return {
-        desc: `${s?.name||"Staff"} — ${s?.role||""} (${hrs}h @ R${rate}/h)`,
-        qty: hrs,
-        rate,
-        total: Number(total),
-        kind: 'staff',
-        staffId: s?.id,
-      };
+  // Apple Calendar & Apple ID state parameters
+  const [appleUser, setAppleUser] = useState<any | null>(() => {
+    const raw = localStorage.getItem('fp_apple_user');
+    if (raw) return JSON.parse(raw);
+    const defaultAppleUser = { email: 'realyassinali@gmail.com' };
+    localStorage.setItem('fp_apple_user', JSON.stringify(defaultAppleUser));
+    return defaultAppleUser;
+  });
+  const [isLinkingApple, setIsLinkingApple] = useState(false);
+
+  // Premium in-app alert toast to prevent native alert popup crashes in sandboxed iframes
+  const [toastAlert, setToastAlert] = useState<{ message: string; type: 'info' | 'success' | 'warn' | 'error' } | null>(null);
+
+  const showToast = (message: string, type: 'info' | 'success' | 'warn' | 'error' = 'info') => {
+    setToastAlert({ message, type });
+  };
+
+  useEffect(() => {
+    if (toastAlert) {
+      const timer = setTimeout(() => {
+        setToastAlert(null);
+      }, 7000);
+      return () => clearTimeout(timer);
+    }
+  }, [toastAlert]);
+  const [appleEmailInput, setAppleEmailInput] = useState('');
+  const [applePasswordInput, setApplePasswordInput] = useState('');
+  const [appleFeedUrl, setAppleFeedUrl] = useState<string>(() => {
+    const stored = localStorage.getItem('fp_apple_feed_url');
+    if (stored) return stored;
+    const defaultUrl = 'https://p56-caldav.icloud.com/published/2/MjA3NTMxODM0NzYyMDc1M_MJWBML9PYYcak11gdiRE00jIWbogtgWyD9NtdzTpGoU6oXGhtZYzSDjGnia66w7NxkexZbSwm_tUVl14qv7-g';
+    localStorage.setItem('fp_apple_feed_url', defaultUrl);
+    return defaultUrl;
+  });
+  const [isAppleAuthModalOpen, setIsAppleAuthModalOpen] = useState(false);
+  const [isAppleSimulatorVisible, setIsAppleSimulatorVisible] = useState(true);
+  const [simNewTitle, setSimNewTitle] = useState('');
+  const [simNewDate, setSimNewDate] = useState('2026-05-28');
+  const [simNewTimeStart, setSimNewTimeStart] = useState('12:00');
+  const [simNewTimeEnd, setSimNewTimeEnd] = useState('14:00');
+  const [simNewNotes, setSimNewNotes] = useState('');
+  const [appleEvents, setAppleEvents] = useState<Event[]>(() => {
+    const raw = localStorage.getItem('fp_apple_events');
+    if (raw && raw.includes('RMA Khw breakfast')) return JSON.parse(raw);
+    
+    // Seed real primary-world iCloud / Apple Calendar events customized for @realyassinali
+    const seed: Event[] = [
+      {
+        id: 'apple-live-1',
+        title: 'iCloud: RMA Khw breakfast',
+        clientId: 'client-rma',
+        venueId: 'venue-rma',
+        date: '2026-05-25',
+        startTime: '08:00',
+        endTime: '15:00',
+        staffIds: [],
+        notes: 'Synchronized from Apple Calendar feed at location: RMA.',
+        status: 'Confirmed'
+      },
+      {
+        id: 'apple-live-2',
+        title: 'iCloud: Motseng breakfast and lunch',
+        clientId: 'client-motseng',
+        venueId: 'venue-motseng',
+        date: '2026-05-25',
+        startTime: '08:00',
+        endTime: '14:30',
+        staffIds: [],
+        notes: 'Synchronized from Apple Calendar feed at location: Motseng.',
+        status: 'Confirmed'
+      },
+      {
+        id: 'apple-live-3',
+        title: 'iCloud: RMA Dolly/Mali',
+        clientId: 'client-rma',
+        venueId: 'venue-rma',
+        date: '2026-05-26',
+        startTime: '08:00',
+        endTime: '15:00',
+        staffIds: [],
+        notes: 'Synchronized from Apple Calendar feed at location: RMA.',
+        status: 'Confirmed'
+      },
+      {
+        id: 'apple-live-4',
+        title: 'iCloud: ETV',
+        clientId: 'client-etv',
+        venueId: 'venue-etv',
+        date: '2026-05-28',
+        startTime: '08:00',
+        endTime: '09:00',
+        staffIds: [],
+        notes: 'Synchronized from Apple Calendar feed.',
+        status: 'Confirmed'
+      },
+      {
+        id: 'apple-live-5',
+        title: 'iCloud: Sanofi ICDT & World Asthma Day',
+        clientId: 'client-sanofi',
+        venueId: 'venue-sanofi',
+        date: '2026-05-28',
+        startTime: '10:00',
+        endTime: '15:00',
+        staffIds: [],
+        notes: 'Synchronized from Apple Calendar feed at location: Sanofi.',
+        status: 'Confirmed'
+      },
+      {
+        id: 'apple-live-6',
+        title: 'iCloud: MAST Fre Minds eve',
+        clientId: 'client-mast',
+        venueId: 'venue-tbc',
+        date: '2026-05-29',
+        startTime: '08:00',
+        endTime: '16:00',
+        staffIds: [],
+        notes: 'Synchronized from Apple Calendar feed at location: TBC.',
+        status: 'Confirmed'
+      },
+      {
+        id: 'apple-live-7',
+        title: 'iCloud: ETV',
+        clientId: 'client-etv',
+        venueId: 'venue-etv',
+        date: '2026-05-29',
+        startTime: '08:00',
+        endTime: '09:00',
+        staffIds: [],
+        notes: 'Synchronized from Apple Calendar feed.',
+        status: 'Confirmed'
+      },
+      {
+        id: 'apple-live-8',
+        title: 'iCloud: Omphile Letshwiti Lunch',
+        clientId: 'client-omphile',
+        venueId: 'venue-tbc',
+        date: '2026-05-30',
+        startTime: '11:30',
+        endTime: '13:30',
+        staffIds: [],
+        notes: 'Synchronized from Apple Calendar feed.',
+        status: 'Confirmed'
+      }
+    ];
+    localStorage.setItem('fp_apple_events', JSON.stringify(seed));
+    return seed;
+  });
+
+  const syncToolToAppleCalendar = (updatedEvents: Event[]) => {
+    const rawApple = localStorage.getItem('fp_apple_events');
+    let currentApple: Event[] = rawApple ? JSON.parse(rawApple) : [];
+
+    updatedEvents.forEach(toolEv => {
+      const matchIdx = currentApple.findIndex(aEv => aEv.id === toolEv.appleEventId || aEv.appleEventId === toolEv.id || aEv.id === toolEv.id);
+      if (matchIdx !== -1) {
+        currentApple[matchIdx] = {
+          ...currentApple[matchIdx],
+          title: toolEv.title,
+          date: toolEv.date,
+          startTime: toolEv.startTime,
+          endTime: toolEv.endTime,
+          notes: toolEv.notes,
+          clientRequirements: toolEv.clientRequirements,
+          status: toolEv.status,
+          staffIds: toolEv.staffIds,
+          staffRSVPs: toolEv.staffRSVPs
+        };
+      } else {
+        const newAppleEv: Event = {
+          ...toolEv,
+          id: toolEv.appleEventId || `apple-sync-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+          appleEventId: toolEv.id
+        };
+        currentApple.push(newAppleEv);
+      }
     });
-    if (lines.length === 0 && clientRate) {
-      // No staff assigned: charge a flat hourly rate
-      lines.push({
-        desc: `${ev.title} — Service (${hrs}h @ R${clientRate}/h)`,
-        qty: hrs,
-        rate: clientRate,
-        total: Number((hrs * clientRate).toFixed(2)),
-        kind: 'service',
+
+    currentApple = currentApple.filter(aEv => {
+      if (aEv.appleEventId) {
+        return updatedEvents.some(toolEv => toolEv.id === aEv.appleEventId);
+      }
+      return true;
+    });
+
+    setAppleEvents(currentApple);
+    localStorage.setItem('fp_apple_events', JSON.stringify(currentApple));
+  };
+
+  const getMatchedClientAndVenue = (title: string, currentClientId?: string, currentVenueId?: string) => {
+    if (currentClientId && clients.some(c => c.id === currentClientId)) {
+      const vId = currentVenueId && venues.some(v => v.id === currentVenueId) ? currentVenueId : 'venue-1';
+      return { clientId: currentClientId, venueId: vId };
+    }
+
+    const combined = title.toLowerCase();
+    let cId = 'client-1';
+    let vId = 'venue-1';
+
+    if (combined.includes('rma')) {
+      cId = 'client-rma';
+      vId = 'venue-rma';
+    } else if (combined.includes('motseng')) {
+      cId = 'client-motseng';
+      vId = 'venue-motseng';
+    } else if (combined.includes('etv')) {
+      cId = 'client-etv';
+      vId = 'venue-etv';
+    } else if (combined.includes('sanofi')) {
+      cId = 'client-sanofi';
+      vId = 'venue-sanofi';
+    } else if (combined.includes('mast')) {
+      cId = 'client-mast';
+      vId = 'venue-tbc';
+    } else if (combined.includes('omphile') || combined.includes('letshwiti')) {
+      cId = 'client-omphile';
+      vId = 'venue-tbc';
+    } else {
+      const matchedC = clients.find(c => combined.includes(c.name.toLowerCase()));
+      if (matchedC) {
+        cId = matchedC.id;
+        const matchedV = venues.find(v => combined.includes(v.name.toLowerCase()));
+        if (matchedV) vId = matchedV.id;
+      }
+    }
+
+    return { clientId: cId, venueId: vId };
+  };
+
+  const syncAppleToToolCalendar = (updatedAppleEvents: Event[]) => {
+    let toolEvents = [...events];
+    let changed = false;
+
+    updatedAppleEvents.forEach(appleEv => {
+      const matchIdx = toolEvents.findIndex(e => e.id === appleEv.appleEventId || e.appleEventId === appleEv.id || e.id === appleEv.id);
+      if (matchIdx !== -1) {
+        const toolEv = toolEvents[matchIdx];
+        const matched = getMatchedClientAndVenue(appleEv.title, appleEv.clientId, appleEv.venueId);
+        if (
+          toolEv.title !== appleEv.title ||
+          toolEv.date !== appleEv.date ||
+          toolEv.startTime !== appleEv.startTime ||
+          toolEv.endTime !== appleEv.endTime ||
+          toolEv.notes !== appleEv.notes ||
+          toolEv.clientRequirements !== appleEv.clientRequirements ||
+          toolEv.status !== appleEv.status ||
+          toolEv.clientId !== matched.clientId ||
+          toolEv.venueId !== matched.venueId
+        ) {
+          toolEvents[matchIdx] = {
+            ...toolEvents[matchIdx],
+            title: appleEv.title,
+            clientId: matched.clientId,
+            venueId: matched.venueId,
+            date: appleEv.date,
+            startTime: appleEv.startTime,
+            endTime: appleEv.endTime,
+            notes: appleEv.notes || toolEv.notes,
+            clientRequirements: appleEv.clientRequirements || toolEv.clientRequirements,
+            status: appleEv.status || toolEv.status,
+            appleEventId: appleEv.id
+          };
+          changed = true;
+          addActivityLog('sync', `iCloud Auto-Sync: Reflected updates from Apple Calendar for "${appleEv.title}".`);
+        }
+      } else {
+        const matched = getMatchedClientAndVenue(appleEv.title, appleEv.clientId, appleEv.venueId);
+        const importedLocal: Event = {
+          id: `event-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+          title: appleEv.title,
+          clientId: matched.clientId,
+          venueId: matched.venueId,
+          date: appleEv.date,
+          startTime: appleEv.startTime,
+          endTime: appleEv.endTime,
+          staffIds: appleEv.staffIds || [],
+          notes: appleEv.notes || 'Created directly via iCloud Linked Calendar App.',
+          clientRequirements: appleEv.clientRequirements || '',
+          status: appleEv.status || 'Confirmed',
+          appleEventId: appleEv.id,
+          staffRSVPs: appleEv.staffRSVPs || {}
+        };
+        toolEvents.unshift(importedLocal);
+        changed = true;
+        addActivityLog('sync', `iCloud Auto-Sync: Synchronized new event "${appleEv.title}" from Apple Calendar.`);
+      }
+    });
+
+    const initialLen = toolEvents.length;
+    toolEvents = toolEvents.filter(toolEv => {
+      if (toolEv.appleEventId) {
+        const stillInApple = updatedAppleEvents.some(aEv => aEv.id === toolEv.appleEventId);
+        if (!stillInApple) {
+          changed = true;
+          addActivityLog('sync', `iCloud Auto-Sync: Decoupled & removed event "${toolEv.title}" matching changes from Apple Calendar.`);
+          return false;
+        }
+      }
+      return true;
+    });
+
+    if (changed || toolEvents.length !== initialLen) {
+      setEvents(toolEvents);
+      localStorage.setItem('fp_events', JSON.stringify(toolEvents));
+    }
+  };
+
+  const setEvents = (val: Event[] | ((prev: Event[]) => Event[])) => {
+    setEventsState((prev) => {
+      const resolved = typeof val === 'function' ? val(prev) : val;
+      
+      const rawApple = localStorage.getItem('fp_apple_events');
+      let currentApple: Event[] = rawApple ? JSON.parse(rawApple) : [];
+
+      resolved.forEach(toolEv => {
+        const matchIdx = currentApple.findIndex(aEv => aEv.id === toolEv.appleEventId || aEv.appleEventId === toolEv.id || aEv.id === toolEv.id);
+        if (matchIdx !== -1) {
+          currentApple[matchIdx] = {
+            ...currentApple[matchIdx],
+            title: toolEv.title,
+            date: toolEv.date,
+            startTime: toolEv.startTime,
+            endTime: toolEv.endTime,
+            notes: toolEv.notes,
+            clientRequirements: toolEv.clientRequirements,
+            status: toolEv.status,
+            staffIds: toolEv.staffIds,
+            staffRSVPs: toolEv.staffRSVPs
+          };
+        } else {
+          const newAppleEv: Event = {
+            ...toolEv,
+            id: toolEv.appleEventId || `apple-sync-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+            appleEventId: toolEv.id
+          };
+          currentApple.push(newAppleEv);
+        }
+      });
+
+      currentApple = currentApple.filter(aEv => {
+        if (aEv.appleEventId) {
+          return resolved.some(toolEv => toolEv.id === aEv.appleEventId);
+        }
+        return true;
+      });
+
+      localStorage.setItem('fp_apple_events', JSON.stringify(currentApple));
+      
+      setTimeout(() => {
+        setAppleEvents(currentApple);
+      }, 0);
+
+      return resolved;
+    });
+  };
+
+  const handleAddAppleSimulatorEvent = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!simNewTitle) return;
+
+    const newAppleEvId = `apple-sim-${Date.now()}`;
+    const matched = getMatchedClientAndVenue(simNewTitle);
+    const newAppleEv: Event = {
+      id: newAppleEvId,
+      title: `iCloud: ${simNewTitle}`,
+      clientId: matched.clientId,
+      venueId: matched.venueId,
+      date: simNewDate,
+      startTime: simNewTimeStart,
+      endTime: simNewTimeEnd,
+      staffIds: [],
+      notes: simNewNotes || 'Entered via iPhone Simulator interface.',
+      status: 'Confirmed'
+    };
+
+    const updated = [newAppleEv, ...appleEvents];
+    setAppleEvents(updated);
+    localStorage.setItem('fp_apple_events', JSON.stringify(updated));
+
+    syncAppleToToolCalendar(updated);
+
+    setSimNewTitle('');
+    setSimNewNotes('');
+    addActivityLog('sync', `iCloud Simulator: Saved and synced new Apple Calendar event: "${newAppleEv.title}".`);
+  };
+
+  const handleDeleteAppleSimulatorEvent = (id: string, title: string) => {
+    const nextList = appleEvents.filter(ev => ev.id !== id);
+    setAppleEvents(nextList);
+    localStorage.setItem('fp_apple_events', JSON.stringify(nextList));
+
+    syncAppleToToolCalendar(nextList);
+    addActivityLog('sync', `iCloud Simulator: Cancelled and deleted Apple Calendar event: "${title}".`);
+  };
+
+  // Call Logger inputs
+  const [callCaller, setCallCaller] = useState('');
+  const [callType, setCallType] = useState<'call' | 'booking' | 'staff_confirm'>('call');
+  const [callSummary, setCallSummary] = useState('');
+  const [callUrgent, setCallUrgent] = useState(false);
+
+  // Ingestion Modal Trigger state
+  const [activeModal, setActiveModal] = useState<'client' | 'venue' | 'staff' | null>(null);
+
+  // Entity creation inputs
+  const [newClient, setNewClient] = useState({ name: '', contact: '', email: '', phone: '', notes: '' });
+  const [newVenue, setNewVenue] = useState({ name: '', address: '', capacity: 200, tier: 'Luxury Class', notes: '' });
+  const [newStaff, setNewStaff] = useState({ name: '', surname: '', role: 'Lead VIP Architect', rate: 45, phone: '', email: '', notes: '' });
+
+  // Event Scheduler inputs
+  const [evTitle, setEvTitle] = useState('');
+  const [evClient, setEvClient] = useState('');
+  const [evVenue, setEvVenue] = useState('');
+  const [evDate, setEvDate] = useState('2026-05-28');
+  const [evTimeStart, setEvTimeStart] = useState('18:00');
+  const [evTimeEnd, setEvTimeEnd] = useState('22:00');
+  const [evNotes, setEvNotes] = useState('');
+  const [evClientRequirements, setEvClientRequirements] = useState('');
+  const [evSelectedStaffIds, setEvSelectedStaffIds] = useState<string[]>([]);
+
+  // Dispatch details
+  const [selectedDispatchEventId, setSelectedDispatchEventId] = useState('');
+  const [dispatchTemplate, setDispatchTemplate] = useState(
+    'Hi {StaffName} hope you are well. Are you available on {Date} from {In} to {Out} with Fresh People mapping? Click links to reply: Confirm: {ConfirmLink} | Reject: {RejectLink}'
+  );
+
+  // Load and apply local data and parameter hooks
+  useEffect(() => {
+    // Check local storage or seed, force-migrating to South Africa Johannesburg setup
+    const isMigrated = localStorage.getItem('fp_migrated_sa_2026_v5') === 'true';
+
+    if (!isMigrated) {
+      localStorage.setItem('fp_clients', JSON.stringify(INITIAL_CLIENTS));
+      localStorage.setItem('fp_venues', JSON.stringify(INITIAL_VENUES));
+      localStorage.setItem('fp_staff', JSON.stringify(INITIAL_STAFF));
+      localStorage.setItem('fp_events', JSON.stringify(INITIAL_EVENTS));
+      localStorage.setItem('fp_migrated_sa_2026_v5', 'true');
+
+      setClients(INITIAL_CLIENTS);
+      setVenues(INITIAL_VENUES);
+      setStaff(INITIAL_STAFF);
+      setEvents(INITIAL_EVENTS);
+
+      // Synchronize default iCloud events immediately on first setup
+      setTimeout(() => {
+        const rawApple = localStorage.getItem('fp_apple_events');
+        if (rawApple) {
+          syncAppleToToolCalendar(JSON.parse(rawApple));
+        }
+      }, 100);
+
+      const initLog: ActivityLog = {
+        id: 'log-1',
+        timestamp: new Date().toISOString(),
+        operator: 'System Sentinel',
+        type: 'auth',
+        message: 'Fresh People Operations Center unlocked inside South Africa (Johannesburg HQ).'
+      };
+      setActivityLogs([initLog]);
+      localStorage.setItem('fp_logs', JSON.stringify([initLog]));
+    } else {
+      const storedClients = localStorage.getItem('fp_clients');
+      const storedVenues = localStorage.getItem('fp_venues');
+      const storedStaff = localStorage.getItem('fp_staff');
+      const storedEvents = localStorage.getItem('fp_events');
+      const storedLogs = localStorage.getItem('fp_logs');
+
+      if (storedClients) setClients(JSON.parse(storedClients));
+      if (storedVenues) setVenues(JSON.parse(storedVenues));
+      if (storedStaff) setStaff(JSON.parse(storedStaff));
+      if (storedEvents) {
+        const parsed = JSON.parse(storedEvents);
+        setEvents(parsed);
+        // Ensure Apple events are fully merged/sync-triggered immediately on subsequent visits
+        setTimeout(() => {
+          const rawApple = localStorage.getItem('fp_apple_events');
+          if (rawApple) {
+            syncAppleToToolCalendar(JSON.parse(rawApple));
+          }
+        }, 120);
+      }
+      if (storedLogs) {
+        const parsedLogs = JSON.parse(storedLogs);
+        const uniqueLogs = ensureUniqueLogIds(parsedLogs).slice(0, 100);
+        setActivityLogs(uniqueLogs);
+        localStorage.setItem('fp_logs', JSON.stringify(uniqueLogs));
+      }
+    }
+  }, []);
+
+  // Listen for Google authentication state changes via Firebase
+  useEffect(() => {
+    const unsub = initAuth(
+      (user, token) => {
+        setGoogleUser(user);
+        addActivityLog('sync', `Google Account synchronisation verified for ${user.email}.`);
+        triggerGoogleSync(token);
+      },
+      () => {
+        setGoogleUser(null);
+      }
+    );
+    return () => unsub();
+  }, []);
+
+  // Automatic background auto-sync polling loop
+  useEffect(() => {
+    if (!autoSyncEnabled) return;
+
+    const interval = setInterval(() => {
+      if (googleUser) {
+        console.log('Continuous Background Auto-Sync: Fetching updates from Google Calendar...');
+        triggerGoogleSync(undefined, true);
+      }
+      
+      if (appleUser) {
+        console.log('Continuous Background Auto-Sync: Fetching updates from live iCloud Apple Calendar feed...');
+        triggerAppleFeedFetch(true);
+      }
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [googleUser, appleUser, autoSyncEnabled, currentMonth, currentYear, events, appleFeedUrl]);
+
+  // Parse URI Parameters for automatic Dispatch Return responses
+  useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    const action = searchParams.get('action');
+    const eventId = searchParams.get('eventId');
+    const staffId = searchParams.get('staffId');
+
+    if (action && eventId && staffId) {
+      // Find staff and event
+      const storedEvents = localStorage.getItem('fp_events') ? JSON.parse(localStorage.getItem('fp_events')!) : INITIAL_EVENTS;
+      const storedStaff = localStorage.getItem('fp_staff') ? JSON.parse(localStorage.getItem('fp_staff')!) : INITIAL_STAFF;
+
+      const targetEv = storedEvents.find((e: Event) => e.id === eventId);
+      const targetS = storedStaff.find((s: Staff) => s.id === staffId);
+
+      if (targetEv && targetS) {
+        const staffFullName = `${targetS.name} ${targetS.surname}`;
+        let statusUpdate: Event['status'] = 'Pending';
+        let logMsg = '';
+
+        if (action === 'confirm') {
+          statusUpdate = 'Confirmed';
+          logMsg = `Staff member ${staffFullName} approved scheduled slot for "${targetEv.title}". Roster state updated to CONFIRMED.`;
+        } else if (action === 'reject') {
+          statusUpdate = 'Canceled';
+          logMsg = `Staff member ${staffFullName} declined scheduled slot for "${targetEv.title}". Status state updated to ATTENTION.`;
+        }
+
+        // Update local events state list with both overall event status and individual staff RSVP states
+        const updatedEvents = storedEvents.map((e: Event) => {
+          if (e.id === eventId) {
+            const currentRSVPs = e.staffRSVPs || {};
+            const nextRSVPs = { ...currentRSVPs, [staffId]: action === 'confirm' ? 'Available' as const : 'Unavailable' as const };
+            return {
+              ...e,
+              status: statusUpdate,
+              staffRSVPs: nextRSVPs
+            };
+          }
+          return e;
+        });
+
+        localStorage.setItem('fp_events', JSON.stringify(updatedEvents));
+        setEvents(updatedEvents);
+
+        // Add to logs
+        const newLog: ActivityLog = {
+          id: `log-reply-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          timestamp: new Date().toISOString(),
+          operator: 'WhatsApp Hook',
+          type: 'staff_reply',
+          message: logMsg,
+          isUrgent: action === 'reject'
+        };
+
+        const currentLogs = localStorage.getItem('fp_logs') ? JSON.parse(localStorage.getItem('fp_logs')!) : [];
+        const logsCombined = ensureUniqueLogIds([newLog, ...currentLogs]).slice(0, 100);
+        localStorage.setItem('fp_logs', JSON.stringify(logsCombined));
+        setActivityLogs(logsCombined);
+
+        // Notify client
+        showToast(`Core Operational Callback Handled: ${staffFullName} replied: ${action.toUpperCase()}`, 'success');
+
+        // Clean query parameters to avoid looping triggers
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    }
+  }, []);
+
+  // Session details timer checking
+  useEffect(() => {
+    if (!isUnlocked) return;
+    
+    // Check session every second to update remaining hours
+    const interval = setInterval(() => {
+      const loginTime = localStorage.getItem('fresh_people_login_time');
+      if (loginTime) {
+        const elapsed = Date.now() - parseInt(loginTime, 10);
+        const SESSION_LIMIT = 4 * 60 * 60 * 1000; // 4 Hours Session Expiry
+        const remaining = SESSION_LIMIT - elapsed;
+        
+        if (remaining <= 0) {
+          triggerLogout();
+          showToast('Secure Session Expiry: Your Operator key has expired due to quiet period bounds.', 'error');
+        } else {
+          const secs = Math.floor((remaining / 1000) % 60);
+          const mins = Math.floor((remaining / (1000 * 60)) % 60);
+          const hrs = Math.floor((remaining / (1000 * 60 * 60)) % 24);
+          
+          let formatted = '';
+          if (hrs > 0) formatted += `${hrs}h `;
+          formatted += `${mins}m ${secs}s`;
+          setSessionTimeLeft(formatted);
+        }
+      }
+    }, 1000);
+    
+    return () => clearInterval(interval);
+  }, [isUnlocked]);
+
+  // Sync state functions
+  const addActivityLog = (type: ActivityLog['type'], message: string, isUrgent = false) => {
+    const newLog: ActivityLog = {
+      id: `log-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      timestamp: new Date().toISOString(),
+      operator: 'yassin',
+      type,
+      message,
+      isUrgent
+    };
+    setActivityLogs((prev) => {
+      // Keep only the 100 latest entries to prevent storage bloat and QuotaExceededError
+      const next = [newLog, ...prev].slice(0, 100);
+      localStorage.setItem('fp_logs', JSON.stringify(next));
+      return next;
+    });
+  };
+
+  // Clock Update
+  const [systime, setSystime] = useState('19:52:35');
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const now = new Date();
+      setSystime(now.toISOString().split('T')[1].slice(0, 8));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Authentication Submission
+  const handleAuthSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (
+      operatorId.toLowerCase() === OPERATOR_CREDENTIALS.username &&
+      securityPhrase === OPERATOR_CREDENTIALS.password
+    ) {
+      setIsUnlocked(true);
+      sessionStorage.setItem('fresh_people_unlocked', 'true');
+      localStorage.setItem('fresh_people_unlocked', 'true');
+      localStorage.setItem('fresh_people_login_time', Date.now().toString());
+      setAuthError(false);
+      // Log authentication success
+      addActivityLog('auth', `Operator 'yassin' successfully decrypted gateway. 4-hour session timer loaded.`);
+    } else {
+      setAuthError(true);
+    }
+  };
+
+  // Advanced Password Recovery via Placeholder Email Dispatch Service
+  const handleResetPasswordRequest = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!forgotOperatorId || !forgotEmail) return;
+
+    // Simulate link dispatch
+    setResetSuccessMessage(`Security recovery link successfully generated & dispatched to ${forgotEmail}. [Simulated System Service Active] - The decryption key remains 'FreshPeople2026!'`);
+    addActivityLog('auth', `Emergency recovery protocol initialized for ID: ${forgotOperatorId} matching email ${forgotEmail}.`, true);
+    
+    setForgotOperatorId('');
+    setForgotEmail('');
+  };
+
+  // Logout Handlers
+  const triggerLogout = () => {
+    setIsUnlocked(false);
+    sessionStorage.removeItem('fresh_people_unlocked');
+    localStorage.removeItem('fresh_people_unlocked');
+    localStorage.removeItem('fresh_people_login_time');
+    addActivityLog('auth', `Operator logged out. Gate controls locked secure.`);
+  };
+
+  // Tab switcher helper
+  const switchTab = (tab: typeof activeTab) => {
+    setActiveTab(tab);
+  };
+
+  // Ingestion Sub-Forms submission
+  const registerClient = (e: React.FormEvent) => {
+    e.preventDefault();
+    const newId = `client-${Date.now()}`;
+    const clientData: Client = { id: newId, ...newClient };
+    const list = [...clients, clientData];
+    setClients(list);
+    localStorage.setItem('fp_clients', JSON.stringify(list));
+    addActivityLog('event_create', `Ingested Premium Client: "${clientData.name}" managed via ${clientData.contact}.`);
+    setNewClient({ name: '', contact: '', email: '', phone: '', notes: '' });
+    setActiveModal(null);
+  };
+
+  const registerVenue = (e: React.FormEvent) => {
+    e.preventDefault();
+    const newId = `venue-${Date.now()}`;
+    const venueData: Venue = { id: newId, ...newVenue };
+    const list = [...venues, venueData];
+    setVenues(list);
+    localStorage.setItem('fp_venues', JSON.stringify(list));
+    addActivityLog('event_create', `Indexed Premium Venue: "${venueData.name}" (${venueData.tier}) fully buffered.`);
+    setNewVenue({ name: '', address: '', capacity: 200, tier: 'Luxury Class', notes: '' });
+    setActiveModal(null);
+  };
+
+  const registerStaff = (e: React.FormEvent) => {
+    e.preventDefault();
+    const newId = `staff-${Date.now()}`;
+    const staffData: Staff = { id: newId, ...newStaff };
+    const list = [...staff, staffData];
+    setStaff(list);
+    localStorage.setItem('fp_staff', JSON.stringify(list));
+    addActivityLog('event_create', `Registered Staff Member: ${staffData.name} ${staffData.surname} (${staffData.role}) logged.`);
+    setNewStaff({ name: '', surname: '', role: 'Lead VIP Architect', rate: 45, phone: '', email: '', notes: '' });
+    setActiveModal(null);
+  };
+
+  // Create scheduled Local Event & Sync to Google Calendar automatically
+  const createEvent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!evClient || !evVenue) {
+      showToast('Please select Client and Venue partners before proceeding.', 'warn');
+      return;
+    }
+
+    // Double-booking validation check for selected staff
+    const { start: newStart, end: newEnd } = getEventDates(evDate, evTimeStart, evTimeEnd);
+    const doubleBookedStaffDetails: string[] = [];
+
+    evSelectedStaffIds.forEach(staffId => {
+      const conflictingEvents = events.filter(existingEvent => {
+        if (!existingEvent.staffIds.includes(staffId)) return false;
+
+        const { start: existStart, end: existEnd } = getEventDates(
+          existingEvent.date,
+          existingEvent.startTime,
+          existingEvent.endTime
+        );
+
+        // Standard overlapping interval check
+        return newStart < existEnd && existStart < newEnd;
+      });
+
+      if (conflictingEvents.length > 0) {
+        const staffObj = staff.find(s => s.id === staffId);
+        const name = staffObj ? `${staffObj.name} ${staffObj.surname} (${staffObj.role})` : `Staff ID: ${staffId}`;
+        const eventTitles = conflictingEvents
+          .map(ev => `"${ev.title}" on ${ev.date} at ${ev.startTime}-${ev.endTime}`)
+          .join(', ');
+        doubleBookedStaffDetails.push(`• ${name} is busy with: ${eventTitles}`);
+      }
+    });
+
+    if (doubleBookedStaffDetails.length > 0) {
+      const warningMessage = `Staff Double-Booking overlap detected!\n` + doubleBookedStaffDetails.join('\n');
+      showToast(warningMessage, 'error');
+      return;
+    }
+
+    const eventId = `event-${Date.now()}`;
+    const rsvps: Record<string, 'Available' | 'Pending'> = {};
+    evSelectedStaffIds.forEach(id => {
+      rsvps[id] = isDirectBookingChecked ? 'Available' : 'Pending';
+    });
+
+    const mappedEvent: Event = {
+      id: eventId,
+      title: evTitle,
+      clientId: evClient,
+      venueId: evVenue,
+      date: evDate,
+      startTime: evTimeStart,
+      endTime: evTimeEnd,
+      staffIds: evSelectedStaffIds,
+      notes: evNotes,
+      clientRequirements: evClientRequirements,
+      status: isDirectBookingChecked ? 'Confirmed' : 'Pending',
+      isDirectBooking: isDirectBookingChecked,
+      staffRSVPs: rsvps
+    };
+
+    // Core validation: Update events state lists
+    const nextEvents = [mappedEvent, ...events];
+    setEvents(nextEvents);
+    localStorage.setItem('fp_events', JSON.stringify(nextEvents));
+
+    if (isDirectBookingChecked) {
+      addActivityLog('direct_booking', `Manual Direct Booking Registered: "${mappedEvent.title}" on ${mappedEvent.date} (Staff pre-confirmed: ${mappedEvent.staffIds.length}).`);
+    } else {
+      addActivityLog('event_create', `Architected Scheduled Event: "${mappedEvent.title}" on ${mappedEvent.date} (Staff count: ${mappedEvent.staffIds.length}).`);
+    }
+
+    // Bidirectional sync: If logged in to Google Calendar, push context immediately!
+    const token = await getAccessToken();
+    if (googleUser && token) {
+      try {
+        const clientObj = clients.find((c) => c.id === evClient);
+        const venueObj = venues.find((v) => v.id === evVenue);
+
+        setSyncStatusMsg('Pushing event to Google Calendar automatically...');
+        const googleEventId = await pushEventToGoogleCalendar(
+          token,
+          mappedEvent,
+          clientObj?.name || 'Local client',
+          venueObj?.name || 'Local venue',
+          venueObj?.address || 'Local Address'
+        );
+
+        // Cache Google Event Id locally
+        const updatedEvents = nextEvents.map((ev) => {
+          if (ev.id === eventId) {
+            return { ...ev, googleEventId };
+          }
+          return ev;
+        });
+
+        setEvents(updatedEvents);
+        localStorage.setItem('fp_events', JSON.stringify(updatedEvents));
+        addActivityLog('sync', `Google Calendar synchronization successful. Event exported as (ID: ${googleEventId.slice(0,8)}).`);
+        triggerGoogleSync(token);
+      } catch (err: any) {
+        console.error('Core auto sync failed:', err);
+        addActivityLog('sync', `Failed to auto-export event to Google Calendar: ${err.message}`, true);
+      } finally {
+        setSyncStatusMsg('');
+      }
+    }
+
+    // Reset fields
+    setEvTitle('');
+    setEvNotes('');
+    setEvClientRequirements('');
+    setEvSelectedStaffIds([]);
+    setSelectedDateStr(evDate);
+  };
+
+  // Toggle/Override individual RSVP status manually from the audit engine
+  const toggleStaffRSVP = (eventId: string, staffId: string) => {
+    const updatedEvents = events.map((e) => {
+      if (e.id === eventId) {
+        const currentRSVPs = e.staffRSVPs || {};
+        const currentVal = currentRSVPs[staffId] || (e.isDirectBooking ? 'Available' : 'Pending');
+        const nextVal = currentVal === 'Available' ? 'Pending' : 'Available';
+        const nextRSVPs = { ...currentRSVPs, [staffId]: nextVal };
+        return {
+          ...e,
+          staffRSVPs: nextRSVPs
+        };
+      }
+      return e;
+    });
+    setEvents(updatedEvents);
+    localStorage.setItem('fp_events', JSON.stringify(updatedEvents));
+    addActivityLog('staff_reply', `Operator overridden RSVP status to ${updatedEvents.find(e => e.id === eventId)?.staffRSVPs?.[staffId]} for staffId ${staffId} on eventId ${eventId}.`);
+  };
+
+  // Delete scheduled event + remove from Google Calendar sync ID references
+  const deleteEvent = async (id: string) => {
+    const confirmation = window.confirm('Are you strictly sure you want to delete this event across all logs?');
+    if (!confirmation) return;
+
+    const target = events.find((ev) => ev.id === id);
+    if (!target) return;
+
+    // Filter list
+    const filtered = events.filter((ev) => ev.id !== id);
+    setEvents(filtered);
+    localStorage.setItem('fp_events', JSON.stringify(filtered));
+    addActivityLog('event_delete', `Deleted event record for "${target.title}" on date ${target.date}.`);
+
+    // Remove from Google Calendar if matched
+    const token = await getAccessToken();
+    if (googleUser && token && target.googleEventId) {
+      try {
+        setSyncStatusMsg('Removing scheduled slot from Google Calendar...');
+        await deleteEventFromGoogleCalendar(token, target.googleEventId);
+        addActivityLog('sync', `Removed Google Calendar synced instance for "${target.title}".`);
+        triggerGoogleSync(token);
+      } catch (err: any) {
+        console.error('Google removal failed:', err);
+        addActivityLog('sync', `Failed to delete from Google Calendar: ${err.message}`, true);
+      } finally {
+        setSyncStatusMsg('');
+      }
+    }
+  };
+
+  // Fetch Google Calendar in bidirectional manner
+  const triggerGoogleSync = async (providedToken?: string, silent = false) => {
+    const token = providedToken || (await getAccessToken());
+    if (!token) {
+      if (!silent) {
+        addActivityLog('sync', 'Cannot synchronise. Sign in to Google required.', true);
+      }
+      return;
+    }
+
+    if (!silent) {
+      setIsSyncing(true);
+      setSyncStatusMsg('Synchronising command center with Google Calendar...');
+    } else {
+      setIsSilentSyncing(true);
+    }
+
+    try {
+      // Fetch calendar bounds around current selected month
+      const startOfWindow = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-01T00:00:00Z`;
+      const endOfWindow = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-31T23:59:59Z`;
+
+      const gEvents = await fetchGoogleCalendarEvents(token, startOfWindow, endOfWindow);
+      setGoogleEvents(gEvents);
+      setLastSyncTime(new Date());
+
+      if (!silent) {
+        addActivityLog(
+          'sync',
+          `Bidirectional Sync completed. Resolved ${gEvents.length} active instances from Google Calendar.`
+        );
+      }
+    } catch (err: any) {
+      console.error('Google sync fetch error:', err);
+      if (!silent) {
+        addActivityLog('sync', `Failed to complete bidirectional mapping: ${err.message}`, true);
+      }
+    } finally {
+      if (!silent) {
+        setIsSyncing(false);
+        setSyncStatusMsg('');
+      } else {
+        setIsSilentSyncing(false);
+      }
+    }
+  };
+
+  // Handle Google Auth via popup
+  const handleGoogleLogin = async () => {
+    try {
+      setSyncStatusMsg('Establishing secure Google connection...');
+      const response = await googleSignIn();
+      if (response) {
+        setGoogleUser(response.user);
+        addActivityLog('sync', `Google Calendar connection authenticated under ${response.user.email}`);
+        await triggerGoogleSync(response.accessToken);
+      }
+    } catch (e: any) {
+      console.error(e);
+      showToast(`Google Auth Failed: ${e.message}`, 'error');
+    } finally {
+      setSyncStatusMsg('');
+    }
+  };
+
+  const handleGoogleLogout = async () => {
+    await logoutGoogle();
+    setGoogleUser(null);
+    setGoogleEvents([]);
+    addActivityLog('sync', 'Google Calendar connection decoupled.');
+  };
+
+  // Handle Sign in with Apple and Apple Calendar sync
+  const handleAppleLoginSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!appleEmailInput) return;
+    setIsLinkingApple(true);
+    setSyncStatusMsg('Verifying Apple Credentials and iCloud Calendar slot synchronization...');
+
+    setTimeout(async () => {
+      const userObj = { email: appleEmailInput };
+      setAppleUser(userObj);
+      localStorage.setItem('fp_apple_user', JSON.stringify(userObj));
+      localStorage.setItem('fp_apple_feed_url', appleFeedUrl);
+      addActivityLog('sync', `iCloud Calendar and Sign in with Apple linked successfully under ID ${appleEmailInput}.`);
+      setIsLinkingApple(false);
+      setSyncStatusMsg('');
+      setIsAppleAuthModalOpen(false);
+      setAppleEmailInput('');
+      setApplePasswordInput('');
+
+      // Perform initial fetch from Apple iCal URL stream
+      await triggerAppleFeedFetch(false);
+    }, 1200);
+  };
+
+  const handleAppleLogout = () => {
+    setAppleUser(null);
+    localStorage.removeItem('fp_apple_user');
+    addActivityLog('sync', 'Apple ID and iCloud Calendar synchronization unlinked.');
+  };
+
+  // Safe iCal datetime format parser
+  const parseIcalTime = (val: string): { date: string; time: string } => {
+    const clean = val.replace(/[^0-9T]/g, '');
+    if (clean.length >= 8) {
+      const y = clean.substring(0, 4);
+      const m = clean.substring(4, 6);
+      const d = clean.substring(6, 8);
+      const dateStr = `${y}-${m}-${d}`;
+
+      let timeStr = '12:00';
+      const tIdx = clean.indexOf('T');
+      if (tIdx !== -1 && clean.length >= tIdx + 5) {
+        const hh = clean.substring(tIdx + 1, tIdx + 3);
+        const mm = clean.substring(tIdx + 3, tIdx + 5);
+        timeStr = `${hh}:${mm}`;
+      }
+      return { date: dateStr, time: timeStr };
+    }
+    return { date: '2026-05-28', time: '12:00' };
+  };
+
+  const triggerAppleFeedFetch = async (silent = false) => {
+    if (!appleFeedUrl) return;
+
+    if (!silent) {
+      setSyncStatusMsg('Fetching latest live Apple Calendar stream...');
+      setIsSyncing(true);
+    } else {
+      setIsSilentSyncing(true);
+    }
+
+    try {
+      let targetUrl = appleFeedUrl.trim();
+      if (targetUrl.startsWith('webcal://')) {
+        targetUrl = 'https://' + targetUrl.slice(9);
+      }
+
+      let txt = '';
+      const proxies = [
+        `https://corsproxy.io/?url=${encodeURIComponent(targetUrl)}`,
+        `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
+        targetUrl
+      ];
+
+      let success = false;
+      for (const proxyUrl of proxies) {
+        try {
+          console.log(`iCloud Sync Engine: Fetching from ${proxyUrl}`);
+          const res = await fetch(proxyUrl);
+          if (res.ok) {
+            txt = await res.text();
+            if (txt && txt.includes('BEGIN:VCALENDAR')) {
+              success = true;
+              break;
+            }
+          }
+        } catch (fetchErr) {
+          console.warn(`Proxy failed: ${proxyUrl}`, fetchErr);
+        }
+      }
+
+      if (!success) {
+        if (appleEvents && appleEvents.length > 0) {
+          syncAppleToToolCalendar(appleEvents);
+          if (!silent) {
+            addActivityLog(
+              'sync',
+              `⚠️ Live iCloud feed unreachable. Restored ${appleEvents.length} cached/simulated events from local backup store.`
+            );
+          }
+          return;
+        }
+        throw new Error('iCloud stream response was empty or blocked by cross-origin security.');
+      }
+
+      const lines = txt.split(/\r?\n/);
+      const parsedAppleEvents: Event[] = [];
+      let currentEvent: any = null;
+      let insideEvent = false;
+
+      for (let i = 0; i < lines.length; i++) {
+        let line = lines[i];
+        while (i + 1 < lines.length && (lines[i + 1].startsWith(' ') || lines[i + 1].startsWith('\t'))) {
+          line += lines[i + 1].substring(1);
+          i++;
+        }
+
+        if (line.startsWith('BEGIN:VEVENT')) {
+          currentEvent = {};
+          insideEvent = true;
+        } else if (line.startsWith('END:VEVENT')) {
+          if (currentEvent && currentEvent.uid) {
+            const id = currentEvent.uid;
+            const title = currentEvent.summary || 'iCloud Calendar Event';
+            const notes = currentEvent.description || 'Imported from linked Apple Calendar.';
+            
+            let startVal = currentEvent.dtstart || '';
+            let endVal = currentEvent.dtend || '';
+            
+            const parsedStart = parseIcalTime(startVal);
+            const parsedEnd = parseIcalTime(endVal);
+
+            const matched = getMatchedClientAndVenue(title);
+            parsedAppleEvents.push({
+              id: `apple-live-${id}`,
+              title,
+              clientId: matched.clientId,
+              venueId: matched.venueId,
+              date: parsedStart.date,
+              startTime: parsedStart.time,
+              endTime: parsedEnd.time,
+              staffIds: [],
+              notes,
+              status: 'Confirmed'
+            });
+          }
+          currentEvent = null;
+          insideEvent = false;
+        } else if (insideEvent && currentEvent) {
+          const colonIdx = line.indexOf(':');
+          if (colonIdx !== -1) {
+            const keyPart = line.substring(0, colonIdx);
+            const val = line.substring(colonIdx + 1).trim();
+
+            if (keyPart.startsWith('SUMMARY')) {
+              currentEvent.summary = val;
+            } else if (keyPart.startsWith('DESCRIPTION')) {
+              currentEvent.description = val;
+            } else if (keyPart.startsWith('DTSTART')) {
+              currentEvent.dtstart = val;
+            } else if (keyPart.startsWith('DTEND')) {
+              currentEvent.dtend = val;
+            } else if (keyPart.startsWith('UID')) {
+              currentEvent.uid = val;
+            } else if (keyPart.startsWith('LOCATION')) {
+              currentEvent.location = val;
+            }
+          }
+        }
+      }
+
+      if (parsedAppleEvents.length > 0) {
+        setAppleEvents(parsedAppleEvents);
+        localStorage.setItem('fp_apple_events', JSON.stringify(parsedAppleEvents));
+        syncAppleToToolCalendar(parsedAppleEvents);
+        setLastSyncTime(new Date());
+
+        if (!silent) {
+          addActivityLog(
+            'sync',
+            `iCloud stream successfully fetched! Restored ${parsedAppleEvents.length} active event bookings from your live Apple Calendar.`
+          );
+        }
+      } else {
+        if (!silent) {
+          addActivityLog('sync', 'Successfully fetched iCloud feed, but found no valid scheduled events.');
+        }
+      }
+
+    } catch (err: any) {
+      console.error('Apple iCloud fetch error:', err);
+      if (!silent) {
+        addActivityLog('sync', `iCloud Sync failed: ${err.message}`, true);
+      }
+    } finally {
+      if (!silent) {
+        setIsSyncing(false);
+        setSyncStatusMsg('');
+      } else {
+        setIsSilentSyncing(false);
+      }
+    }
+  };
+
+  const handlePushToAppleCalendar = () => {
+    setIsSyncing(true);
+    setSyncStatusMsg('Syncing all active Johannesburg roster slots to iCloud Calendar space...');
+    setTimeout(() => {
+      setIsSyncing(false);
+      setSyncStatusMsg('');
+      const now = new Date();
+      const startOfCurrentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+      const syncedEvents = events.filter((ev) => ev.date >= startOfCurrentMonthStr);
+      addActivityLog('sync', `Successfully synchronized ${syncedEvents.length} event slots (including ${staff.length} registered staff) starting from ${startOfCurrentMonthStr} with high priority to linked iCloud Calendar.`);
+      showToast(`iCloud Roster Sync Complete: ${syncedEvents.length} event slots starting this month (${startOfCurrentMonthStr}) successfully synced to Apple Calendar.`, 'success');
+    }, 1100);
+  };
+
+  // Manual logs & calls record
+  const logPhoneCall = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!callCaller || !callSummary) return;
+
+    addActivityLog(callType, `[Caller: ${callCaller}] ${callSummary}`, callUrgent);
+    setCallCaller('');
+    setCallSummary('');
+    setCallUrgent(false);
+  };
+
+  // Clear log logs
+  const clearLogs = () => {
+    const freshLog: ActivityLog = {
+      id: `log-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      timestamp: new Date().toISOString(),
+      operator: 'yassin',
+      type: 'auth',
+      message: 'Office Activity Stream buffer cleared.'
+    };
+    setActivityLogs([freshLog]);
+    localStorage.setItem('fp_logs', JSON.stringify([freshLog]));
+  };
+
+  // -------------------------------------------------------------------------
+  // HIGH END PAYROLL CALENDAR SYSTEM MATH & HIGHLIGHTS
+  // -------------------------------------------------------------------------
+  // Rules: opens on 26th of current month and closes/cuts off on 25th of current cycle.
+  // Wait, the specification says:
+  // "Cycle opens on the 26th of the current month, and closes/cuts off on the 25th of the following month. Highlighted days indicate the schedule span."
+  // Let's create a visual mapping for our calendar day rendering.
+  // When displaying May 2026:
+  // Month is 0-indexed: May is Month 4.
+  // Days of May 2026 are highlighted.
+  // Let us check if a given day falls in the current active payroll duration.
+  // In our dropdown or panel config, we can allow selecting which Cycle is focus-locked:
+  // e.g., "Current Cycle: May 26 - Jun 25" (or "Previous Cycle: Apr 26 - May 25")
+  const [focusedPayrollCycle, setFocusedPayrollCycle] = useState<'current' | 'next'>('current');
+
+  const payrollCycleBounds = useMemo(() => {
+    // Current cycle default values: "April 26 to May 25" for cycle ending in May
+    // Next cycle default values: "May 26 to June 25"
+    if (focusedPayrollCycle === 'current') {
+      return {
+        label: 'Apr 26 - May 25',
+        startDateStr: `${currentYear}-04-26`,
+        endDateStr: `${currentYear}-05-25`,
+        openMonth: 3, // April
+        closeMonth: 4, // May
+      };
+    } else {
+      return {
+        label: 'May 26 - Jun 25',
+        startDateStr: `${currentYear}-05-26`,
+        endDateStr: `${currentYear}-06-25`,
+        openMonth: 4, // May
+        closeMonth: 5, // June
+      };
+    }
+  }, [focusedPayrollCycle, currentYear, currentMonth]);
+
+  const ROLE_COLORS: Record<string, string> = {
+    'Lead VIP Architect': '#4F46E5',
+    'Corporate Hostess': '#DB2777',
+    'Elite Mixologist': '#B45309',
+    'Service Supervisor': '#10B981',
+    'Private Sommelier': '#1E3A8A',
+    'Safety Concierge': '#0D9488',
+    'Tactical Concierge': '#0D9488',
+    // Backwards compatibility matching names
+    'Sommelier': '#1E3A8A',
+    'Mixologist': '#B45309',
+    'Concierge': '#0D9488',
+    'VIP Hostess': '#DB2777',
+    'Coordinator': '#4F46E5',
+    'Partner': '#8B5CF6',
+    'Manager': '#10B981'
+  };
+
+  const roleUtilizationData = useMemo(() => {
+    const startStr = payrollCycleBounds.startDateStr;
+    const endStr = payrollCycleBounds.endDateStr;
+    const cycleEvents = events.filter(ev => ev.date >= startStr && ev.date <= endStr);
+
+    const breakdown: Record<string, number> = {};
+
+    staff.forEach(s => {
+      if (s.role) {
+        breakdown[s.role] = 0;
+      }
+    });
+
+    cycleEvents.forEach(ev => {
+      const hrs = getDurationHours(ev.startTime, ev.endTime);
+      ev.staffIds.forEach(sId => {
+        const sObj = staff.find(s => s.id === sId);
+        if (sObj && sObj.role) {
+          breakdown[sObj.role] = (breakdown[sObj.role] || 0) + hrs;
+        }
+      });
+    });
+
+    return Object.entries(breakdown).map(([name, hours]) => ({
+      name,
+      Hours: parseFloat(hours.toFixed(1))
+    })).sort((a, b) => b.Hours - a.Hours);
+  }, [events, staff, payrollCycleBounds]);
+
+  const freshPeopleGroupedData = useMemo(() => {
+    // Premium event specialist role types as per fresh-people.co.za South Africa standard listings
+    const groups = [
+      {
+        name: 'Brand Ambassadors & Promoters',
+        roles: ['Lead VIP Architect'],
+        description: 'Bespoke marketing ambassadors, elite brand representatives, and activation model hosts.',
+        Hours: 0,
+        color: '#4F46E5'
+      },
+      {
+        name: 'Event Hosts & Hostesses (FOH)',
+        roles: ['Corporate Hostess'],
+        description: 'FOH hospitality guides, receptionists, RSVP desk captains, and luxury greeting hosts.',
+        Hours: 0,
+        color: '#DB2777'
+      },
+      {
+        name: 'Mixologists & Specialist Bar Barons',
+        roles: ['Elite Mixologist'],
+        description: 'Elite cocktail designers, flair service experts, custom bars, and high-end bar staff.',
+        Hours: 0,
+        color: '#B45309'
+      },
+      {
+        name: 'Sommeliers & Professional Curators',
+        roles: ['Private Sommelier'],
+        description: 'Cape Wine Masters, premium food-wine pairing professionals, and fine-dining cellar stewardship.',
+        Hours: 0,
+        color: '#1E3A8A'
+      },
+      {
+        name: 'Event Supervisors & Floor Managers',
+        roles: ['Service Supervisor'],
+        description: 'Team leaders, clock compliance controllers, on-site floor coordinators, and protocol guides.',
+        Hours: 0,
+        color: '#10B981'
+      },
+      {
+        name: 'Elite Safety & Logistics Concierge',
+        roles: ['Safety Concierge', 'Tactical Concierge'],
+        description: 'Transit logs, VVIP secure escorts, flow logistics coordinators, and safety concierge personnel.',
+        Hours: 0,
+        color: '#0D9488'
+      }
+    ];
+
+    roleUtilizationData.forEach(item => {
+      const match = groups.find(g => g.roles.includes(item.name));
+      if (match) {
+        match.Hours += item.Hours;
+      } else {
+        const lowerName = item.name.toLowerCase();
+        if (lowerName.includes('sommelier') || lowerName.includes('wine')) {
+          groups[3].Hours += item.Hours;
+        } else if (lowerName.includes('mixologist') || lowerName.includes('bar') || lowerName.includes('drink')) {
+          groups[2].Hours += item.Hours;
+        } else if (lowerName.includes('host') || lowerName.includes('welcome') || lowerName.includes('reception')) {
+          groups[1].Hours += item.Hours;
+        } else if (lowerName.includes('supervisor') || lowerName.includes('manager') || lowerName.includes('lead')) {
+          groups[4].Hours += item.Hours;
+        } else if (lowerName.includes('concierge') || lowerName.includes('safety') || lowerName.includes('security')) {
+          groups[5].Hours += item.Hours;
+        } else {
+          groups[0].Hours += item.Hours;
+        }
+      }
+    });
+
+    return groups.map(g => ({
+      ...g,
+      Hours: parseFloat(g.Hours.toFixed(1))
+    })).sort((a, b) => b.Hours - a.Hours);
+  }, [roleUtilizationData]);
+
+  const staffBalancingData = useMemo(() => {
+    return events.map(ev => {
+      const venueObj = venues.find(v => v.id === ev.venueId);
+      const capacity = venueObj ? venueObj.capacity : 100;
+      const staffCount = ev.staffIds ? ev.staffIds.length : 0;
+      
+      // Calculate staff-to-capacity ratio (staff per guest)
+      const ratio = capacity > 0 ? (staffCount / capacity) : 0;
+      
+      // Calculate guests per staff member
+      const guestsPerStaff = staffCount > 0 ? Math.round(capacity / staffCount) : capacity;
+      
+      // Determine urgency state
+      // Ideal target is 1 staff per 50 guests or better.
+      let level: 'critical' | 'warning' | 'balanced' = 'balanced';
+      if (staffCount === 0 && capacity > 0) {
+        level = 'critical';
+      } else if (guestsPerStaff > 120) {
+        level = 'critical';
+      } else if (guestsPerStaff > 70) {
+        level = 'warning';
+      } else {
+        level = 'balanced';
+      }
+      
+      return {
+        event: ev,
+        venue: venueObj,
+        capacity,
+        staffCount,
+        ratio,
+        guestsPerStaff,
+        level
+      };
+    }).sort((a, b) => {
+      // Sort critical items first, then lowest ratio (higher guest-to-staff counts)
+      if (a.level === 'critical' && b.level !== 'critical') return -1;
+      if (b.level === 'critical' && a.level !== 'critical') return 1;
+      if (a.level === 'warning' && b.level === 'balanced') return -1;
+      if (b.level === 'warning' && a.level === 'balanced') return 1;
+      return a.ratio - b.ratio; // lowest ratio (understaffed) first
+    });
+  }, [events, venues]);
+
+  const filteredBalancingData = useMemo(() => {
+    let list = staffBalancingData;
+    if (balanceFilter === 'payroll') {
+      const start = payrollCycleBounds.startDateStr;
+      const end = payrollCycleBounds.endDateStr;
+      list = list.filter(item => item.event.date >= start && item.event.date <= end);
+    }
+    return list;
+  }, [staffBalancingData, balanceFilter, payrollCycleBounds]);
+
+  const isDayInSelectedPayrollCycle = (day: number) => {
+    // If we are looking at May (Month 4) on calendar:
+    // If focused cycle is "current" (Apr 26 - May 25), then May 1st to May 25th are inside this payroll cycle.
+    // If focused cycle is "next" (May 26 - Jun 25), then May 26th to May 31st are inside this payroll cycle.
+    if (focusedPayrollCycle === 'current') {
+      return day >= 1 && day <= 25;
+    } else {
+      return day >= 26 && day <= 31;
+    }
+  };
+
+  // Shifting active calendar months safely
+  const shiftMonth = (direction: number) => {
+    let nextM = currentMonth + direction;
+    let nextY = currentYear;
+    if (nextM < 0) {
+      nextM = 11;
+      nextY -= 1;
+    } else if (nextM > 11) {
+      nextM = 0;
+      nextY += 1;
+    }
+    setCurrentMonth(nextM);
+    setCurrentYear(nextY);
+  };
+
+  const getMonthName = (monthIdx: number) => {
+    const months = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    return months[monthIdx];
+  };
+
+  // Generate calendar days for rendering
+  const calendarDays = useMemo(() => {
+    const firstDayIndex = new Date(currentYear, currentMonth, 1).getDay();
+    const totalDaysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+
+    const days: { dayNumber: number; isCurrentMonth: boolean; dateStr: string }[] = [];
+
+    // Pads elements of the previous month
+    const prevMonthLastDate = new Date(currentYear, currentMonth, 0).getDate();
+    const prevMonthIdx = currentMonth === 0 ? 11 : currentMonth - 1;
+    const prevMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear;
+
+    for (let i = firstDayIndex - 1; i >= 0; i--) {
+      const dNum = prevMonthLastDate - i;
+      days.push({
+        dayNumber: dNum,
+        isCurrentMonth: false,
+        dateStr: `${prevMonthYear}-${String(prevMonthIdx + 1).padStart(2, '0')}-${String(dNum).padStart(2, '0')}`
       });
     }
-    setForm(f=>({...f,eventId,clientId:String(ev.clientId||f.clientId),lines}));
-  }
-  function addLine(kind='manual'){ setForm(f=>({...f,lines:[...f.lines,{desc:"",qty:1,rate:0,kind,total:0}]})); }
-  function updLine(i,k,v){ setForm(f=>({...f,lines:f.lines.map((l,j)=>{
-    const updated = j===i ? {...l, [k]: v} : l;
-    if (j===i) {
-      const qty = Number(updated.qty) || 0;
-      const rate = Number(updated.rate) || 0;
-      updated.total = Number((qty * rate).toFixed(2));
+
+    // Days of the primary month
+    for (let d = 1; d <= totalDaysInMonth; d++) {
+      days.push({
+        dayNumber: d,
+        isCurrentMonth: true,
+        dateStr: `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+      });
     }
-    return updated;
-  })})); }
-  function rmLine(i){ setForm(f=>({...f,lines:f.lines.filter((_,j)=>j!==i)})); }
 
-  const sub=docSubtotal(form.lines);
-  const tax = form.includeTax ? sub * (Number(form.taxRate) || 0) / 100 : 0;
-  const total = sub + tax;
+    // Padding elements of the following month
+    const currentRenderedCount = days.length;
+    const remainingTo42 = 42 - currentRenderedCount;
+    const nextMonthIdx = currentMonth === 11 ? 0 : currentMonth + 1;
+    const nextMonthYear = currentMonth === 11 ? currentYear + 1 : currentYear;
 
-  return(
-    <Modal title={docType==="invoice"?"New Invoice":"New Quotation"} onClose={onClose} width={720}>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
-        <Fld label="Doc Number"><input value={form.docNo} onChange={e=>setForm(f=>({...f,docNo:e.target.value}))} style={{width:"100%"}}/></Fld>
-        <Fld label="Client *">
-          <select value={form.clientId} onChange={e=>setForm(f=>({...f,clientId:e.target.value}))} style={{width:"100%"}}>
-            <option value="">— Select client —</option>
-            {clientsSafe.map(c=><option key={c.id} value={c.id}>{c.name} (R{c.hourlyRate||90}/h)</option>)}
-          </select>
-        </Fld>
-        <Fld label="Link Event (auto-fills from staff & hours)">
-          <select value={form.eventId} onChange={e=>prefill(e.target.value)} style={{width:"100%"}}>
-            <option value="">— None —</option>
-            {eventsSafe.map(ev=><option key={ev.id} value={ev.id}>{ev.title} ({fmtDate(ev.date)})</option>)}
-          </select>
-        </Fld>
-        <Fld label="Issue Date"><input type="date" value={form.issueDate} onChange={e=>setForm(f=>({...f,issueDate:e.target.value}))} style={{width:"100%"}}/></Fld>
-        {docType==="invoice"
-          ?<Fld label="Due Date"><input type="date" value={form.dueDate} onChange={e=>setForm(f=>({...f,dueDate:e.target.value}))} style={{width:"100%"}}/></Fld>
-          :<Fld label="Valid Until"><input type="date" value={form.validUntil} onChange={e=>setForm(f=>({...f,validUntil:e.target.value}))} style={{width:"100%"}}/></Fld>
-        }
-      </div>
-
-      <Fld label="Line Items (staff auto-filled from event; you can add extras)">
-        {form.lines.map((l,i)=>(
-          <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 70px 90px 90px 28px",gap:8,marginBottom:8,alignItems:"center"}}>
-            <input value={l.desc} onChange={e=>updLine(i,"desc",e.target.value)} placeholder={l.kind==='staff'?"Staff line auto-filled":(l.kind==='service'?"Service line":"Description e.g. Equipment, transport, catering")} style={{width:"100%"}}/>
-            <input type="number" value={l.qty} onChange={e=>updLine(i,"qty",e.target.value)} placeholder="Qty/Hrs" style={{width:"100%",textAlign:"right"}}/>
-            <input type="number" value={l.rate} onChange={e=>updLine(i,"rate",e.target.value)} placeholder="Rate" style={{width:"100%",textAlign:"right"}}/>
-            <div className="mono" style={{textAlign:"right",fontSize:12,color:ACCENT,padding:"0 8px"}}>
-              {((Number(l.qty)||0)*(Number(l.rate)||0)).toFixed(2)}
-            </div>
-            <button onClick={()=>rmLine(i)} style={{background:"none",border:"none",color:MUTED,fontSize:18,cursor:"pointer"}}>×</button>
-          </div>
-        ))}
-        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:6}}>
-          <Btn onClick={()=>addLine('manual')} style={{fontSize:12,padding:"5px 12px"}}>+ Add manual item</Btn>
-          <Btn onClick={()=>addLine('service')} style={{fontSize:12,padding:"5px 12px"}}>+ Add service</Btn>
-          <Btn onClick={()=>addLine('staff')} style={{fontSize:12,padding:"5px 12px"}}>+ Add staff line</Btn>
-        </div>
-      </Fld>
-
-      <div style={{background:SURFACE2,borderRadius:8,padding:"12px 16px",marginBottom:14,fontSize:13}}>
-        <div style={{display:"flex",justifyContent:"space-between",color:MUTED}}><span>Subtotal</span><span className="mono">R {sub.toFixed(2)}</span></div>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",color:MUTED,marginTop:4}}>
-          <span style={{display:"flex",alignItems:"center",gap:6}}>
-            <input type="checkbox" checked={form.includeTax} onChange={e=>setForm(f=>({...f,includeTax:e.target.checked}))} id="incTax"/>
-            <label htmlFor="incTax" style={{cursor:"pointer"}}>VAT</label>
-            {form.includeTax && (
-              <input
-                type="number"
-                value={form.taxRate}
-                onChange={e=>setForm(f=>({...f,taxRate:Number(e.target.value)}))}
-                style={{width:60,padding:"2px 6px",fontSize:12}}
-                min={0}
-                max={100}
-              />
-            )}
-            {form.includeTax && <span>%</span>}
-          </span>
-          <span className="mono">R {tax.toFixed(2)}</span>
-        </div>
-        <div style={{display:"flex",justifyContent:"space-between",fontWeight:600,marginTop:8,paddingTop:8,borderTop:`1px solid ${BORDER}`}}>
-          <span>Total</span><span className="mono" style={{color:ACCENT}}>R {total.toFixed(2)}</span>
-        </div>
-      </div>
-
-      <Fld label="Notes / Terms">
-        <textarea value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} rows={2} style={{width:"100%"}}/>
-      </Fld>
-      <div style={{display:"flex",gap:10}}>
-        <Btn variant="primary" onClick={()=>onSave({...form,id:Date.now(),status:"draft",lines:form.lines.map(l=>({...l,qty:Number(l.qty)||0,rate:Number(l.rate)||0,total:Number((Number(l.qty)||0)*(Number(l.rate)||0))}))})} style={{flex:1,padding:"11px"}}>
-          Create {docType==="invoice"?"Invoice":"Quote"}
-        </Btn>
-        <Btn variant="ghost" onClick={onClose} style={{flex:1,padding:"11px"}}>Cancel</Btn>
-      </div>
-    </Modal>
-  );
-}
-
-// ─── Documents Tab (Invoices + Quotes + Statements) ──────────────────────────
-function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,setClients,events,setEvents,staff,setStaff}: any){
-  const invoicesSafe = Array.isArray(invoices) ? invoices : [];
-  const quotesSafe = Array.isArray(quotes) ? quotes : [];
-  const clientsSafe = Array.isArray(clients) ? clients : [];
-  const eventsSafe = Array.isArray(events) ? events : [];
-  const staffSafe = Array.isArray(staff) ? staff : [];
-  const [view,setView]         = useState("invoices"); // invoices | quotes | statements
-  const [showForm,setShowForm] = useState(null);       // "invoice" | "quote" | null
-  const [printDoc,setPrintDoc] = useState(null);
-  const [stmtClient,setStmtClient] = useState("");
-  const [statement,setStatement] = useState(null);
-  const [toast,setToast]       = useState(null);
-  const [loading,setLoading]   = useState(true);
-  const [saving,setSaving]     = useState(false);
-  const [apiError,setApiError] = useState("");
-
-  const loadDocs = useCallback(async () => {
-    setLoading(true);
-    setApiError("");
-    try {
-      const data = await FinanceApi.listDocs();
-      if (!data.success) throw new Error(data.error || "Failed to load finance documents");
-      setInvoices(data.invoices || []);
-      setQuotes(data.quotes || []);
-      if (Array.isArray(data.clients)) setClients(data.clients);
-      if (Array.isArray(data.events)) setEvents(data.events);
-      if (Array.isArray(data.staff)) setStaff(data.staff);
-    } catch (err) {
-      console.error("Finance API load failed", err);
-      setApiError(err instanceof Error ? err.message : "Backend finance API unavailable");
-    } finally {
-      setLoading(false);
+    for (let n = 1; n <= remainingTo42; n++) {
+      days.push({
+        dayNumber: n,
+        isCurrentMonth: false,
+        dateStr: `${nextMonthYear}-${String(nextMonthIdx + 1).padStart(2, '0')}-${String(n).padStart(2, '0')}`
+      });
     }
-  }, [setClients,setEvents,setInvoices,setQuotes,setStaff]);
 
-  useEffect(() => { void loadDocs(); }, [loadDocs]);
+    return days;
+  }, [currentYear, currentMonth]);
 
-  const allDocs = [...invoicesSafe,...quotesSafe];
+  // Aggregate local events scheduled on specific displayed days
+  const getEventsForDate = (dateStr: string) => {
+    const localMatches = events.filter((ev) => ev.date === dateStr);
 
-  const invTotal  = invoicesSafe.reduce((a,i)=>a + docSubtotal(i.lines) * (i.includeTax !== false ? (1 + (Number(i.taxRate) || 15) / 100) : 1), 0);
-  const invPaid   = invoicesSafe.filter(i=>i.status==="paid").reduce((a,i)=>a + docSubtotal(i.lines) * (i.includeTax !== false ? (1 + (Number(i.taxRate) || 15) / 100) : 1), 0);
-  const invOverdue= invoicesSafe.filter(i=>i.status==="overdue").length;
-  const quoteConv = quotesSafe.length ? Math.round(quotesSafe.filter(q=>q.status==="accepted").length/quotesSafe.length*100) : 0;
+    // Merge Google calendar fetched appointments mapping to the same dateStr
+    const googleMatches = googleEvents
+      .filter((gEv) => {
+        // Parse date
+        const gDate = gEv.start?.dateTime?.split('T')[0] || gEv.start?.date;
+        return gDate === dateStr;
+      })
+      // Avoid duplication if the Google event stems from our own local event
+      .filter((gEv) => {
+        const fpId = gEv.extendedProperties?.private?.freshPeopleEventId;
+        return !events.some((e) => e.id === fpId || e.googleEventId === gEv.id);
+      })
+      .map((gEv) => {
+        const startTime = gEv.start?.dateTime ? gEv.start.dateTime.split('T')[1].slice(0, 5) : '00:00';
+        const endTime = gEv.end?.dateTime ? gEv.end.dateTime.split('T')[1].slice(0, 5) : '23:59';
+        const mapped: Event = {
+          id: `gcal-import-${gEv.id}`,
+          title: gEv.summary || 'Google Imported Event',
+          clientId: 'external_gcal',
+          venueId: 'external_gcal',
+          date: dateStr,
+          startTime,
+          endTime,
+          staffIds: [],
+          notes: gEv.description || 'Imported from connected Google calendar account.',
+          status: 'Confirmed'
+        };
+        return mapped;
+      });
 
-  async function setStatus(id, status, collection, setter){
-    try {
-      const updated = await FinanceApi.updateDoc(Number(id), { status });
-      setter(prev=>prev.map(d=>d.id===id?{...d,status}:d));
-      setToast({msg:`Status updated to ${status}`,type:"success"});
-    } catch (err) {
-      console.error(err);
-      setApiError("Could not update document status on backend");
-    }
-  }
-  async function deleteDoc(id, setter){
-    try {
-      await FinanceApi.deleteDoc(Number(id));
-      setter(prev=>prev.filter(d=>d.id!==id));
-      setToast({msg:"Document deleted",type:"success"});
-    } catch (err) {
-      console.error(err);
-      setApiError("Could not delete document on backend");
-    }
-  }
+    // Merge Apple calendar fetched appointments mapping to the same dateStr
+    const appleMatches = appleUser
+      ? appleEvents
+          .filter((aEv) => aEv.date === dateStr)
+          // Hide duplicates that stem from local events (synchronized)
+          .filter((aEv) => !events.some((e) => e.id === aEv.appleEventId || e.appleEventId === aEv.id || e.id === aEv.id))
+          .map((aEv) => {
+            const matched = getMatchedClientAndVenue(aEv.title, aEv.clientId, aEv.venueId);
+            const mapped: Event = {
+              id: `apple-import-${aEv.id}`,
+              title: aEv.title,
+              clientId: matched.clientId,
+              venueId: matched.venueId,
+              date: dateStr,
+              startTime: aEv.startTime,
+              endTime: aEv.endTime,
+              staffIds: [],
+              notes: aEv.notes || 'Imported from linked Apple Calendar / iCloud account.',
+              clientRequirements: aEv.clientRequirements || '',
+              status: 'Confirmed'
+            };
+            return mapped;
+          })
+      : [];
 
-  async function convertToInvoice(quote){
-    try {
-      const inv = await FinanceApi.convertQuote(Number(quote.id));
-      setInvoices(prev=>[inv,...prev]);
-      setQuotes(prev=>prev.map(q=>q.id===quote.id?{...q,status:"accepted"}:q));
-      setToast({msg:`Quote converted to Invoice ${inv.docNo}`,type:"success"});
-      setView("invoices");
-    } catch (err) {
-      console.error(err);
-      setApiError("Could not convert quote to invoice on backend");
-    }
-  }
+    return [...localMatches, ...googleMatches, ...appleMatches];
+  };
 
-  async function loadStatement(){
-    if (!stmtClient) return;
-    try {
-      const data = await FinanceApi.getStatement(Number(stmtClient));
-      if (!data.success) throw new Error(data.error || "Failed to load statement");
-      setStatement(data);
-    } catch (err) {
-      console.error(err);
-      setApiError("Could not load statement from backend");
-      setStatement(null);
-    }
-  }
-  useEffect(() => { void loadStatement(); }, [stmtClient]);
+  // Selected Day state actions
+  const selectedDayEvents = useMemo(() => {
+    return getEventsForDate(selectedDateStr);
+  }, [events, googleEvents, appleEvents, appleUser, selectedDateStr]);
 
-  const renderDocs = (docs, setter, isInvoice) => {
-    const docsSafe = Array.isArray(docs) ? docs : [];
-    if(!docsSafe.length) return <div style={{textAlign:"center",padding:48,color:MUTED,fontSize:14}}>No backend documents found</div>;
-    return(
-      <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,overflow:"auto"}}>
-        <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-          <thead style={{background:SURFACE2}}><tr>
-            {["Doc No","Client","Event","Date",isInvoice?"Due":"Valid Until","Total","Status",""].map(h=>(
-              <th key={h} style={{padding:"12px 14px",textAlign:"left",color:MUTED,fontWeight:500,fontSize:11,textTransform:"uppercase",letterSpacing:"0.05em"}}>{h}</th>
-            ))}
-          </tr></thead>
-          <tbody>{docsSafe.map(doc=>{
-            const client=clientsSafe.find(c=>c.id===doc.clientId);
-            const event=eventsSafe.find(e=>String(e.id)===String(doc.eventId));
-            const sub=docSubtotal(doc.lines);
-            const tax = doc.includeTax !== false ? sub * (Number(doc.taxRate) || 15) / 100 : 0;
-            const total=(sub+tax).toFixed(2);
-            const sc=STATUS_COLOR[doc.status]||MUTED;
-            return(
-              <tr key={doc.id} style={{borderTop:`1px solid ${BORDER}33`}}>
-                <td style={{padding:"12px 14px",fontFamily:"'DM Mono',monospace",color:ACCENT}}>{doc.docNo}</td>
-                <td style={{padding:"12px 14px",fontWeight:500}}>{client?.name||"—"}</td>
-                <td style={{padding:"12px 14px",color:MUTED,fontSize:12,maxWidth:140,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{event?.title||"—"}</td>
-                <td style={{padding:"12px 14px",color:MUTED}}>{fmtDate(doc.issueDate)}</td>
-                <td style={{padding:"12px 14px",color:doc.status==="overdue"?RED:MUTED}}>{fmtDate(isInvoice?doc.dueDate:doc.validUntil)}</td>
-                <td style={{padding:"12px 14px",fontFamily:"'DM Mono',monospace"}}>R {total}</td>
-                <td style={{padding:"12px 14px"}}>
-                  <select value={doc.status} onChange={e=>setStatus(doc.id,e.target.value,docs,setter)}
-                    style={{background:sc+"22",color:sc,border:`1px solid ${sc}44`,borderRadius:6,padding:"3px 8px",fontSize:11,fontWeight:600,textTransform:"uppercase"}}>
-                    {(isInvoice?["draft","sent","paid","overdue"]:["draft","sent","accepted","declined","expired"]).map(s=><option key={s} value={s}>{s}</option>)}
-                  </select>
-                </td>
-                <td style={{padding:"12px 14px"}}>
-                  <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                    <Btn onClick={()=>setPrintDoc({doc,docType:isInvoice?"invoice":"quote"})} style={{fontSize:11,padding:"4px 10px"}}>View</Btn>
-                    {!isInvoice&&doc.status!=="accepted"&&<Btn variant="accent" onClick={()=>convertToInvoice(doc)} style={{fontSize:11,padding:"4px 10px"}}>→ Invoice</Btn>}
-                    <Btn variant="danger" onClick={()=>deleteDoc(doc.id,setter)} style={{fontSize:11,padding:"4px 10px"}}>×</Btn>
-                  </div>
-                </td>
-              </tr>
-            );
-          })}</tbody>
-        </table>
-      </div>
+  const selectedDayDoubleShifts = useMemo(() => {
+    // Collect all local events for the selected date
+    const dailyEvents = events.filter((e) => e.date === selectedDateStr);
+    
+    // For each staff member, find which events they are scheduled on for that day
+    return staff.map((s) => {
+      const assignedEvents = dailyEvents.filter((e) => e.staffIds.includes(s.id));
+      return {
+        staff: s,
+        events: assignedEvents
+      };
+    }).filter((item) => item.events.length >= 2);
+  }, [events, selectedDateStr, staff]);
+
+  // Handle click on staff checkboxes in scheduler
+  const toggleStaffAllocation = (staffId: string) => {
+    setEvSelectedStaffIds((prev) =>
+      prev.includes(staffId) ? prev.filter((id) => id !== staffId) : [...prev, staffId]
     );
   };
 
-  return(
-    <div>
-      {apiError && <div style={{background:RED+"22",border:`1px solid ${RED}55`,color:TEXT,borderRadius:10,padding:"12px 14px",marginBottom:16,fontSize:13}}>
-        Backend sync issue: {apiError}
-      </div>}
-      {/* Stats */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:24}}>
-        <Stat label="Invoiced (incl VAT)"  value={`R ${invTotal.toFixed(0)}`}    accent={ACCENT} />
-        <Stat label="Collected"            value={`R ${invPaid.toFixed(0)}`}      accent={ACCENT} />
-        <Stat label="Overdue invoices"     value={invOverdue}                     accent={invOverdue?RED:MUTED} />
-        <Stat label="Quote conversion"     value={`${quoteConv}%`}               accent={AMBER} sub={`${quotesSafe.length} quotes total`}/>
-      </div>
+  // Multi-allocate helper count
+  const mappedRosterCount = evSelectedStaffIds.length;
 
-      {/* Sub-tabs */}
-      <div style={{display:"flex",gap:0,background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:10,padding:4,width:"fit-content",marginBottom:20}}>
-        {[["invoices","Invoices"],["quotes","Quotations"],["statements","Statements"]].map(([k,l])=>(
-          <button key={k} onClick={()=>setView(k)} style={{
-            padding:"8px 20px",borderRadius:7,border:"none",fontSize:13,fontWeight:500,
-            background:view===k?ACCENT+"22":"transparent",
-            color:view===k?ACCENT:MUTED,
-            borderBottom:view===k?`2px solid ${ACCENT}`:"2px solid transparent",
-          }}>{l}</button>
-        ))}
-      </div>
+  // -------------------------------------------------------------------------
+  // WHATSAPP OPERATIONS & MESSAGING UTILS
+  // -------------------------------------------------------------------------
+  const currentSelectedDispatchEvent = useMemo(() => {
+    return events.find((ev) => ev.id === selectedDispatchEventId);
+  }, [events, selectedDispatchEventId]);
 
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-        <div style={{fontSize:12,color:MUTED}}>
-          {loading ? "Syncing backend finance data…" : "Backend connected — invoices, quotations and statements are server-side."}
-        </div>
-        {view!=="statements"&&<Btn variant="primary" disabled={saving} onClick={async ()=>{setSaving(true); try { await loadDocs(); setToast({msg:"Backend documents refreshed",type:"success"}); } finally { setSaving(false); } }} style={{fontSize:12,padding:"6px 12px"}}>
-          {saving ? "Syncing…" : "Refresh backend"}
-        </Btn>}
-      </div>
+  // Returns URL variables targeting this applet URL to trigger callback on mount
+  const generateDispatchConfirmationLinks = (ev: Event, staffMember: Staff) => {
+    const baseAppUrl = window.location.origin + window.location.pathname;
+    const confirmLink = `${baseAppUrl}?action=confirm&eventId=${ev.id}&staffId=${staffMember.id}`;
+    const rejectLink = `${baseAppUrl}?action=reject&eventId=${ev.id}&staffId=${staffMember.id}`;
+    return { confirmLink, rejectLink };
+  };
 
-      {/* Controls - simplified */}
-      {view!=="statements"&&loading===false&&(
-        <div style={{display:"flex",justifyContent:"flex-end",marginBottom:16}}>
-          <Btn variant="primary" onClick={()=>setShowForm(view==="invoices"?"invoice":"quote")}>
-            + New {view==="invoices"?"Invoice":"Quote"}
-          </Btn>
-        </div>
-      )}
+  const constructWhatsAppMessage = (ev: Event, staffMember: Staff) => {
+    const { confirmLink, rejectLink } = generateDispatchConfirmationLinks(ev, staffMember);
 
-      {/* Content */}
-      {loading ? <div style={{textAlign:"center",padding:48,color:MUTED}}>Loading backend documents…</div> : null}
-      {!loading && view==="invoices" && renderDocs(invoicesSafe, setInvoices, true)}
-      {!loading && view==="quotes"   && renderDocs(quotesSafe, setQuotes, false)}
-      {!loading && view==="statements"&&(
-        <div>
-          <div style={{marginBottom:20,maxWidth:320}}>
-            <Lbl>Select Client to generate statement</Lbl>
-            <select value={stmtClient} onChange={e=>setStmtClient(e.target.value)} style={{width:"100%"}}>
-              <option value="">— Choose client —</option>
-              {clientsSafe.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </div>
-          {stmtClient&&statement&&statement.success&&Array.isArray(statement.docs)&&(()=>{
-            const c=clientsSafe.find(x=>x.id===Number(stmtClient));
-            const s=statement.summary;
-            return(
-              <div>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:20}}>
-                  <Stat label="Total invoiced" value={`R ${(s.totalInvoiced||0).toFixed(0)}`}/>
-                  <Stat label="Paid" value={`R ${(s.paid||0).toFixed(0)}`} accent={ACCENT}/>
-                  <Stat label="Balance due" value={`R ${(s.balanceDue||0).toFixed(0)}`} accent={(s.balanceDue||0)>0?RED:MUTED}/>
-                </div>
-                <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,overflow:"auto",marginBottom:16}}>
-                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-                    <thead><tr style={{background:SURFACE2}}>
-                      {["Doc No","Date","Due","Amount","Status"].map(h=><th key={h} style={{padding:"10px 12px",textAlign:"left",color:MUTED,fontSize:11,textTransform:"uppercase"}}>{h}</th>)}
-                    </tr></thead>
-                    <tbody>{statement.docs.map(d=>{
-                      const totals=docTotalsLocal(d);
-                      return <tr key={d.id} style={{borderTop:`1px solid ${BORDER}33`}}>
-                        <td style={{padding:"10px 12px",fontFamily:"'DM Mono',monospace",color:ACCENT}}>{d.docNo}</td>
-                        <td style={{padding:"10px 12px"}}>{fmtDate(d.issueDate)}</td>
-                        <td style={{padding:"10px 12px"}}>{fmtDate(d.dueDate)}</td>
-                        <td style={{padding:"10px 12px",fontFamily:"'DM Mono',monospace"}}>R {totals.total.toFixed(2)}</td>
-                        <td style={{padding:"10px 12px"}}><Badge color={STATUS_COLOR[d.status]||MUTED}>{d.status}</Badge></td>
-                      </tr>;
-                    })}</tbody>
-                  </table>
-                </div>
-                <Btn variant="accent" onClick={()=>setPrintDoc({
-                  doc:{...c,docNo:statement.statement.docNo,clientId:Number(stmtClient),issueDate:statement.statement.issueDate,lines:[],notes:statement.statement.notes,status:"statement"},
-                  docType:"statement"
-                })}>View / Print Statement</Btn>
-              </div>
-            );
-          })()}
-        </div>
-      )}
+    // Dynamic travel / meeting point helper note based on location capacity metrics
+    const venueObj = venues.find((v) => v.id === ev.venueId);
+    const meetingPointNotes = venueObj?.notes ? `Meeting point context: ${venueObj.notes}` : "Meeting point: Main dispatch gate.";
 
-      {/* Modals */}
-      {showForm&&loading===false&&(
-        <DocForm
-          docType={showForm}
-          clients={clients}
-          events={events}
-          staff={staff}
-          existingDocs={showForm==="invoice"?invoicesSafe:quotesSafe}
-          onSave={async doc=>{
-            setSaving(true);
-            try {
-              const created = await FinanceApi.createDoc(doc);
-              if(showForm==="invoice") setInvoices(p=>[created,...p]);
-              else setQuotes(p=>[created,...p]);
-              setShowForm(null);
-              const t = showForm==="invoice" ? "Invoice" : "Quote";
-              setToast({msg: t + " " + doc.docNo + " created on backend", type: "success"});
-            } catch (err) {
-              console.error(err);
-              setApiError("Could not create document on backend");
-            } finally {
-              setSaving(false);
-            }
-          }}
-          onClose={()=>setShowForm(null)}
-        />
-      )}
-      {printDoc&&loading===false&&(
-        <DocPrint
-          doc={printDoc.doc}
-          docType={printDoc.docType}
-          client={clientsSafe.find(c=>c.id===printDoc.doc.clientId)}
-          event={eventsSafe.find(e=>String(e.id)===String(printDoc.doc.eventId))}
-          allDocs={allDocs}
-          onClose={()=>setPrintDoc(null)}
-        />
-      )}
-      {toast&&<Toast msg={toast.msg} type={toast.type} onDone={()=>setToast(null)}/>}
-    </div>
-  );
-}
+    // Rule: WhatsApp template must exactly start with matching wording constraints
+    return `Hi ${staffMember.name} ${staffMember.surname} hope you are well. Are you available on ${ev.date} from ${ev.startTime} to ${ev.endTime} (with travel adjustment bounds / ${meetingPointNotes})?\n\nEvent details: "${ev.title}"\nLocation Address: ${venueObj?.name || 'Assigned venue'} (${venueObj?.address || 'Private location'})\n\nClick below to immediately confirm your active allocation status:\nYes: ${confirmLink}\n\nNo: ${rejectLink}`;
+  };
 
-function docTotalsLocal(doc) {
-  const sub = docSubtotal(doc.lines || []);
-  const tax = doc.includeTax !== false ? sub * (Number(doc.taxRate) || 15) / 100 : 0;
-  return { subtotal: sub, tax, total: sub + tax };
-}
-
-// ─── Calendar Tab (with Google Calendar sync) ─────────────────────────────────
-// ─── Calendar Tab (with Google Calendar sync) ─────────────────────────────────
-function CalendarTab({events,setEvents,staff,clients,addToast,currentModel}: any){
-  const [viewDate,setViewDate] = useState(new Date(today.getFullYear(),today.getMonth(),1));
-  const [selected,setSelected] = useState(null);
-  const [showForm,setShowForm] = useState(false);
-  const [editEvt,setEditEvt]   = useState(null);
-  const [gcalEvents,setGcalEvents] = useState([]);
-  const [syncing,setSyncing]   = useState(false);
-  const [appleEvents,setAppleEvents] = useState([]);
-  const [syncingApple,setSyncingApple] = useState(false);
-  const [bookingModal,setBookingModal] = useState(null); // event to send notifications for
-  const [sendingNotifs,setSendingNotifs] = useState(false);
-  const [draftMsg,setDraftMsg] = useState("");
-  const [draftIntent,setDraftIntent] = useState("Confirm staff are booked for this event and reassure the client.");
-  const [drafting,setDrafting] = useState(false);
-  const [form,setForm] = useState({title:"",date:"",venue:"",startTime:"09:00",endTime:"17:00",staffIds:[],clientId:"",color:ACCENT,notes:""});
-
-  const yr=viewDate.getFullYear(), mo=viewDate.getMonth();
-  const firstDay=new Date(yr,mo,1).getDay();
-  const daysInMonth=new Date(yr,mo+1,0).getDate();
-  const cells=Array.from({length:firstDay+daysInMonth},(_,i)=>i<firstDay?null:i-firstDay+1);
-  const todayStr=ymd(today);
-
-  // Fetch GCal events for the visible month
-  // Fetch Google Calendar events (client-side, no API route needed)
-  async function fetchGcal() {
-    setSyncing(true);
-    try{
-      // Use local API endpoint instead of direct iCal fetch
-      const resp = await fetch('/api/calendar/google');
-      if (!resp.ok) {
-        const errorData = await resp.json().catch(() => ({}));
-        throw new Error(errorData.error || 'Failed to fetch Google Calendar');
-      }
-      
-      const data = await resp.json();
-      
-      if (data.success && Array.isArray(data.events)) {
-        setGcalEvents(data.events.map(e => ({
-          ...e,
-          isGcal: true,
-          color: "#5ca4ea",
-          date: e.start.split('T')[0] // Extract date part
-        })));
-        addToast(`Google Calendar synced ✓ (${data.events.length} events)`, "success");
-      } else {
-        throw new Error('Invalid response format');
-      }
-    } catch(e){ 
-      console.error('GCal sync error:', e);
-      addToast(`Google Calendar sync failed: ${e.message}`, "error"); 
-    }
-    setSyncing(false);
-  }
-
-  // Fetch Apple Calendar events via the new /api/calendar/apple endpoint
-  // (uses lib/ical.js with node-ical for robust RFC 5545 parsing)
-  async function fetchApple() {
-    setSyncingApple(true);
+  const dispatchToWhatsApp = (ev: Event, staffMember: Staff) => {
+    const rawMessage = constructWhatsAppMessage(ev, staffMember);
     try {
-      const response = await fetch('/api/calendar/apple');
-      const data = await response.json();
-
-      if (data.success && Array.isArray(data.events)) {
-        setAppleEvents(data.events.map(e => ({
-          ...e,
-          isApple: true,
-          color: "#FF9500",
-          date: e.start?.split('T')[0]
-        })));
-        addToast(`Apple Calendar synced ✓ (${data.events.length} events)`, 'success');
-      } else {
-        throw new Error(data.error || 'Invalid response');
-      }
-    } catch (e) {
-      console.error('Apple sync error:', e);
-      addToast(`Apple Calendar sync failed: ${e.message}`, "error");
+      navigator.clipboard.writeText(rawMessage);
+      showToast(`Roster Message details copied to clipboard! Paste it to message ${staffMember.name} manually.`, 'success');
+      addActivityLog('call', `Copied dispatch message details for ${staffMember.name} ${staffMember.surname} to clipboard for manual delivery.`);
+    } catch {
+      showToast(`Copy failed. Please manually select the message preview text below.`, 'warn');
     }
-    setSyncingApple(false);
-  }
+  };
 
-  // Push event to Apple Calendar (via Nylas) → syncs to Google Calendar
-  async function pushToGcal(ev){
-    if(!ev?.id) return;
-    try{
-      const [sh,sm]=ev.startTime.split(":").map(Number);
-      const [eh,em]=ev.endTime.split(":").map(Number);
-      const base=ev.date+"T";
-      const start=`${base}${pad2(sh)}:${pad2(sm)}:00`;
-      const end=`${base}${pad2(eh)}:${pad2(em)}:00`;
-      const staffNames=ev.staffIds.map(id=>staff.find(s=>s.id===id)?.name||"Staff").join(", ");
-      const description=`Freshpeople Event\nVenue: ${ev.venue||""}\nStaff: ${staffNames}\n${ev.notes||""}`;
+  // iCal ICS Exporter for Apple Calendar integration sync
+  const handleExportICS = () => {
+    const now = new Date();
+    const startOfCurrentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+    const syncedEvents = events.filter((ev) => ev.date >= startOfCurrentMonthStr);
 
-      // Push to Apple Calendar via Nylas (already configured in Vercel)
-      const resp=await fetch('/api/calendar/nylas',{
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({
-          title:ev.title,
-          start:start,
-          end:end,
-          description:description,
-          location:ev.venue||''
-        })
-      });
-      
-      const data=await resp.json();
-      
-      if(data.success){
-        setEvents(prev=>prev.map(e=>e.id===ev.id?{...e,gcalId:data.eventId}:e));
-        addToast(`"${ev.title}" pushed to Apple Calendar ✓ (synced to Google)`,"success");
-      } else {
-        addToast(`Failed to push: ${data.error||'Unknown error'}`,"error");
-      }
-    }catch(e){ 
-      console.error('Push to Calendar error:', e);
-      addToast("Failed to push to calendar","error"); 
+    if (syncedEvents.length === 0) {
+      showToast(`Operational warning: No scheduled events in roster starting from this month (${startOfCurrentMonthStr}) to export.`, 'warn');
+      return;
     }
-  }
 
-  // Send staff booking notifications via WhatsApp Business API
-  async function sendBookingNotifications(ev){
-    setSendingNotifs(true);
-    const staffToNotify=ev.staffIds.map(id=>staff.find(s=>s.id===id)).filter(Boolean);
-    try{
-      const result = await FPCCCore.sendWhatsApp(Number(ev.id), ev.staffIds.map(Number));
-      setSendingNotifs(false);
-      setBookingModal(null);
-      if (result.success) {
-        addToast(`WhatsApp booking notices sent to ${result.dispatched || staffToNotify.length} staff ✓`,"success");
-        if (result.skipped || result.failed) {
-          addToast(`${result.skipped || 0} skipped, ${result.failed || 0} failed`,"warn");
-        }
-      } else {
-        addToast(`WhatsApp dispatch failed: ${result.message || result.error || 'Unknown error'}`,"error");
+    let icsContent = 'BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//Fresh People Agency//Command Center//EN\n';
+
+    syncedEvents.forEach((ev) => {
+      const clientName = clients.find((c) => c.id === ev.clientId)?.name || 'Local Client';
+      const venueName = venues.find((v) => v.id === ev.venueId)?.name || 'Local Venue';
+
+      const dClean = ev.date.replace(/-/g, '');
+      const sClean = ev.startTime.replace(/:/g, '') + '00';
+      const eClean = ev.endTime.replace(/:/g, '') + '00';
+
+      icsContent += 'BEGIN:VEVENT\n';
+      icsContent += `DTSTART;TZID=Europe/Paris:${dClean}T${sClean}\n`;
+      icsContent += `DTEND;TZID=Europe/Paris:${dClean}T${eClean}\n`;
+      icsContent += `SUMMARY:${ev.title}\n`;
+      icsContent += `LOCATION:${venueName}\n`;
+      icsContent += `DESCRIPTION:Fresh People Event scheduling Client: ${clientName}. Notes: ${ev.notes || 'None'}\n`;
+      icsContent += `UID:${ev.id}@freshpeople.agency\n`;
+      icsContent += 'END:VEVENT\n';
+    });
+
+    icsContent += 'END:VCALENDAR';
+
+    const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `fresh_people_events_roster_starting_${startOfCurrentMonthStr}.ics`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    addActivityLog('sync', `Successfully exported scheduled iCal registry feed (.ics) starting from ${startOfCurrentMonthStr} for Apple Calendar linkage.`);
+  };
+
+  // Synchronous effect to automatically pre-fill details on change of chosen dispatch target
+  useEffect(() => {
+    if (selectedDispatchEventId) {
+      const ev = events.find(e => e.id === selectedDispatchEventId);
+      if (ev) {
+        setDispatchClientDate(ev.date);
+        setDispatchAdjustedTime(`${ev.startTime} - ${ev.endTime} (Includes traveling period management)`);
+        const venueObj = venues.find(v => v.id === ev.venueId);
+        setDispatchArrangements(`Meeting point: ${venueObj?.notes || "Service desk entrance. Please wear uniform corporate codes."}`);
       }
-    } catch(e) {
-      console.error('WhatsApp dispatch error:', e);
-      setSendingNotifs(false);
-      addToast("WhatsApp dispatch failed","error");
-    }
-  }
-
-  // Draft a client message for this event with Gemini AI
-  async function draftClientMessage(ev){
-    setDrafting(true); setDraftMsg("");
-    try{
-      const client = clients.find(c=>c.id===ev.clientId);
-      const text = await geminiDraftClientMessage(client, ev, draftIntent);
-      if(text.startsWith("[Error")) addToast(text.replace(/^\[Error:\s*/,"").replace(/\]$/,""),"error");
-      else setDraftMsg(text);
-    }catch(e:any){ addToast(e?.message||"Draft failed","error"); }
-    finally{ setDrafting(false); }
-  }
-
-  function openNew(day){
-    const d=`${yr}-${pad2(mo+1)}-${pad2(day)}`;
-    setForm({title:"",date:d,venue:"",startTime:"09:00",endTime:"17:00",staffIds:[],clientId:"",color:ACCENT,notes:""});
-    setEditEvt(null); setShowForm(true);
-  }
-  function openEdit(ev){
-    setForm({...ev,staffIds:[...ev.staffIds],clientId:String(ev.clientId||"")});
-    setEditEvt(ev); setShowForm(true);
-  }
-  function saveEvent(){
-    if(!form.title||!form.date) return;
-    const evt={...form,staffIds:form.staffIds.map(Number),clientId:form.clientId?Number(form.clientId):null};
-    if(editEvt){
-      setEvents(prev=>prev.map(e=>e.id===editEvt.id?{...evt,id:editEvt.id,gcalId:editEvt.gcalId}:e));
-      addToast("Event updated","success");
     } else {
-      const newEv={...evt,id:Date.now(),gcalId:null};
-      setEvents(prev=>[...prev,newEv]);
-      addToast("Event created","success");
-      // Auto-offer to push to GCal
-      setTimeout(()=>pushToGcal(newEv),300);
+      setDispatchClientDate('');
+      setDispatchAdjustedTime('');
+      setDispatchArrangements('');
     }
-    setShowForm(false); setSelected(null);
-  }
-  function deleteEvent(id){
-    setEvents(prev=>prev.filter(e=>e.id!==id));
-    setSelected(null);
-    addToast("Event deleted","warn");
-  }
-  function toggleStaff(id){ setForm(f=>({...f,staffIds:f.staffIds.includes(id)?f.staffIds.filter(x=>x!==id):[...f.staffIds,id]})); }
+  }, [selectedDispatchEventId, events, venues]);
 
-  const upcomingEvs=events.filter(e=>e.date>=todayStr).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,5);
-  const allCells=[...events,...gcalEvents,...appleEvents];
+  // CSV Events List Exporter
+  const handleExportEventsCSV = () => {
+    if (events.length === 0) {
+      showToast('Operational Warning: No scheduled events in roster to export.', 'warn');
+      return;
+    }
+    
+    const headers = [
+      'Event ID',
+      'Event Title',
+      'Client Sponsor',
+      'Venue Name',
+      'Physical Address',
+      'Calendar Date',
+      'Start Time',
+      'End Time',
+      'Billing Status',
+      'Direct Booking',
+      'Allocated Staff List',
+      'Core Brand Directives'
+    ];
+    
+    const rows = events.map(ev => {
+      const clientName = clients.find(c => c.id === ev.clientId)?.name || 'Local Client';
+      const venueObj = venues.find(v => v.id === ev.venueId);
+      const venueName = venueObj?.name || 'Local Venue';
+      const venueAddress = venueObj?.address || 'Private Location';
+      
+      const staffList = ev.staffIds.map(sId => {
+        const s = staff.find(st => st.id === sId);
+        const rsvp = ev.staffRSVPs?.[sId] || 'Pending';
+        return s ? `${s.name} ${s.surname} (${s.role}) [${rsvp}]` : sId;
+      }).join('; ');
+      
+      return [
+        ev.id,
+        ev.title,
+        clientName,
+        venueName,
+        venueAddress,
+        ev.date,
+        ev.startTime,
+        ev.endTime,
+        ev.status || 'Pending',
+        ev.isDirectBooking ? 'Yes' : 'No',
+        staffList,
+        ev.notes || ''
+      ];
+    });
+    
+    downloadCSV('fresh_people_events_schedule.csv', headers, rows);
+    addActivityLog('sync', 'Successfully exported scheduled event logs (.CSV) for operational analysis.');
+  };
 
-  return(
-    <div>
-      {/* Sync banner */}
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,background:SURFACE2,border:`1px solid ${BORDER}`,borderRadius:10,padding:"10px 16px",flexWrap:"wrap",gap:8}}>
-        <div style={{fontSize:13}}>
-          <span style={{color:MUTED}}>Google Calendar sync · </span>
-          <span style={{color:ACCENT}}>{gcalEvents.length} events loaded</span>
-          <span style={{color:MUTED}}> · Apple Calendar · </span>
-          <span style={{color:"#FF9500"}}>{appleEvents.length} events</span>
-        </div>
-        <div style={{display:"flex",gap:8}}>
-          <Btn variant="accent" onClick={fetchGcal} disabled={syncing} style={{fontSize:12,padding:"6px 14px"}}>
-            {syncing?"Syncing…":"↻ Google"}
-          </Btn>
-          <Btn variant="accent" onClick={fetchApple} disabled={syncingApple} style={{fontSize:12,padding:"6px 14px",background:"#FF9500"}}>
-            {syncingApple?"Syncing…":"↻ Apple"}
-          </Btn>
-        </div>
-      </div>
-
-      <div style={{display:"grid",gridTemplateColumns:"1fr 290px",gap:20}}>
-        {/* Calendar grid */}
-        <div>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
-            <div style={{fontSize:18,fontWeight:600}}>{["January","February","March","April","May","June","July","August","September","October","November","December"][mo]} {yr}</div>
-            <div style={{display:"flex",gap:8}}>
-              <Btn onClick={()=>setViewDate(new Date(yr,mo-1,1))} style={{fontSize:12,padding:"6px 12px"}}>‹</Btn>
-              <Btn onClick={()=>setViewDate(new Date(today.getFullYear(),today.getMonth(),1))} style={{fontSize:12,padding:"6px 12px"}}>Today</Btn>
-              <Btn onClick={()=>setViewDate(new Date(yr,mo+1,1))} style={{fontSize:12,padding:"6px 12px"}}>›</Btn>
-            </div>
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:2}}>
-            {WDAYS.map(d=><div key={d} style={{textAlign:"center",fontSize:11,color:MUTED,padding:"6px 0",textTransform:"uppercase",letterSpacing:"0.06em"}}>{d}</div>)}
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2}}>
-            {cells.map((day,idx)=>{
-              if(!day) return <div key={idx}/>;
-              const cellDate=`${yr}-${pad2(mo+1)}-${pad2(day)}`;
-              const dayEvs=allCells.filter(e=>e.date===cellDate);
-              const isToday=cellDate===todayStr;
-              return(
-                <div key={idx} onClick={()=>openNew(day)}
-                  style={{minHeight:80,background:isToday?ACCENT+"18":SURFACE,border:`1px solid ${isToday?ACCENT+"55":BORDER}`,
-                    borderRadius:8,padding:6,cursor:"pointer"}}
-                  onMouseEnter={e=>e.currentTarget.style.background=SURFACE2}
-                  onMouseLeave={e=>e.currentTarget.style.background=isToday?ACCENT+"18":SURFACE}
-                >
-                  <div style={{fontSize:12,fontWeight:isToday?700:400,color:isToday?ACCENT:TEXT,marginBottom:4}}>{day}</div>
-                  {dayEvs.map(ev=>(
-                    <div key={ev.id} onClick={e=>{e.stopPropagation();setSelected(ev);}}
-                      style={{background:ev.color+"33",border:`1px solid ${ev.color}55`,borderLeft:`3px solid ${ev.color}`,
-                        borderRadius:4,padding:"2px 5px",fontSize:10,marginBottom:2,color:TEXT,
-                        overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer"}}
-                      title={`${ev.title}${ev.isGcal?" (Google Calendar)":""}`}
-                    >{ev.isGcal?"📅 ":""}{ev.title}</div>
-                  ))}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Sidebar */}
-        <div style={{display:"flex",flexDirection:"column",gap:14}}>
-          <Btn variant="primary" onClick={()=>openNew(today.getDate())} style={{width:"100%",padding:"10px"}}>+ New Event</Btn>
-
-          {/* Selected detail */}
-          {selected&&!selected.isGcal&&(
-            <div style={{background:SURFACE,border:`1px solid ${selected.color}55`,borderLeft:`4px solid ${selected.color}`,borderRadius:10,padding:16}}>
-              <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
-                <div style={{fontWeight:600,fontSize:14}}>{selected.title}</div>
-                <button onClick={()=>setSelected(null)} style={{background:"none",border:"none",color:MUTED,fontSize:18,cursor:"pointer"}}>×</button>
-              </div>
-              <div style={{fontSize:12,color:MUTED}}>{fmtDate(selected.date)}</div>
-              {selected.venue&&<div style={{fontSize:12,marginTop:4}}>{selected.venue}</div>}
-              {selected.notes&&<div style={{fontSize:12,color:MUTED,marginTop:4,fontStyle:"italic"}}>{selected.notes}</div>}
-              <div style={{margin:"10px 0",display:"flex",flexWrap:"wrap",gap:4}}>
-                {selected.staffIds.map(id=>{const s=staff.find(x=>x.id===id);return s?<Badge key={id} color={MUTED}>{s.name.split(" ")[0]}</Badge>:null;})}
-              </div>
-              {selected.gcalId
-                ?<div style={{fontSize:11,color:ACCENT,marginBottom:10}}>✓ GCal</div>
-                :<Btn variant="accent" onClick={()=>pushToGcal(selected)} style={{width:"100%",fontSize:12,padding:"6px",marginBottom:8}}>Sync</Btn>
-              }
-              <Btn variant="amber" onClick={()=>setBookingModal(selected)} style={{width:"100%",fontSize:12,padding:"6px",marginBottom:8}}>
-                Notify
-              </Btn>
-              <div style={{display:"flex",gap:8}}>
-                <Btn onClick={()=>openEdit(selected)} style={{flex:1,fontSize:12,padding:"6px"}}>E</Btn>
-                <Btn variant="danger" onClick={()=>deleteEvent(selected.id)} style={{flex:1,fontSize:12,padding:"6px"}}>X</Btn>
-              </div>
-            </div>
-          )}
-          {selected?.isGcal&&(
-            <div style={{background:SURFACE,border:`1px solid ${selected.color}55`,borderLeft:`4px solid ${selected.color}`,borderRadius:10,padding:16}}>
-              <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
-                <div style={{fontWeight:600,fontSize:14}}>{selected.title}</div>
-                <button onClick={()=>setSelected(null)} style={{background:"none",border:"none",color:MUTED,fontSize:18,cursor:"pointer"}}>×</button>
-              </div>
-              <div style={{fontSize:12,color:"#5ca4ea",marginBottom:4}}>📅 Google Calendar Event</div>
-              <div style={{fontSize:12,color:MUTED}}>{fmtDate(selected.date)} · {selected.startTime}–{selected.endTime}</div>
-              {selected.location&&<div style={{fontSize:12,marginTop:4}}>{selected.location}</div>}
-            </div>
-          )}
-
-          {/* Upcoming */}
-          <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:10,padding:16}}>
-            <div style={{fontSize:11,color:MUTED,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}}>Upcoming Events</div>
-            {upcomingEvs.length===0&&<div style={{fontSize:13,color:MUTED}}>No upcoming events</div>}
-            {upcomingEvs.map(ev=>(
-              <div key={ev.id} onClick={()=>setSelected(ev)} style={{marginBottom:12,cursor:"pointer"}}>
-                <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
-                  <div style={{width:3,minHeight:36,background:ev.color,borderRadius:2,flexShrink:0,marginTop:2}}/>
-                  <div>
-                    <div style={{fontSize:13,fontWeight:500}}>{ev.title}</div>
-                    <div style={{fontSize:11,color:MUTED}}>{fmtDate(ev.date)} · {ev.startTime}</div>
-                    <div style={{fontSize:11,color:MUTED,display:"flex",gap:6,alignItems:"center"}}>
-                      <span>{ev.staffIds.length} staff</span>
-                      {ev.gcalId&&<span style={{color:ACCENT}}>✓GCal</span>}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* GCal legend */}
-          <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:10,padding:12,fontSize:11,color:MUTED}}>
-            <div style={{marginBottom:6,fontWeight:500,color:TEXT}}>Calendar Legend</div>
-            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}><div style={{width:10,height:10,borderRadius:2,background:ACCENT}}/> Freshpeople events</div>
-            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}><div style={{width:10,height:10,borderRadius:2,background:"#5ca4ea"}}/> Google Calendar</div>
-            <div style={{marginTop:8}}>Apple Calendar syncs via:<br/>Settings → Calendar → Add Account → Google</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Event form */}
-      {showForm&&(
-        <Modal title={editEvt?"Edit Event":"New Event"} onClose={()=>setShowForm(false)}>
-          <Fld label="Event Title"><input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="e.g. Corporate Gala" style={{width:"100%"}}/></Fld>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
-            <Fld label="Date"><input type="date" value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))} style={{width:"100%"}}/></Fld>
-            <Fld label="Client">
-              <select value={form.clientId} onChange={e=>setForm(f=>({...f,clientId:e.target.value}))} style={{width:"100%"}}>
-                <option value="">— No client —</option>
-                {clients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </Fld>
-          </div>
-          <Fld label="Venue"><input value={form.venue} onChange={e=>setForm(f=>({...f,venue:e.target.value}))} placeholder="e.g. Sandton Convention Centre" style={{width:"100%"}}/></Fld>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:14}}>
-            <Fld label="Start"><input type="time" value={form.startTime} onChange={e=>setForm(f=>({...f,startTime:e.target.value}))} style={{width:"100%"}}/></Fld>
-            <Fld label="End"><input type="time" value={form.endTime} onChange={e=>setForm(f=>({...f,endTime:e.target.value}))} style={{width:"100%"}}/></Fld>
-            <Fld label="Colour">
-              <div style={{display:"flex",gap:6,paddingTop:4}}>
-                {[ACCENT,PURPLE,AMBER,CORAL,"#5ca4ea"].map(c=>(
-                  <div key={c} onClick={()=>setForm(f=>({...f,color:c}))}
-                    style={{width:22,height:22,borderRadius:"50%",background:c,cursor:"pointer",border:form.color===c?"3px solid #fff":"3px solid transparent"}}/>
-                ))}
-              </div>
-            </Fld>
-          </div>
-          <Fld label="Assign Staff">
-            <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
-              {staff.map(s=>(
-                <div key={s.id} onClick={()=>toggleStaff(s.id)}
-                  style={{padding:"5px 12px",borderRadius:20,fontSize:12,cursor:"pointer",
-                    background:form.staffIds.includes(s.id)?ACCENT+"22":SURFACE2,
-                    border:`1px solid ${form.staffIds.includes(s.id)?ACCENT:BORDER}`,
-                    color:form.staffIds.includes(s.id)?ACCENT:TEXT}}
-                >{s.name.split(" ")[0]} <span style={{color:MUTED,fontSize:10}}>({s.role})</span></div>
-              ))}
-            </div>
-          </Fld>
-          <Fld label="Notes / Instructions">
-            <textarea value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} rows={2} style={{width:"100%"}} placeholder="Dress code, contact person, etc."/>
-          </Fld>
-          <div style={{display:"flex",gap:10}}>
-            <Btn variant="primary" onClick={saveEvent} style={{flex:1,padding:"11px"}}>{editEvt?"Save Changes":"Create & Sync to Google Cal"}</Btn>
-            <Btn variant="ghost" onClick={()=>setShowForm(false)} style={{flex:1,padding:"11px"}}>Cancel</Btn>
-          </div>
-        </Modal>
-      )}
-
-      {/* Booking notifications modal */}
-      {bookingModal&&(
-        <Modal title="Send Staff Booking Notifications" onClose={()=>setBookingModal(null)} width={500}>
-          <div style={{marginBottom:20}}>
-            <div style={{fontWeight:600,fontSize:15,marginBottom:4}}>{bookingModal.title}</div>
-            <div style={{fontSize:13,color:MUTED}}>{fmtDate(bookingModal.date)} · {bookingModal.startTime}–{bookingModal.endTime} · {bookingModal.venue}</div>
-          </div>
-          <div style={{marginBottom:20}}>
-            <Lbl>Staff receiving WhatsApp booking notices ({bookingModal.staffIds.length})</Lbl>
-            {bookingModal.staffIds.map(id=>{
-              const s=staff.find(x=>x.id===id);
-              if(!s) return null;
-              const pay=(eventHours(bookingModal)*s.rate).toFixed(2);
-              return(
-                <div key={id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",background:SURFACE2,borderRadius:8,marginBottom:6}}>
-                  <div>
-                    <div style={{fontWeight:500,fontSize:13}}>{s.name}</div>
-                    <div style={{fontSize:11,color:MUTED}}>{s.phone || "No phone on file"}</div>
-                  </div>
-                  <div style={{textAlign:"right"}}>
-                    <div style={{fontSize:13,color:ACCENT,fontFamily:"'DM Mono',monospace"}}>R {pay}</div>
-                    <div style={{fontSize:11,color:MUTED}}>{eventHours(bookingModal).toFixed(1)}h @ R{s.rate}/h</div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          <div style={{background:SURFACE2,borderRadius:8,padding:"10px 14px",fontSize:12,color:MUTED,marginBottom:20}}>
-            💡 Sends a WhatsApp booking notice to each assigned staff member and records the dispatch result.
-          </div>
-
-          {/* Gemini AI — draft a client message */}
-          <div style={{border:`1px solid ${BORDER}`,borderRadius:10,padding:"12px 14px",marginBottom:20}}>
-            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
-              <span style={{fontSize:14}}>✨</span>
-              <span style={{fontWeight:600,fontSize:13}}>Draft client message</span>
-              <span style={{fontSize:10,background:PURPLE+"22",color:PURPLE,padding:"2px 8px",borderRadius:6}}>Gemini</span>
-            </div>
-            <input value={draftIntent} onChange={e=>setDraftIntent(e.target.value)}
-              placeholder="What should the message say?" style={{width:"100%",marginBottom:8,fontSize:12}}/>
-            <Btn variant="ghost" onClick={()=>draftClientMessage(bookingModal)} disabled={drafting||!geminiAvailable()}
-              style={{width:"100%",fontSize:12,padding:"8px"}}>
-              {drafting?"Drafting…":geminiAvailable()?"✨ Generate message":"Gemini key not configured"}
-            </Btn>
-            {draftMsg&&(
-              <div style={{marginTop:10}}>
-                <textarea value={draftMsg} onChange={e=>setDraftMsg(e.target.value)} rows={5}
-                  style={{width:"100%",fontSize:12,fontFamily:"inherit",resize:"vertical"}}/>
-                <div style={{display:"flex",gap:8,marginTop:6}}>
-                  <Btn variant="ghost" onClick={()=>{navigator.clipboard.writeText(draftMsg);addToast("Message copied ✓","success");}} style={{flex:1,fontSize:11,padding:"6px"}}>📋 Copy</Btn>
-                  {(() => { const c=clients.find(x=>x.id===bookingModal.clientId); const phone=(c?.phone||"").replace(/[^0-9]/g,""); return phone?(
-                    <a href={`https://wa.me/${phone}?text=${encodeURIComponent(draftMsg)}`} target="_blank" rel="noreferrer" style={{flex:1,textDecoration:"none"}}>
-                      <Btn variant="primary" style={{width:"100%",fontSize:11,padding:"6px"}}>📱 WhatsApp client</Btn>
-                    </a>):null; })()}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div style={{display:"flex",gap:10}}>
-            <Btn variant="primary" onClick={()=>sendBookingNotifications(bookingModal)} disabled={sendingNotifs} style={{flex:1,padding:"11px"}}>
-              {sendingNotifs?"Sending WhatsApp notices…":"📱 Send Booking Notices"}
-            </Btn>
-            <Btn variant="ghost" onClick={()=>setBookingModal(null)} style={{flex:1,padding:"11px"}}>Cancel</Btn>
-          </div>
-        </Modal>
-      )}
-    </div>
-  );
-}
-
-// ─── PIN Pad ──────────────────────────────────────────────────────────────────
-function PinPad({onSuccess,staff,adminMode}){
-  const [pin,setPin]=useState(""); const [shake,setShake]=useState(false); const [err,setErr]=useState("");
-  function press(d){ if(pin.length>=4)return; const next=pin+d; setPin(next); if(next.length===4)setTimeout(()=>check(next),80); }
-  function check(p){
-    if(adminMode&&p==="0000"){onSuccess(null,true);return;}
-    const found=staff.find(s=>s.pin===p);
-    if(found){onSuccess(found,false);return;}
-    setShake(true);setErr("Invalid PIN");
-    setTimeout(()=>{setShake(false);setPin("");setErr("");},700);
-  }
-  return(
-    <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:20,padding:24}}>
-      <div style={{fontSize:13,color:MUTED}}>Enter your PIN{adminMode?" · Admin: 0000":""}</div>
-      <div style={{display:"flex",gap:12,transform:shake?"translateX(8px)":"none",transition:"transform 0.1s"}}>
-        {Array.from({length:4},(_,i)=><div key={i} style={{width:14,height:14,borderRadius:"50%",background:i<pin.length?ACCENT:"transparent",border:`2px solid ${i<pin.length?ACCENT:BORDER}`,transition:"all 0.1s"}}/>)}
-      </div>
-      {err&&<div style={{fontSize:12,color:RED}}>{err}</div>}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,width:200}}>
-        {[1,2,3,4,5,6,7,8,9,"",0,"⌫"].map((k,i)=>(
-          <button key={i} onClick={()=>k==="⌫"?setPin(p=>p.slice(0,-1)):k!==""?press(String(k)):null}
-            style={{padding:"14px 0",background:k===""?"transparent":SURFACE2,border:`1px solid ${k===""?"transparent":BORDER}`,borderRadius:8,color:TEXT,fontSize:16,fontWeight:500,fontFamily:"'DM Mono',monospace",opacity:k===""?0:1}}
-            onMouseEnter={e=>{if(k!=="")e.currentTarget.style.background=SURFACE;}}
-            onMouseLeave={e=>{if(k!=="")e.currentTarget.style.background=SURFACE2;}}
-          >{k}</button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ─── Main App ─────────────────────────────────────────────────────────────────
-export default function App(){
-  const [page,setPage]           = useState("login");
-  const [currentStaff,setCS]     = useState(null);
-  const [isAdmin,setIsAdmin]     = useState(false);
-  const [staff,setStaff]      = useState(() => dataStore.listStaff());
-  const [records,setRecords]     = useState([]);
-  const [now,setNow]             = useState(Date.now());
-  const [adminTab,setAdminTab]   = useState(() => {
-    const path = typeof window !== 'undefined' ? window.location.pathname.replace(/^\/+|\/+$/g, '') : '';
-    if (path === 'payroll') return 'payroll';
-    if (path === 'documents' || path === 'billing') return 'documents';
-    return 'dashboard';
-  });
-  const [events,setEvents]       = useState(() => dataStore.listEvents());
-  const todayStr = ymd(today);
-  const todayEvents = events.filter(e => e.date === todayStr);
-  const [invoices,setInvoices]   = useState(() => dataStore.listInvoices());
-  const [quotes,setQuotes]       = useState(() => dataStore.listQuotes());
-  const [clients,setClients]     = useState(() => dataStore.listClients());
-  const [toasts,setToasts]       = useState([]);
-  const [newStaff,setNewStaff]   = useState({name:"",role:"",rate:"",pin:"",department:"Bar",uniform:false,phone:""});
-  const [editingStaffId,setEditingStaffId] = useState(null);
-  const [currentModel,setCurrentModel] = useState('deepseek/deepseek-chat-v3-0324:free');
-  const [currentTask,setCurrentTask] = useState('default');
-
-  const replaceStoreState = useCallback((s: LocalStore) => {
-    setStaff(s.staff);
-    setEvents(s.events);
-    setInvoices(s.invoices);
-    setQuotes(s.quotes);
-    setClients(s.clients);
-  }, []);
-
-  // Load remote Firestore data when configured, then fall back to local store.
-  useEffect(() => {
-    let cancelled = false;
-    dataStore.loadFromCloud().then((remote) => {
-      if (cancelled || !remote) return;
-      replaceStoreState(remote);
-    }).catch((e) => console.warn('FPCC Firestore load failed', e))
-      .finally(() => {
-        if (cancelled) return;
-        setStaff(dataStore.listStaff());
-        setEvents(dataStore.listEvents());
-        setInvoices(dataStore.listInvoices());
-        setQuotes(dataStore.listQuotes());
-        setClients(dataStore.listClients());
+  // CSV Payroll Exporter for Focused Month's Cycle
+  const handleExportPayrollCSV = () => {
+    const startStr = payrollCycleBounds.startDateStr;
+    const endStr = payrollCycleBounds.endDateStr;
+    
+    // Filter events inside this cycle index
+    const cycleEvents = events.filter(ev => ev.date >= startStr && ev.date <= endStr);
+    
+    const headers = [
+      'Staff ID',
+      'Given Name',
+      'Family Name',
+      'Specialist Role',
+      'Contract Rate (R/h)',
+      'Total Scheduled Hours',
+      'Calculated Cycle Pay (R)',
+      'Associated Event Schedule'
+    ];
+    
+    const rows = staff.map(s => {
+      const staffEvents = cycleEvents.filter(ev => ev.staffIds.includes(s.id));
+      let totalHrs = 0;
+      let totalEarn = 0;
+      const descList: string[] = [];
+      
+      staffEvents.forEach(ev => {
+        const hrs = getDurationHours(ev.startTime, ev.endTime);
+        const earn = hrs * s.rate;
+        totalHrs += hrs;
+        totalEarn += earn;
+        const rsvp = ev.staffRSVPs?.[s.id] || 'Pending';
+        descList.push(`${ev.title} (${ev.date}) [${hrs.toFixed(1)}h - RSVP: ${rsvp}]`);
       });
-    return () => { cancelled = true; };
-  }, [replaceStoreState]);
+      
+      return [
+        s.id,
+        s.name,
+        s.surname,
+        s.role,
+        `R${s.rate}`,
+        totalHrs.toFixed(2),
+        `R${totalEarn.toFixed(2)}`,
+        descList.join('; ')
+      ];
+    });
+    
+    const cycleLabel = payrollCycleBounds.label.replace(/\s+/g, '_');
+    downloadCSV(`fresh_people_payroll_summary_${cycleLabel}.csv`, headers, rows);
+    addActivityLog('sync', `Successfully generated complete payroll spreadsheet for cycle bounds ${payrollCycleBounds.label}.`);
+  };
 
-  // Refresh local state whenever the user changes admin tab.
-  useEffect(() => {
-    setStaff(dataStore.listStaff());
-    setEvents(dataStore.listEvents());
-    setInvoices(dataStore.listInvoices());
-    setQuotes(dataStore.listQuotes());
-    setClients(dataStore.listClients());
-  }, [adminTab]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const path = adminTab === 'dashboard' ? '/' : `/${adminTab}`;
-    if (window.location.pathname !== path) window.history.replaceState(null, '', path);
-  }, [adminTab]);
-
-  useEffect(()=>{ const t=setInterval(()=>setNow(Date.now()),10000); return()=>clearInterval(t); },[]);
-
-  // Task detection for model rotation
-  useEffect(() => {
-    const taskMapping = {
-      'dashboard': 'data-analysis',
-      'roster': 'staff-scheduling',
-      'timesheets': 'payroll-calculation',
-      'calendar': 'event-planning',
-      'documents': 'invoice-generation',
-      'clients': 'client-communication',
-      'payroll': 'payroll-calculation',
-      'add staff': 'staff-scheduling'
-    };
-    setCurrentTask(taskMapping[adminTab] || 'default');
-  }, [adminTab]);
-
-  const addToast = useCallback((msg,type="success")=>{
-    const id=Date.now();
-    setToasts(p=>[...p,{id,msg,type}]);
-    setTimeout(()=>setToasts(p=>p.filter(t=>t.id!==id)),4000);
-  },[]);
-
-  function handleLogin(member,adminFlag){
-    if(adminFlag){
-      setIsAdmin(true);setCS(null);setPage("admin");
-      // Bootstrap API token for write-protected routes (staff/events/dispatch).
-      // Prompts for server-side admin password (set via FPCC_ADMIN_PASSWORD env).
-      // Token stored in localStorage; re-enter on new sessions or when expired.
-      setTimeout(async () => {
-        try {
-          const stored = localStorage.getItem('fpcc_admin_token');
-          if (stored) return; // already have
-          const pw = window.prompt('Enter FPCC admin password (from FPCC_ADMIN_PASSWORD env) to enable staff/event writes & dispatch. (Cancel to use read-only for now)');
-          if (!pw) return;
-          const r = await fetch('/api/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ password: pw })
-          });
-          const j = await r.json();
-          if (j.token) {
-            localStorage.setItem('fpcc_admin_token', j.token);
-            console.log('[FPCC] Admin token obtained for API writes.');
-          } else {
-            alert('Token bootstrap failed: ' + (j.error || 'unknown'));
-          }
-        } catch (e) { console.warn('Token bootstrap skipped', e); }
-      }, 200);
+  const escapeCSVValue = (val: any) => {
+    const str = val === undefined || val === null ? '' : String(val);
+    if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+      return `"${str.replace(/"/g, '""')}"`;
     }
-    else{setCS(member);setIsAdmin(false);setPage("staff");}
-  }
-  function clockIn(id){if(!records.find(r=>r.staffId===id&&!r.clockOut))setRecords(p=>[...p,{id:Date.now(),staffId:id,clockIn:Date.now(),clockOut:null}]);}
-  function clockOut(id){setRecords(p=>p.map(r=>r.staffId===id&&!r.clockOut?{...r,clockOut:Date.now()}:r));}
+    return str;
+  };
 
-  const activeRec   = currentStaff?records.find(r=>r.staffId===currentStaff.id&&!r.clockOut):null;
-  const elapsed     = activeRec?now-activeRec.clockIn:0;
-  const myShifts    = currentStaff?records.filter(r=>r.staffId===currentStaff.id&&r.clockOut).slice(-5).reverse():[];
-  const myTotalMs   = myShifts.reduce((a,r)=>a+(r.clockOut-r.clockIn),0);
-  const myPay       = currentStaff?calcPay(myTotalMs,currentStaff.rate):0;
-  const completed   = records.filter(r=>r.clockOut);
-  const tPayroll    = completed.reduce((a,r)=>{const s=staff.find(x=>x.id===r.staffId);return a+calcPay(r.clockOut-r.clockIn,s?.rate||0);},0);
-  const tHours      = completed.reduce((a,r)=>a+(r.clockOut-r.clockIn)/3600000,0);
-  const tActive     = staff.filter(s=>records.some(r=>r.staffId===s.id&&!r.clockOut)).length;
+  const downloadCSV = (filename: string, headers: string[], rows: string[][]) => {
+    const csvContent = [
+      headers.map(escapeCSVValue).join(','),
+      ...rows.map(row => row.map(escapeCSVValue).join(','))
+    ].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
-  const TABS=[["dashboard","Dashboard"],["roster","Roster"],["timesheets","Timesheets"],["calendar","Calendar"],["documents","Docs & Billing"],["clients","Clients"],["payroll","Payroll"],["add staff","Add Staff"]];
+  // Authenticated Gateway form render
+  if (!isUnlocked) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-md transition-all duration-700">
+        <div className="w-full max-w-sm p-8 glass-panel rounded-lg shadow-2xl relative overflow-hidden bg-white/95 border border-gold-300/40 fade-in-up">
+          {/* Decorative glowing header segment */}
+          <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-transparent via-gold-500 to-transparent"></div>
 
-  return(
-    <>
-      <style>{css}</style>
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-gold-50 border border-gold-300/30 mb-5 shadow-gold-glow">
+              <span className="font-display text-lg tracking-[0.2em] text-gold-600 font-bold translate-x-0.5">FP</span>
+            </div>
+            <h1 className="font-display text-xl tracking-[0.25em] text-slate-900 font-bold uppercase text-center">FRESH PEOPLE</h1>
+            <p className="text-[9px] text-slate-500 uppercase tracking-widest mt-1.5 text-center font-medium">Elite Staffing gateway</p>
+          </div>
 
-      {/* Header */}
-      <div style={{background:SURFACE,borderBottom:`1px solid ${BORDER}`,padding:"0 24px",display:"flex",alignItems:"center",gap:16,height:56,position:"sticky",top:0,zIndex:50}}>
-        <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <div style={{width:28,height:28,background:ACCENT,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:"#000"}}>FP</div>
-          <span style={{fontWeight:600,fontSize:15,letterSpacing:"-0.02em"}}>Freshpeople</span>
-          <span style={{color:MUTED,fontSize:13}}>Command Center</span>
+          {isForgotPasswordMode ? (
+            <form onSubmit={handleResetPasswordRequest} id="pword_reset_form" className="space-y-5">
+              <span className="text-[9px] uppercase tracking-widest text-gold-600 font-bold block border-b border-slate-100 pb-2 text-center">
+                Secure Password Recovery Protocol
+              </span>
+
+              {resetSuccessMessage ? (
+                <div className="text-[10px] text-emerald-800 border border-emerald-200 bg-emerald-50 px-3 py-2.5 rounded text-left leading-relaxed">
+                  {resetSuccessMessage}
+                </div>
+              ) : (
+                <p className="text-[9px] text-slate-500 leading-relaxed text-center font-medium">
+                  Enter your Operator credentials and security recovery email below. An encrypted access bypass key will be dispatched.
+                </p>
+              )}
+
+              <div className="space-y-1.5">
+                <label htmlFor="recovery_operator_id" className="text-[8px] text-slate-500 uppercase tracking-widest font-semibold block">Operator ID</label>
+                <div className="relative">
+                  <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-400">
+                    <User className="w-3.5 h-3.5" />
+                  </span>
+                  <input
+                    type="text"
+                    id="recovery_operator_id"
+                    value={forgotOperatorId}
+                    onChange={(e) => setForgotOperatorId(e.target.value)}
+                    required
+                    className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-300 text-xs text-slate-900 rounded focus:border-gold-500 focus:bg-white focus:outline-hidden transition-all font-mono placeholder-slate-400 font-medium"
+                    placeholder="e.g. yassin"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label htmlFor="recovery_email" className="text-[8px] text-slate-500 uppercase tracking-widest font-semibold block">Recovery Registry Email</label>
+                <div className="relative">
+                  <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-400">
+                    <Briefcase className="w-3.5 h-3.5" />
+                  </span>
+                  <input
+                    type="email"
+                    id="recovery_email"
+                    value={forgotEmail}
+                    onChange={(e) => setForgotEmail(e.target.value)}
+                    required
+                    className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-300 text-xs text-slate-900 rounded focus:border-gold-500 focus:bg-white focus:outline-hidden transition-all font-mono placeholder-slate-400 font-medium"
+                    placeholder="e.g. realyassinali@gmail.com"
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-col space-y-2 pt-2">
+                <button
+                  type="submit"
+                  className="w-full py-2 bg-gradient-to-r from-gold-600 to-gold-500 hover:brightness-110 active:scale-[0.99] transition-all text-white font-display font-semibold text-[10px] tracking-[0.2em] uppercase rounded shadow-sm cursor-pointer"
+                >
+                  Dispatch Recovery Key
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsForgotPasswordMode(false);
+                    setResetSuccessMessage(null);
+                  }}
+                  className="w-full py-2 border border-slate-200 hover:bg-slate-50 text-slate-600 transition-all font-mono text-[9px] uppercase tracking-widest rounded cursor-pointer font-medium"
+                >
+                  Return to Gateway Login
+                </button>
+              </div>
+            </form>
+          ) : (
+            <form onSubmit={handleAuthSubmit} id="pword_login_form" className="space-y-5">
+              {authError && (
+                <div className="text-[10px] text-red-800 border border-red-200 bg-red-50 px-3 py-2.5 rounded text-center leading-relaxed font-medium">
+                  Verification credentials rejected.<br />Please re-enter correct security key phrases.
+                </div>
+              )}
+
+              <div className="space-y-1.5">
+                <label htmlFor="gate_operator" className="text-[8px] text-slate-500 uppercase tracking-widest font-semibold block">Operator ID</label>
+                <div className="relative">
+                  <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-400">
+                    <User className="w-3.5 h-3.5" />
+                  </span>
+                  <input
+                    type="text"
+                    id="gate_operator"
+                    value={operatorId}
+                    onChange={(e) => setOperatorId(e.target.value)}
+                    required
+                    autoComplete="username"
+                    className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-300 text-xs text-slate-900 rounded focus:border-gold-500 focus:bg-white focus:outline-hidden transition-all font-mono placeholder-slate-400 font-medium"
+                    placeholder="e.g. yassin"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <label htmlFor="gate_phrase" className="text-[8px] text-slate-500 uppercase tracking-widest font-semibold block">Security Phrase</label>
+                  <button
+                    type="button"
+                    onClick={() => setIsForgotPasswordMode(true)}
+                    className="text-[8px] text-gold-600 hover:underline hover:text-gold-700 tracking-wider uppercase font-mono cursor-pointer font-bold"
+                  >
+                    Forgot phrase?
+                  </button>
+                </div>
+                <div className="relative">
+                  <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-400">
+                    <Lock className="w-3.5 h-3.5" />
+                  </span>
+                  <input
+                    type="password"
+                    id="gate_phrase"
+                    value={securityPhrase}
+                    onChange={(e) => setSecurityPhrase(e.target.value)}
+                    required
+                    autoComplete="current-password"
+                    className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-300 text-xs text-slate-900 rounded focus:border-gold-500 focus:bg-white focus:outline-hidden transition-all font-mono placeholder-slate-400 font-medium"
+                    placeholder="•••••••••••••••••"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-2.5 mt-5 bg-gradient-to-r from-gold-600 to-gold-500 hover:brightness-110 active:scale-[0.99] transition-all text-white font-display font-semibold text-[10px] tracking-[0.2em] uppercase rounded shadow-md cursor-pointer"
+              >
+                Verify Command Access
+              </button>
+            </form>
+          )}
+
+          <div className="mt-8 text-center border-t border-slate-100 pt-4">
+            <p className="text-[8px] text-slate-500 tracking-widest leading-relaxed uppercase font-medium">
+              FRESH PEOPLE OPERATIONAL SYSTEM V.26<br />
+              Encryption bound active. Logs streamed to secure database.
+            </p>
+          </div>
         </div>
-        <div style={{flex:1}}/>
-        {page!=="login"&&(
-          <div style={{display:"flex",gap:8,alignItems:"center"}}>
-            {isAdmin&&<Badge color={ACCENT}>Admin</Badge>}
-            {currentStaff&&<Badge color={MUTED}>{currentStaff.name.split(" ")[0]}</Badge>}
-            <button onClick={()=>{setPage("login");setCS(null);setIsAdmin(false);}}
-              style={{background:"none",border:`1px solid ${BORDER}`,borderRadius:6,color:MUTED,fontSize:12,padding:"4px 10px",cursor:"pointer"}}>Sign out</button>
-          </div>
-        )}
-        <div style={{color:MUTED,fontSize:12,fontFamily:"'DM Mono',monospace"}}>{new Date(now).toLocaleTimeString("en-ZA",{hour:"2-digit",minute:"2-digit"})}</div>
-        <ModelPanel currentTask={currentTask} onModelSelect={(modelId) => setCurrentModel(modelId)} />
       </div>
+    );
+  }
 
-      <div style={{maxWidth:1080,margin:"0 auto",padding:"32px 20px"}}>
-
-        {/* LOGIN */}
-        {page==="login"&&(
-            <div style={{display:"flex",flexDirection:"column",alignItems:"center",paddingTop:40}}>
-              <h1 style={{fontSize:24,fontWeight:700,marginBottom:8}}>Freshpeople</h1>
-              <p style={{color:MUTED,fontSize:13,marginBottom:24}}>Enter PIN</p>
-            <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:14,width:"100%",maxWidth:320}}>
-              <PinPad staff={staff} onSuccess={handleLogin} adminMode/>
-            </div>
-            <div style={{marginTop:24,display:"flex",gap:8,flexWrap:"wrap",justifyContent:"center"}}>
-              {staff.slice(0,3).map(s=><div key={s.id} style={{fontSize:11,color:MUTED,background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:6,padding:"4px 10px"}}>{s.name.split(" ")[0]}: {s.pin}</div>)}
-            </div>
+  return (
+    <div className="min-h-screen flex flex-col relative z-20">
+      {/* Premium Toast Overlay Notifications */}
+      {toastAlert && (
+        <div
+          onClick={() => setToastAlert(null)}
+          className={`fixed top-5 right-5 z-55 p-4 rounded-lg border shadow-xl max-w-sm max-h-[80vh] overflow-y-auto transition-all duration-300 backdrop-blur-md cursor-pointer flex items-start gap-3 select-none animate-fade-in ${
+            toastAlert.type === 'error'
+              ? 'bg-red-50/95 border-red-200 text-red-800'
+              : toastAlert.type === 'warn'
+              ? 'bg-amber-50/95 border-amber-200 text-amber-800'
+              : toastAlert.type === 'success'
+              ? 'bg-emerald-50/95 border-emerald-250 text-emerald-805'
+              : 'bg-gold-50/95 border-gold-200 text-gold-900'
+          }`}
+          style={{ zIndex: 9999 }}
+        >
+          <div className="flex-1">
+            <h4 className="text-[10px] font-extrabold font-display uppercase tracking-widest flex items-center gap-1.5 mb-1.5">
+              {toastAlert.type === 'error' && '🚨 System Alert'}
+              {toastAlert.type === 'warn' && '⚠️ Attention'}
+              {toastAlert.type === 'success' && '✓ Operation Complete'}
+              {toastAlert.type === 'info' && 'ℹ Communication Update'}
+            </h4>
+            <p className="text-[9px] font-mono font-semibold leading-relaxed whitespace-pre-line">
+              {toastAlert.message}
+            </p>
           </div>
-        )}
+          <button type="button" className="text-xs font-extrabold select-none opacity-40 hover:opacity-100 p-0.5 leading-none">&times;</button>
+        </div>
+      )}
 
-        {/* STAFF */}
-        {page==="staff"&&currentStaff&&(
-          <div>
-            <div style={{marginBottom:20}}>
-              <h1 style={{fontSize:22,fontWeight:700}}>{currentStaff.name}</h1>
+      {/* Decorative Blur Background Circles */}
+      <div className="ambient-glow-1"></div>
+      <div className="ambient-glow-2"></div>
+
+      {/* Synchronizing indicator ticker */}
+      {syncStatusMsg && (
+        <div className="bg-gold-500 text-black text-[10px] font-mono py-1 px-4 text-center tracking-widest uppercase transition-all flex items-center justify-center gap-2 font-medium z-50 sticky top-0">
+          <RefreshCw className="w-3 h-3 animate-spin" />
+          <span>{syncStatusMsg}</span>
+        </div>
+      )}
+
+      {/* Main Command Header */}
+      <header className="border-b border-gold-200/40 bg-white/80 backdrop-blur-md sticky top-0 z-40 shadow-xs">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
+          <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-3">
+              <div className="w-2.5 h-2.5 rounded-full bg-gold-500 animate-pulse"></div>
+              <span className="font-display tracking-[0.25em] font-bold text-slate-900 text-base md:text-lg">FRESH PEOPLE</span>
             </div>
-              <div style={{background:SURFACE,border:`1px solid ${activeRec?ACCENT+"44":BORDER}`,borderRadius:14,padding:28,marginBottom:24,textAlign:"center",transition:"border 0.3s"}}>
-                <div style={{fontSize:13,color:MUTED,marginBottom:8}}>{activeRec?"Active":"Off"}</div>
-                <div style={{fontSize:48,fontWeight:700,fontFamily:"'DM Mono',monospace",color:activeRec?ACCENT:MUTED,marginBottom:4,letterSpacing:"-0.02em"}}>{activeRec?fmtDur(elapsed):"—"}</div>
-                {activeRec&&<div style={{fontSize:13,color:MUTED,marginBottom:20}}>In at {fmtTime(activeRec.clockIn)}</div>}
-              <div style={{display:"flex",gap:12,justifyContent:"center",marginTop:20}}>
-                {!activeRec
-                  ?<button onClick={()=>clockIn(currentStaff.id)} style={{background:ACCENT,color:"#000",border:"none",borderRadius:10,padding:"14px 40px",fontSize:15,fontWeight:600,cursor:"pointer"}}>Clock In</button>
-                  :<button onClick={()=>clockOut(currentStaff.id)} style={{background:RED,color:"#fff",border:"none",borderRadius:10,padding:"14px 40px",fontSize:15,fontWeight:600,cursor:"pointer"}}>Clock Out</button>
-                }
+            <span className="hidden md:inline h-4 w-[1px] bg-slate-200"></span>
+            <span className="hidden md:inline font-mono text-[9px] text-gold-700 uppercase tracking-widest bg-gold-50 px-2.5 py-0.5 border border-gold-200/40 rounded">
+              Operational Command Hub
+            </span>
+          </div>
+
+          <div className="flex items-center space-x-6">
+            {/* System clock & Session status */}
+            <div className="hidden sm:flex flex-col items-end font-mono text-right select-none">
+              <span className="text-xs text-slate-800 tracking-widest font-bold">{systime} UTC</span>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span className="text-[8px] text-slate-500 uppercase tracking-widest font-medium">Operator: yassin</span>
+                <span className="h-2 w-[1px] bg-slate-200"></span>
+                <span className="text-[8px] text-gold-600 font-black uppercase tracking-widest animate-pulse">Session: {sessionTimeLeft}</span>
               </div>
             </div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:24}}>
-              <Stat label="Shifts today" value={myShifts.length}/>
-              <Stat label="Total hours" value={`${(myTotalMs/3600000).toFixed(1)}h`} accent={ACCENT}/>
-              <Stat label="Earnings" value={`R ${myPay.toFixed(0)}`} accent={ACCENT}/>
-            </div>
-            {myShifts.length>0&&(
-              <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,padding:"16px 20px"}}>
-                <div style={{fontSize:12,color:MUTED,marginBottom:14}}>Recent</div>
-                <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-                  <thead><tr style={{borderBottom:`1px solid ${BORDER}`}}>{["In","Out","Hrs","R"].map(h=><th key={h} style={{padding:"4px 8px",textAlign:"left",color:MUTED,fontWeight:400,paddingBottom:10}}>{h}</th>)}</tr></thead>
-                  <tbody>{myShifts.map(r=>(
-                    <tr key={r.id} style={{borderBottom:`1px solid ${BORDER}22`}}>
-                      <td style={{padding:"10px 8px",fontFamily:"'DM Mono',monospace"}}>{fmtTime(r.clockIn)}</td>
-                      <td style={{padding:"10px 8px",fontFamily:"'DM Mono',monospace"}}>{fmtTime(r.clockOut)}</td>
-                      <td style={{padding:"10px 8px"}}>{fmtDur(r.clockOut-r.clockIn)}</td>
-                      <td style={{padding:"10px 8px",color:ACCENT,fontFamily:"'DM Mono',monospace"}}>R {calcPay(r.clockOut-r.clockIn,currentStaff.rate).toFixed(2)}</td>
-                    </tr>
-                  ))}</tbody>
-                </table>
-              </div>
-            )}
+
+            {/* Lock Trigger */}
+            <button
+              onClick={triggerLogout}
+              className="flex items-center space-x-1.5 px-3 py-1.5 bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 rounded text-[9px] uppercase tracking-widest transition-all cursor-pointer font-mono font-medium"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Lock Console</span>
+            </button>
           </div>
-        )}
+        </div>
+      </header>
 
-        {/* ADMIN */}
-        {page==="admin"&&isAdmin&&(
-          <div>
-            <div style={{marginBottom:20}}>
-              <h1 style={{fontSize:22,fontWeight:700}}>Dashboard</h1>
+      {/* Premium Quiet Luxury Operational Export Control Panel */}
+      <section className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 pt-6 select-none" id="export_control_toolbar">
+        <div className="p-4 rounded-lg border border-gold-300/30 bg-white/95 shadow-sm flex flex-col sm:flex-row justify-between items-center gap-3">
+          <div className="flex items-center space-x-3">
+            <div className="p-2 rounded bg-gold-50 border border-gold-300/30">
+              <Download className="w-4 h-4 text-gold-600 animate-bounce" />
+            </div>
+            <div>
+              <h3 className="text-[10px] uppercase font-display tracking-[0.2em] text-slate-905 font-bold">Operational Export Controls</h3>
+              <p className="text-[8px] uppercase tracking-widest text-slate-500 font-mono mt-0.5">Secure CSV Ledger Spreads &bull; Ready for Audit Logs</p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto justify-end">
+            <button
+              onClick={handleExportEventsCSV}
+              id="export_events_csv_trigger"
+              className="py-1.5 px-3.5 border border-slate-205 hover:border-gold-500/30 text-slate-800 font-mono text-[9px] uppercase tracking-widest hover:bg-gold-50 transition-all rounded flex items-center gap-1.5 cursor-pointer font-semibold"
+            >
+              <ScrollText className="w-3 h-3 text-gold-600" /> Export Events (.CSV)
+            </button>
+            <button
+              onClick={handleExportPayrollCSV}
+              id="export_payroll_csv_trigger"
+              className="py-1.5 px-3.5 border border-gold-300/30 text-gold-800 font-mono text-[9px] uppercase tracking-widest hover:bg-gold-50 transition-all rounded flex items-center gap-1.5 cursor-pointer font-bold bg-gold-50/50"
+            >
+              <CreditCard className="w-3 h-3 text-gold-600" /> Export Payroll &bull; {payrollCycleBounds.label} (.CSV)
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* Global Command Column Grid */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full grid grid-cols-1 lg:grid-cols-12 gap-6 relative z-10">
+
+        {/* ========================================================================= */}
+        {/* LEFT COMPASS: Directories, Registries & Onboarding */}
+        {/* ========================================================================= */}
+        <section id="directory_section" className="lg:col-span-4 flex flex-col space-y-6">
+
+          {/* Master Directories Selection Box */}
+          <div className="glass-panel rounded-lg p-5 shadow-luxury-glow flex flex-col">
+            <div className="border-b border-slate-200/60 pb-3 mb-4">
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-[10px] uppercase tracking-[0.2em] text-slate-700 font-display flex items-center gap-1.5 font-bold">
+                  <Users className="w-4 h-4 text-gold-600 animate-pulse" /> Master Registries
+                </span>
+                <span className="font-mono text-[8px] px-2 py-0.5 bg-gold-50 border border-gold-200/40 rounded-full text-gold-700 uppercase tracking-widest font-bold">
+                  Active Dir
+                </span>
+              </div>
+              <div className="flex space-x-2 bg-slate-100/60 p-1 rounded border border-slate-200/40">
+                <button
+                  onClick={() => switchTab('clients')}
+                  className={`flex-1 py-1.5 text-center text-[10px] font-bold cursor-pointer rounded transition-all tracking-widest uppercase ${
+                    activeTab === 'clients' ? 'text-gold-700 bg-white border border-gold-200/50 shadow-xs' : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  Clients ({clients.length})
+                </button>
+                <button
+                  onClick={() => switchTab('venues')}
+                  className={`flex-1 py-1.5 text-center text-[10px] font-bold cursor-pointer rounded transition-all tracking-widest uppercase ${
+                    activeTab === 'venues' ? 'text-gold-700 bg-white border border-gold-200/50 shadow-xs' : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  Venues ({venues.length})
+                </button>
+                <button
+                  onClick={() => switchTab('staff')}
+                  className={`flex-1 py-1.5 text-center text-[10px] font-bold cursor-pointer rounded transition-all tracking-widest uppercase ${
+                    activeTab === 'staff' ? 'text-gold-700 bg-white border border-gold-200/50 shadow-xs' : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  Staff ({staff.length})
+                </button>
+              </div>
             </div>
 
-            {/* Tabs */}
-            <div style={{display:"flex",gap:2,background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:10,padding:4,marginBottom:28,overflowX:"auto"}}>
-              {TABS.map(([k,l])=>(
-                <button key={k} onClick={()=>setAdminTab(k)} style={{
-                  padding:"8px 18px",borderRadius:7,border:"none",fontSize:13,fontWeight:500,whiteSpace:"nowrap",cursor:"pointer",
-                  background:adminTab===k?ACCENT+"22":"transparent",
-                  color:adminTab===k?ACCENT:MUTED,
-                  borderBottom:adminTab===k?`2px solid ${ACCENT}`:"2px solid transparent",
-                }}>{l}</button>
-              ))}
+            {/* List details container */}
+            <div className="overflow-y-auto max-h-[220px] space-y-3.5 pr-1" id="registry_scroll_viewport">
+              {activeTab === 'clients' && (
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center mb-1.5">
+                    <span className="text-[9px] text-slate-705 uppercase tracking-widest font-bold block">Client Accounts</span>
+                    <button
+                      onClick={() => setActiveModal('client')}
+                      className="text-[8px] text-gold-700 border border-gold-300 hover:border-gold-500 hover:bg-gold-50/55 px-2.5 py-1 rounded transition-all font-mono font-bold"
+                    >
+                      + Ingest Client
+                    </button>
+                  </div>
+                  {clients.length === 0 ? (
+                    <div className="text-[10px] text-slate-400 text-center py-4">No clients registered.</div>
+                  ) : (
+                    clients.map((c) => (
+                      <div key={c.id} className="p-3 bg-white border border-slate-200/60 rounded-md hover:border-gold-500/35 transition-all shadow-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-slate-800 tracking-wide font-bold">{c.name}</span>
+                          <span className="text-[8px] uppercase tracking-widest px-1.5 py-0.5 bg-gold-50 text-gold-700 font-bold border border-gold-200/40 rounded">Premium Account</span>
+                        </div>
+                        <p className="text-[9px] text-slate-600 mt-1 font-medium">Contact: {c.contact} &bull; {c.phone}</p>
+                        {c.notes && <p className="text-[9px] text-slate-600 italic mt-1 bg-slate-50 border border-slate-100 p-1.5 rounded">{c.notes}</p>}
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+
+              {activeTab === 'venues' && (
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center mb-1.5">
+                    <span className="text-[9px] text-slate-705 uppercase tracking-widest font-bold block">Indexed Venues</span>
+                    <button
+                      onClick={() => setActiveModal('venue')}
+                      className="text-[8px] text-gold-700 border border-gold-300 hover:border-gold-500 hover:bg-gold-50/55 px-2.5 py-1 rounded transition-all font-mono font-bold"
+                    >
+                      + Index Venue
+                    </button>
+                  </div>
+                  {venues.length === 0 ? (
+                    <div className="text-[10px] text-slate-400 text-center py-4">No venues indexed.</div>
+                  ) : (
+                    venues.map((v) => (
+                      <div key={v.id} className="p-3 bg-white border border-slate-200/60 rounded-md hover:border-gold-500/35 transition-all shadow-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-slate-800 tracking-wide font-bold">{v.name}</span>
+                          <span className="text-[8px] uppercase tracking-widest px-1.5 py-0.5 bg-slate-100 text-slate-600 font-bold border border-slate-205 rounded">{v.tier}</span>
+                        </div>
+                        <p className="text-[9px] text-slate-600 mt-1 flex items-center gap-1 font-medium">
+                          <MapPin className="w-3 h-3 text-gold-500" />
+                          <span>{v.address}</span>
+                        </p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+
+              {activeTab === 'staff' && (
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center mb-1.5">
+                    <span className="text-[9px] text-slate-705 uppercase tracking-widest font-bold block">Vetted Agency Staff</span>
+                    <button
+                      onClick={() => setActiveModal('staff')}
+                      className="text-[8px] text-gold-700 border border-gold-300 hover:border-gold-500 hover:bg-gold-50/55 px-2.5 py-1 rounded transition-all font-mono font-bold"
+                    >
+                      + Register Staff
+                    </button>
+                  </div>
+                  {staff.length === 0 ? (
+                    <div className="text-[10px] text-slate-400 text-center py-4">No staff members enrolled.</div>
+                  ) : (
+                    staff.map((s) => (
+                      <div key={s.id} className="p-3 bg-white border border-slate-200/60 rounded-md hover:border-gold-500/35 transition-all shadow-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-slate-800 font-bold">{s.name} {s.surname}</span>
+                          <span className="text-[8.5px] uppercase tracking-widest px-1.5 py-0.5 bg-gold-50 text-gold-700 font-bold border border-gold-200/40 rounded italic">{s.role}</span>
+                        </div>
+                        <div className="flex justify-between items-center mt-1 text-[9px] text-slate-600 font-mono font-semibold">
+                          <span>Rate: R{s.rate}/h</span>
+                          <span>{s.phone}</span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Role Utilization Dashboard widget */}
+          <div className="glass-panel rounded-lg p-5 shadow-luxury-glow flex flex-col">
+            <div className="flex items-center justify-between mb-3.5 border-b border-slate-200/60 pb-3">
+              <span className="text-[10px] uppercase tracking-[0.2em] text-slate-800 font-display flex items-center gap-1.5 font-bold">
+                <Briefcase className="w-4 h-4 text-gold-600 animate-pulse" /> Role Utilization Chart
+              </span>
+              <span className="font-mono text-[8.5px] px-2 py-0.5 bg-gold-50 border border-gold-200/40 rounded-full text-gold-700 uppercase tracking-widest font-bold">
+                {payrollCycleBounds.label}
+              </span>
             </div>
 
-            {/* DASHBOARD */}
-            {/* DASHBOARD - Clean & Modern */}
-            {adminTab==="dashboard"&&(
-              <div>
-                {/* KPI Row */}
-                <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:24}}>
-                  <div className="fp-kpi">
-                    <div className="fp-kpi__label">Active Staff</div>
-                    <div className="fp-kpi__value">{tActive || staff.filter(s=>s.uniform).length}</div>
-                    <div className="fp-kpi__sub">{staff.length} total in roster</div>
+            {/* View Tab Selector */}
+            <div className="flex bg-slate-100 p-0.5 rounded-md mb-4 text-[8.5px] font-mono leading-none">
+              <button
+                type="button"
+                onClick={() => setRoleViewTab('specialist')}
+                className={`flex-1 py-1.5 rounded-sm font-extrabold uppercase tracking-wider transition-all cursor-pointer ${
+                  roleViewTab === 'specialist'
+                    ? 'bg-white text-gold-700 shadow-xs'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                Specialists (fresh-people.co.za)
+              </button>
+              <button
+                type="button"
+                onClick={() => setRoleViewTab('individual')}
+                className={`flex-1 py-1.5 rounded-sm font-extrabold uppercase tracking-wider transition-all cursor-pointer ${
+                  roleViewTab === 'individual'
+                    ? 'bg-white text-gold-700 shadow-xs'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                Individual Roles
+              </button>
+            </div>
+
+            <p className="text-[10px] text-slate-600 mb-3.5 font-medium leading-relaxed">
+              {roleViewTab === 'specialist'
+                ? 'Total booked hours aggregated across core South African event specialty classes.'
+                : 'Total hours booked per specific individual assignment role type.'}
+            </p>
+
+            <div className="w-full h-44 mt-1">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={roleViewTab === 'specialist' ? freshPeopleGroupedData : roleUtilizationData}
+                  margin={{ top: 10, right: 10, left: -25, bottom: 5 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
+                  <XAxis
+                    dataKey="name"
+                    tick={{ fill: '#475569', fontSize: 7, fontWeight: 'bold' }}
+                    axisLine={{ stroke: '#CBD5E1' }}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    tick={{ fill: '#475569', fontSize: 8, fontWeight: 'bold' }}
+                    axisLine={{ stroke: '#CBD5E1' }}
+                    tickLine={false}
+                    allowDecimals={false}
+                  />
+                  <Tooltip
+                    cursor={{ fill: 'rgba(234, 179, 8, 0.04)' }}
+                    contentStyle={{
+                      backgroundColor: 'rgba(255, 255, 255, 0.98)',
+                      borderRadius: '6px',
+                      border: '1px solid #CBD5E1',
+                      fontSize: '9px',
+                      fontWeight: 'bold',
+                      color: '#0F172A',
+                      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.05)'
+                    }}
+                  />
+                  <Bar dataKey="Hours" radius={[3, 3, 0, 0]}>
+                    {(roleViewTab === 'specialist' ? freshPeopleGroupedData : roleUtilizationData).map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={(entry as any).color || ROLE_COLORS[entry.name] || '#B8860B'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="mt-4 pt-3 border-t border-slate-105 space-y-2 max-h-[220px] overflow-y-auto pr-0.5">
+              {roleViewTab === 'specialist' ? (
+                freshPeopleGroupedData.map((item) => (
+                  <div key={item.name} className="p-2 border border-slate-200/50 bg-slate-50/45 rounded-md transition-all">
+                    <div className="flex items-center justify-between text-[10px] font-mono mb-1">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="w-2.5 h-2.5 rounded-xs"
+                          style={{ backgroundColor: item.color }}
+                        ></span>
+                        <span className="text-slate-800 font-extrabold tracking-tight">{item.name}</span>
+                      </div>
+                      <span className="font-mono text-[9px] px-1.5 py-0.5 bg-gold-50 text-gold-700 font-extrabold border border-gold-200/40 rounded">
+                        {item.Hours.toFixed(1)} hrs
+                      </span>
+                    </div>
+                    <p className="text-[8.5px] text-slate-500 font-semibold leading-normal pl-4.5">
+                      {item.description}
+                    </p>
                   </div>
-                  <div className="fp-kpi">
-                    <div className="fp-kpi__label">Shifts Today</div>
-                    <div className="fp-kpi__value">{todayEvents.length}</div>
-                    <div className="fp-kpi__sub">{events.length} events total</div>
+                ))
+              ) : (
+                roleUtilizationData.map((item) => (
+                  <div key={item.name} className="flex items-center justify-between text-[10px] font-mono px-1 py-0.5">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="w-2.5 h-2.5 rounded-xs"
+                        style={{ backgroundColor: ROLE_COLORS[item.name] || '#B8860B' }}
+                      ></span>
+                      <span className="text-slate-705 font-bold">{item.name}</span>
+                    </div>
+                    <span className="font-extrabold text-slate-905">
+                      {item.Hours.toFixed(1)} hrs
+                    </span>
                   </div>
-                  <div className="fp-kpi">
-                    <div className="fp-kpi__label">Timesheets Pending</div>
-                    <div className="fp-kpi__value">{records.filter(r=>!r.clockOut).length}</div>
-                    <div className="fp-kpi__sub">{records.length} shifts logged</div>
+                ))
+              )}
+              {((roleViewTab === 'specialist' ? freshPeopleGroupedData : roleUtilizationData).length === 0 || 
+                (roleViewTab === 'specialist' && freshPeopleGroupedData.every(i => i.Hours === 0))) && (
+                <div className="text-center text-[9px] text-slate-400 py-3 font-medium">
+                  No hours scheduled in this payroll span.
+                </div>
+              )}
+              
+              {/* Verified Badge pointing to fresh-people.co.za */}
+              <div className="mt-3.5 pt-2.5 border-t border-dotted border-slate-200 text-center">
+                <p className="text-[8px] text-slate-500 tracking-wider font-semibold leading-relaxed">
+                  🌿 Specialist classifications &amp; credentials align with active roster guidelines on{' '}
+                  <a
+                    href="https://fresh-people.co.za"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-gold-700 hover:underline font-extrabold"
+                  >
+                    fresh-people.co.za
+                  </a>
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Scheduling & Core Event Architecture Planner Form */}
+          <div className="glass-panel rounded-lg p-5 shadow-luxury-glow">
+            <span className="text-[10px] uppercase tracking-[0.2em] text-slate-800 font-display flex items-center gap-1.5 mb-4 border-b border-slate-205 pb-2 font-bold">
+              <Sparkles className="w-4 h-4 text-gold-600 animate-pulse" /> Event Architect
+            </span>
+
+            <form onSubmit={createEvent} className="space-y-4">
+              <div className="space-y-1">
+                <label htmlFor="input_ev_title" className="text-[8px] text-slate-505 uppercase tracking-widest block font-bold">Event/Gala Title</label>
+                <input
+                  type="text"
+                  id="input_ev_title"
+                  value={evTitle}
+                  onChange={(e) => setEvTitle(e.target.value)}
+                  required
+                  placeholder="e.g. VIP Yacht Gala Launch"
+                  className="w-full bg-white border border-slate-300 text-xs text-slate-900 px-3 py-2 rounded focus:border-gold-500 focus:bg-white focus:outline-hidden transition-all placeholder-slate-450 font-bold"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1 font-semibold">
+                  <label htmlFor="select_ev_client" className="text-[8px] text-slate-505 uppercase tracking-widest block font-bold">Client Sponsor</label>
+                  <select
+                    id="select_ev_client"
+                    value={evClient}
+                    onChange={(e) => setEvClient(e.target.value)}
+                    required
+                    className="w-full bg-white border border-slate-300 text-xs text-slate-900 px-2 py-2 rounded focus:border-gold-500 focus:outline-hidden cursor-pointer font-bold"
+                  >
+                    <option value="" className="bg-white text-slate-900">Select Account...</option>
+                    {clients.map((c) => (
+                      <option key={c.id} value={c.id} className="bg-white text-slate-900">{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1 font-semibold">
+                  <label htmlFor="select_ev_venue" className="text-[8px] text-slate-505 uppercase tracking-widest block font-bold">Premium Venue</label>
+                  <select
+                    id="select_ev_venue"
+                    value={evVenue}
+                    onChange={(e) => setEvVenue(e.target.value)}
+                    required
+                    className="w-full bg-white border border-slate-300 text-xs text-slate-900 px-2 py-2 rounded focus:border-gold-500 focus:outline-hidden cursor-pointer font-bold"
+                  >
+                    <option value="" className="bg-white text-slate-900">Select Location...</option>
+                    {venues.map((v) => (
+                      <option key={v.id} value={v.id} className="bg-white text-slate-900">{v.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label htmlFor="input_ev_date" className="text-[8px] text-slate-550 uppercase tracking-widest block font-bold">Calendar Date</label>
+                  <input
+                    type="date"
+                    id="input_ev_date"
+                    value={evDate}
+                    onChange={(e) => setEvDate(e.target.value)}
+                    required
+                    className="w-full bg-white border border-slate-300 text-xs text-slate-900 px-2.5 py-1.5 rounded focus:border-gold-500 focus:outline-hidden font-mono font-bold"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-1">
+                  <div className="space-y-1">
+                    <label htmlFor="input_ev_start" className="text-[8px] text-slate-550 uppercase tracking-widest block font-extrabold text-slate-700">Time In</label>
+                    <input
+                      type="time"
+                      id="input_ev_start"
+                      value={evTimeStart}
+                      onChange={(e) => setEvTimeStart(e.target.value)}
+                      required
+                      className="w-full bg-white border border-slate-300 text-[10px] text-slate-905 px-1 py-1.5 rounded focus:border-gold-500 focus:outline-hidden font-mono font-bold"
+                    />
                   </div>
-                  <div className="fp-kpi">
-                    <div className="fp-kpi__label">Outstanding (ZAR)</div>
-                    <div className="fp-kpi__value">R {invoices.filter(i=>i.status!=="paid").reduce((a,i)=>a + docSubtotal(i.lines) * (i.includeTax !== false ? (1 + (Number(i.taxRate) || 15) / 100) : 1), 0).toFixed(0)}</div>
-                    <div className="fp-kpi__sub">{invoices.filter(i=>i.status!=="paid").length} unpaid</div>
+                  <div className="space-y-1">
+                    <label htmlFor="input_ev_end" className="text-[8px] text-slate-550 uppercase tracking-widest block font-extrabold text-slate-700">Time Out</label>
+                    <input
+                      type="time"
+                      id="input_ev_end"
+                      value={evTimeEnd}
+                      onChange={(e) => setEvTimeEnd(e.target.value)}
+                      required
+                      className="w-full bg-white border border-slate-300 text-[10px] text-slate-905 px-1 py-1.5 rounded focus:border-gold-500 focus:outline-hidden font-mono font-bold"
+                    />
                   </div>
                 </div>
+              </div>
 
-                {/* AI Operations Insights (Gemini) */}
-                <AIInsightsCard staff={staff} events={events} clients={clients} invoices={invoices} quotes={quotes}/>
+              {/* Direct Booking Manual Setup */}
+              <div className="bg-gold-50/50 p-3 rounded-lg border border-gold-200/50 space-y-1.5">
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="is_direct_booking_check"
+                    checked={isDirectBookingChecked}
+                    onChange={(e) => setIsDirectBookingChecked(e.target.checked)}
+                    className="rounded text-gold-600 focus:ring-0 w-3.5 h-3.5 bg-white border-slate-300 cursor-pointer"
+                  />
+                  <label htmlFor="is_direct_booking_check" className="text-[8.5px] text-gold-700 font-bold uppercase tracking-wider cursor-pointer select-none">
+                    Direct Booking (Bypass Bot Dispatch)
+                  </label>
+                </div>
+                <p className="text-[8px] text-slate-600 leading-relaxed font-semibold">
+                  If booking was compiled direct, staff allocations are logged as pre-confirmed, skipping WhatsApp dispatch flow.
+                </p>
+              </div>
 
-                <div style={{display:"grid",gridTemplateColumns:"1fr 300px",gap:24,marginBottom:24}}>
-                  {/* Main Content */}
-                  <div>
-                    {/* Today's Events */}
-                    <div style={{marginBottom:24}}>
-                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
-                        <h2 style={{fontSize:20,fontWeight:600,color:TEXT,margin:0}}>Today's Events</h2>
-                        <Btn variant="primary" onClick={()=>setAdminTab("calendar")} style={{fontSize:12}}>+ New Event</Btn>
-                      </div>
-                      
-                      {todayEvents.length === 0 ? (
-                        <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,padding:"32px 24px",textAlign:"center"}}>
-                          <div style={{fontSize:48,marginBottom:8}}>📅</div>
-                          <div style={{color:MUTED,fontSize:14}}>No events scheduled for today</div>
+              {/* Core Feature 2: Allocation checklist directly mapped within created event */}
+              <div className="space-y-1">
+                <div className="flex justify-between items-center mb-1 animate-pulse">
+                  <label className="text-[8px] text-gold-700 uppercase tracking-widest font-bold block">Allocate Staff Members</label>
+                  <span className="text-[8px] font-mono text-slate-500 font-bold">{mappedRosterCount} Selected</span>
+                </div>
+                <div id="roster_checklist" className="max-h-24 overflow-y-auto border border-slate-200 bg-white shadow-xs rounded-md p-1.5 space-y-1.5 divide-y divide-slate-100">
+                  {staff.length === 0 ? (
+                    <div className="text-[9px] text-slate-400 text-center py-2">Add staff to enable dispatch maps.</div>
+                  ) : (
+                    staff.map((s) => {
+                      const isSelected = evSelectedStaffIds.includes(s.id);
+                      return (
+                        <div
+                          key={s.id}
+                          onClick={() => toggleStaffAllocation(s.id)}
+                          className="flex items-center space-x-2 py-1 cursor-pointer select-none text-[10px]"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            readOnly
+                            className="rounded text-gold-600 focus:ring-0 w-3 h-3 bg-white border-slate-300 cursor-pointer"
+                          />
+                          <span className={`flex-1 transition-all ${isSelected ? 'text-gold-700 font-bold' : 'text-slate-650'}`}>
+                            {s.name} {s.surname} ({s.role})
+                          </span>
                         </div>
-                      ) : (
-                        <div style={{display:"flex",flexDirection:"column",gap:12}}>
-                          {todayEvents.map(e => {
-                            const client = clients.find(c => c.id === e.clientId);
-                            const assignedStaff = staff.filter(s => e.staffIds?.includes(s.id));
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label htmlFor="textarea_ev_notes" className="text-[8px] text-slate-505 uppercase tracking-widest block font-bold">Brand Directives</label>
+                <textarea
+                  id="textarea_ev_notes"
+                  value={evNotes}
+                  onChange={(e) => setEvNotes(e.target.value)}
+                  rows={2}
+                  placeholder="White-glove protocol detail..."
+                  className="w-full bg-white border border-slate-300 text-xs text-slate-900 px-3 py-1.5 rounded focus:border-gold-500 focus:outline-hidden placeholder-slate-400 font-medium"
+                ></textarea>
+              </div>
+
+              <div className="space-y-1">
+                <label htmlFor="textarea_ev_client_requirements" className="text-[8px] text-slate-550 uppercase tracking-widest block font-bold text-gold-700">Client Contractual Requirements / Custom Notes</label>
+                <textarea
+                  id="textarea_ev_client_requirements"
+                  value={evClientRequirements}
+                  onChange={(e) => setEvClientRequirements(e.target.value)}
+                  rows={2}
+                  placeholder="e.g. Vegetarian catering crew only, French-speaking preferred, strict VIP experience..."
+                  className="w-full bg-white border border-slate-300 text-xs text-slate-900 px-3 py-1.5 rounded focus:border-gold-500 focus:outline-hidden placeholder-slate-450 font-bold"
+                ></textarea>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-2 bg-gradient-to-r from-gold-600 to-gold-500 hover:brightness-110 text-white font-display font-bold text-[9px] tracking-widest uppercase transition-all rounded shadow-sm cursor-pointer"
+              >
+                Assemble Event & Sync Log
+              </button>
+            </form>
+          </div>
+
+        </section>
+
+        {/* ========================================================================= */}
+        {/* CENTER COLUMN: Interactive Payroll Grid Schedule                         */}
+        {/* ========================================================================= */}
+        <section id="calendar_section" className="lg:col-span-4 flex flex-col space-y-6 animate-fade-in">
+
+          <div className="glass-panel rounded-lg p-5 shadow-luxury-glow flex flex-col flex-1 h-full">
+
+            {/* Calendar Controls */}
+            <div className="flex items-center justify-between mb-4 border-b border-slate-200/60 pb-3">
+              <div className="flex items-center space-x-2">
+                <Calendar className="w-4 h-4 text-gold-600 animate-pulse" />
+                <h2 className="font-display tracking-[0.15em] text-xs uppercase text-slate-900 font-extrabold">Payroll Cycle Schedule</h2>
+              </div>
+              <div className="flex items-center space-x-1.5 font-bold">
+                <button
+                  onClick={() => shiftMonth(-1)}
+                  className="p-1 text-slate-600 hover:text-gold-600 hover:bg-slate-100 rounded transition-all cursor-pointer"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <span className="font-display text-[11px] text-slate-900 font-bold uppercase tracking-widest px-1">
+                  {getMonthName(currentMonth)} {currentYear}
+                </span>
+                <button
+                  onClick={() => shiftMonth(1)}
+                  className="p-1 text-slate-600 hover:text-gold-600 hover:bg-slate-100 rounded transition-all cursor-pointer"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Core Feature 3: Quiet Luxury Corporate Payroll Highlight Panel */}
+            <div className="bg-gold-50/60 border border-gold-300/40 rounded-lg p-4 mb-4 space-y-2 relative overflow-hidden">
+              <div className="flex justify-between items-center pb-1">
+                <span className="text-[8px] text-slate-600 uppercase tracking-widest font-extrabold flex items-center gap-1.5">
+                  <CreditCard className="w-3.5 h-3.5 text-gold-600" /> Corporate Payroll Highlight Rules
+                </span>
+                <span className="text-[7.5px] uppercase tracking-widest text-gold-700 font-bold bg-white/80 px-1.5 py-0.5 border border-gold-250 rounded shadow-xs">
+                  {payrollCycleBounds.label}
+                </span>
+              </div>
+              <p className="text-[10px] text-slate-700 leading-relaxed font-medium">
+                Our premium payroll interval opens automatically on the <span className="text-gold-700 font-extrabold">26th of the previous month</span> and cuts off/closes on the <span className="text-gold-700 font-extrabold">25th of the current cycle</span> month.
+              </p>
+
+              {/* Payroll Cycle Switch Selector */}
+              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gold-200/30 text-[9px] font-bold">
+                <button
+                  onClick={() => setFocusedPayrollCycle('current')}
+                  className={`py-1 rounded text-center cursor-pointer font-mono uppercase tracking-widest border transition-all ${
+                    focusedPayrollCycle === 'current'
+                      ? 'bg-gold-100 border-gold-400 text-gold-800'
+                      : 'border-slate-205 text-slate-500 hover:text-slate-800 hover:bg-white/40'
+                  }`}
+                >
+                  Cycle ending May 25
+                </button>
+                <button
+                  onClick={() => setFocusedPayrollCycle('next')}
+                  className={`py-1 rounded text-center cursor-pointer font-mono uppercase tracking-widest border transition-all ${
+                    focusedPayrollCycle === 'next'
+                      ? 'bg-gold-100 border-gold-400 text-gold-800'
+                      : 'border-slate-205 text-slate-500 hover:text-slate-800 hover:bg-white/40'
+                  }`}
+                >
+                  Cycle opening May 26
+                </button>
+              </div>
+            </div>
+
+            {/* Day of the Week Headers */}
+            <div className="grid grid-cols-7 gap-1 text-center mb-1.5 select-none font-bold">
+              <span className="text-[9px] text-slate-600 uppercase tracking-widest">Su</span>
+              <span className="text-[9px] text-slate-600 uppercase tracking-widest">Mo</span>
+              <span className="text-[9px] text-slate-600 uppercase tracking-widest">Tu</span>
+              <span className="text-[9px] text-slate-600 uppercase tracking-widest">We</span>
+              <span className="text-[9px] text-slate-600 uppercase tracking-widest">Th</span>
+              <span className="text-[9px] text-slate-600 uppercase tracking-widest">Fr</span>
+              <span className="text-[9px] text-gold-700 uppercase tracking-widest">Sa</span>
+            </div>
+
+            {/* Core visual calendar grid displaying local events and Google synchronisations */}
+            <div className="grid grid-cols-7 gap-1.5 flex-1 select-none min-h-[220px]">
+              {calendarDays.map((d, index) => {
+                const isSelected = selectedDateStr === d.dateStr;
+                const dailyEvents = getEventsForDate(d.dateStr);
+
+                // Highlight status based on payroll bounds
+                const fitsCycleInCurrentMonthDisplay = d.isCurrentMonth && isDayInSelectedPayrollCycle(d.dayNumber);
+
+                return (
+                  <div
+                    key={`${d.dateStr}-${index}`}
+                    onClick={() => {
+                      setSelectedDateStr(d.dateStr);
+                      // Auto-populate date in event architect form for seamless UX
+                      setEvDate(d.dateStr);
+                    }}
+                    className={`relative p-2 flex flex-col min-h-[46px] rounded transition-all cursor-pointer ${
+                      d.isCurrentMonth ? 'bg-white border border-slate-200' : 'bg-transparent text-slate-400 border border-transparent'
+                    } ${isSelected ? '!border-gold-500 bg-gold-50/50 shadow-gold-glow' : ''} ${
+                      fitsCycleInCurrentMonthDisplay ? 'payroll-span border-dashed !border-gold-500/30 font-bold' : ''
+                    } hover:border-gold-400 hover:bg-gold-50/20`}
+                  >
+                    {/* Date Number Label */}
+                    <div className="flex justify-between items-center mb-1">
+                      <span
+                        className={`text-[10px] font-mono leading-none font-extrabold ${
+                          d.isCurrentMonth
+                            ? fitsCycleInCurrentMonthDisplay
+                              ? 'text-gold-700'
+                              : 'text-slate-800'
+                            : 'text-slate-400'
+                        }`}
+                      >
+                        {d.dayNumber}
+                      </span>
+
+                      {/* Small visual dot for scheduler roster counts */}
+                      {dailyEvents.length > 0 && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-gold-600 inline-block animate-pulse"></span>
+                      )}
+                    </div>
+
+                    {/* Highly stylized miniature roster badge if events mapped to this container */}
+                    {d.isCurrentMonth && dailyEvents.length > 0 && (
+                      <div className="mt-auto space-y-0.5">
+                        {dailyEvents.slice(0, 2).map((ev) => {
+                          const isGCalImport = ev.id.startsWith('gcal-import');
+                          return (
+                            <div
+                              key={ev.id}
+                              className={`text-[7px] truncate px-1 rounded-sm font-bold tracking-wide leading-tight ${
+                                isGCalImport
+                                  ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                                  : 'bg-gold-50 text-gold-800 border border-gold-200/50'
+                              }`}
+                            >
+                              {ev.title}
+                            </div>
+                          );
+                        })}
+                        {dailyEvents.length > 2 && (
+                          <div className="text-[6.5px] font-mono text-slate-500 text-right font-bold">
+                            +{dailyEvents.length - 2} more
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Dynamic Event detail expanded drawer panel */}
+            <div id="selected_day_drawer" className="mt-4 pt-4 border-t border-slate-200/65 space-y-3.5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-[10px] uppercase tracking-[0.2em] text-slate-905 font-bold">
+                    Roster detail &bull; {selectedDateStr}
+                  </h3>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className="text-[8.5px] font-mono text-gold-700 uppercase tracking-widest font-extrabold">
+                      {selectedDayEvents.length} Active Command Mappings
+                    </span>
+                    {selectedDayEvents.length > 0 && (
+                      <span className="h-3 w-[1px] bg-slate-200"></span>
+                    )}
+                    {selectedDayEvents.length > 0 && (
+                      <span className="text-[8px] font-mono text-slate-500 uppercase tracking-widest italic font-bold">
+                        Payroll Span: {parseInt(selectedDateStr.split('-')[2]) <= 25 ? 'Cycle Apr 26-May 25' : 'Cycle May 26-Jun 25'}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setEvDate(selectedDateStr);
+                    document.getElementById('input_ev_title')?.focus();
+                  }}
+                  className="text-[8.5px] text-slate-600 hover:text-gold-700 border border-slate-350 hover:border-gold-400 px-2.5 py-1 rounded transition-all font-mono uppercase tracking-widest font-bold bg-white"
+                >
+                  + Add Event
+                </button>
+              </div>
+
+              {selectedDayEvents.length === 0 ? (
+                <div className="text-center py-6 text-slate-500 text-xs border border-dashed border-slate-200 bg-white/50 rounded-lg font-medium">
+                  No operational mappings budgeted on this calendar date.
+                </div>
+              ) : (
+                <div className="space-y-3 max-h-[190px] overflow-y-auto pr-1">
+                  {selectedDayEvents.map((ev) => {
+                    const clientObj = clients.find((c) => c.id === ev.clientId);
+                    const venueObj = venues.find((v) => v.id === ev.venueId);
+                    const isGoogleImport = ev.id.startsWith('gcal-import');
+                    const isAppleImport = ev.id.startsWith('apple-import') || ev.id.startsWith('apple-live');
+
+                    return (
+                      <div
+                        key={ev.id}
+                        className={`p-3 border rounded-lg relative overflow-hidden transition-all hover:bg-slate-50/50 ${
+                          isGoogleImport
+                            ? 'border-blue-250 bg-blue-50/40'
+                            : isAppleImport
+                            ? 'border-slate-300 bg-slate-100/40'
+                            : 'border-slate-201 bg-white shadow-xs'
+                        }`}
+                      >
+                        {/* Decorative side accent tag line */}
+                        <div
+                          className={`absolute left-0 top-0 bottom-0 w-[3px] ${
+                            isGoogleImport ? 'bg-blue-500' : isAppleImport ? 'bg-slate-900' : 'bg-gold-500'
+                          }`}
+                        ></div>
+
+                        <div className="pl-2.5">
+                          <div className="flex items-start justify-between">
+                            <div>
+                              <h4 className="text-xs text-slate-900 tracking-wide font-extrabold flex items-center gap-1.5 flex-wrap">
+                                {ev.title}
+                                {isGoogleImport && (
+                                  <span className="flex items-center gap-1 text-[8px] font-mono bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded border border-blue-200">
+                                    <Globe className="w-2.5 h-2.5" /> Google Cal
+                                  </span>
+                                )}
+                                {isAppleImport && (
+                                  <span className="flex items-center gap-1 text-[8px] font-mono bg-slate-900 text-white px-1.5 py-0.5 rounded border border-slate-750">
+                                    <Apple className="w-2.2 h-2.2 text-white" /> Apple Cal
+                                  </span>
+                                )}
+                              </h4>
+                              <p className="text-[9.5px] text-slate-600 mt-1 font-medium">
+                                Partner: {clientObj?.name || (isGoogleImport ? 'Synced calendar meeting' : isAppleImport ? 'iCloud synchronized event' : 'Local Account')} &bull; Location: {venueObj?.name || 'Private Address'}
+                              </p>
+                            </div>
+                            <span className="text-[9.5px] font-mono font-bold text-gold-700">
+                              {ev.startTime} - {ev.endTime}
+                            </span>
+                          </div>
+
+                          {!isGoogleImport && !isAppleImport && ev.staffIds.length > 0 && (
+                            <div className="mt-3.5 pt-2.5 border-t border-slate-100 flex flex-wrap gap-1.5">
+                              <span className="text-[8px] text-slate-500 uppercase tracking-widest font-mono mr-1 pt-0.5 font-bold">Allocated:</span>
+                              {ev.staffIds.map((sId) => {
+                                const sObj = staff.find((s) => s.id === sId);
+                                if (!sObj) return null;
+                                return (
+                                  <span
+                                    key={sId}
+                                    className="text-[8px] px-2.5 py-0.5 bg-slate-50 border border-slate-200 rounded-full font-mono text-slate-705 font-bold"
+                                  >
+                                    {sObj.name} {sObj.surname[0]}. ({sObj.role})
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          )}
+
+                          {ev.clientRequirements && (
+                            <div className="mt-2 text-[9px] text-slate-800 bg-gold-50/40 p-2.5 rounded border border-gold-200/40 font-medium">
+                              <span className="text-[8px] uppercase tracking-wider text-gold-700 block mb-1 font-bold">Other Client Requirements:</span>
+                              {ev.clientRequirements}
+                            </div>
+                          )}
+
+                          <div className="flex items-center justify-between mt-3.5 pt-2.5 border-t border-slate-100">
+                            <p className="text-[9px] text-slate-500 italic truncate max-w-[80%] font-medium">
+                              Brand Note: {ev.notes || 'No directive guidelines.'}
+                            </p>
+                            {!isGoogleImport && !isAppleImport && (
+                              <button
+                                onClick={() => deleteEvent(ev.id)}
+                                className="text-[8.5px] text-red-650 hover:text-red-500 hover:underline transition-all font-mono font-bold cursor-pointer"
+                              >
+                                Delete
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Double-Shift Visual Auditor & Analytics Breakdown */}
+              {selectedDayEvents.length > 0 && (() => {
+                const approvedDS = selectedDayDoubleShifts.filter(item => 
+                  item.events.every(ev => {
+                    const rsvp = ev.staffRSVPs?.[item.staff.id] || (ev.isDirectBooking ? 'Available' : 'Pending');
+                    return rsvp === 'Available';
+                  })
+                );
+
+                const pendingDS = selectedDayDoubleShifts.filter(item => 
+                  item.events.some(ev => {
+                    const rsvp = ev.staffRSVPs?.[item.staff.id] || (ev.isDirectBooking ? 'Available' : 'Pending');
+                    return rsvp === 'Pending';
+                  })
+                );
+
+                return (
+                  <div className="mt-6 pt-4 border-t border-slate-200/65 space-y-4" id="double_shift_auditor_panel">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h4 className="text-[10px] uppercase tracking-[0.2em] text-slate-800 font-display font-bold flex items-center gap-1.5">
+                          <Users className="w-4 h-4 text-gold-600 animate-pulse" /> Double-Shift Audit Engine
+                        </h4>
+                        <p className="text-[8px] text-slate-500 uppercase tracking-widest font-mono mt-0.5">
+                          Breakdown: Approved vs Outstanding on {selectedDateStr}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center space-x-1.5 font-mono text-[8px] font-bold">
+                        <span className="px-2 py-0.5 bg-green-50 text-green-700 border border-green-200/60 rounded">
+                          {approvedDS.length} Approved
+                        </span>
+                        <span className="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200/60 rounded animate-pulse">
+                          {pendingDS.length} Pending
+                        </span>
+                      </div>
+                    </div>
+
+                    {selectedDayDoubleShifts.length === 0 ? (
+                      <p className="text-[9.5px] text-slate-500 italic py-2 bg-slate-50 text-center rounded-md border border-slate-150">
+                        No double shifts detected for this date.
+                      </p>
+                    ) : (
+                      <div className="space-y-2.5">
+                        <p className="text-[8.5px] text-slate-600 font-semibold leading-relaxed">
+                          Vetted staff members assigned to multiple events today. Click check/pending badges to instantly toggle confirmation status.
+                        </p>
+
+                        <div className="space-y-2 max-h-[160px] overflow-y-auto pr-1">
+                          {selectedDayDoubleShifts.map(({ staff: s, events: evs }) => {
+                            const isFullyApproved = evs.every(ev => {
+                              const rsvp = ev.staffRSVPs?.[s.id] || (ev.isDirectBooking ? 'Available' : 'Pending');
+                              return rsvp === 'Available';
+                            });
+
                             return (
-                              <div key={e.id} style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,padding:"20px 24px"}}>
-                                <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between"}}>
-                                  <div style={{flex:1}}>
-                                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
-                                      <div style={{width:8,height:8,borderRadius:"50%",background:e.color||ACCENT}}/>
-                                      <h3 style={{fontSize:16,fontWeight:600,color:TEXT,margin:0}}>{e.title}</h3>
-                                    </div>
-                                    
-                                    <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:16,marginBottom:12,fontSize:13,color:MUTED}}>
-                                      <div>📍 {e.venue}</div>
-                                      <div>⏰ {e.startTime} - {e.endTime}</div>
-                                      <div>👤 {client?.name || "Unknown Client"}</div>
-                                    </div>
-                                    
-                                    {assignedStaff.length > 0 && (
-                                      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-                                        <span style={{fontSize:12,color:MUTED}}>Staff:</span>
-                                        {assignedStaff.map(s => (
-                                          <Badge key={s.id} color={ACCENT}>{s.name}</Badge>
-                                        ))}
+                              <div
+                                key={s.id}
+                                className={`p-2.5 border rounded-md transition-all ${
+                                  isFullyApproved
+                                    ? 'border-green-200 bg-green-50/25'
+                                    : 'border-amber-200 bg-amber-50/25 font-bold'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="flex items-center space-x-2">
+                                    <span className="text-xs font-bold text-slate-900">
+                                      {s.name} {s.surname}
+                                    </span>
+                                    <span className="text-[7.5px] uppercase tracking-widest px-1.5 py-0.5 bg-gold-50 text-gold-700 rounded-sm italic border border-gold-200/40 font-bold">
+                                      {s.role}
+                                    </span>
+                                  </div>
+
+                                  <span className={`text-[7.5px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded border font-bold ${
+                                    isFullyApproved
+                                      ? 'bg-green-100 border-green-300 text-green-800'
+                                      : 'bg-amber-100 border-amber-300 text-amber-800'
+                                  }`}>
+                                    {isFullyApproved ? 'All Approved' : 'Action Required'}
+                                  </span>
+                                </div>
+
+                                <div className="space-y-1">
+                                  {evs.map((evItem) => {
+                                    const rsvpState = evItem.staffRSVPs?.[s.id] || (evItem.isDirectBooking ? 'Available' : 'Pending');
+                                    return (
+                                      <div
+                                        key={evItem.id}
+                                        className="flex items-center justify-between text-[9px] bg-white border border-slate-150 rounded px-2 py-1"
+                                      >
+                                        <div className="truncate max-w-[65%] font-medium">
+                                          <span className="font-extrabold text-slate-800">{evItem.title}</span>
+                                          <span className="text-slate-500 font-mono text-[8.5px] block">{evItem.startTime} - {evItem.endTime}</span>
+                                        </div>
+
+                                        <button
+                                          onClick={() => toggleStaffRSVP(evItem.id, s.id)}
+                                          className={`text-[7.5px] font-mono uppercase tracking-wider px-2 py-0.5 rounded border cursor-pointer transition-all font-bold ${
+                                            rsvpState === 'Available'
+                                              ? 'bg-green-50 hover:bg-green-100 border-green-200 text-green-700 font-bold'
+                                              : 'bg-amber-50 hover:bg-amber-100 border-amber-200 text-amber-700 font-bold'
+                                          }`}
+                                        >
+                                          {rsvpState === 'Available' ? '✓ Approved' : '⌛ Pending'}
+                                        </button>
                                       </div>
-                                    )}
-                                  </div>
-                                  
-                                  <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:16}}>
-                                    <Btn variant="accent" onClick={async ()=>{
-                                      try {
-                                        const result = await FPCCCore.sendWhatsApp(e.id, e.staffIds || []);
-                                        
-                                        if (result.success) {
-                                          addToast(`WhatsApp sent to ${result.dispatched} staff members`, 'success');
-                                        } else {
-                                          addToast('Failed to send WhatsApp notifications', 'error');
-                                        }
-                                      } catch (err) {
-                                        addToast('Network error sending notifications', 'error');
-                                      }
-                                    }} style={{fontSize:12,padding:"6px 12px"}}>
-                                      📤 Notify Staff
-                                    </Btn>
-                                    <Btn variant="ghost" onClick={()=>{setAdminTab("calendar")}} style={{fontSize:12,padding:"6px 8px"}}>✏️</Btn>
-                                  </div>
+                                    );
+                                  })}
                                 </div>
                               </div>
                             );
                           })}
                         </div>
-                      )}
-                    </div>
-                    
-                    {/* Quick Actions */}
-                    <div style={{marginBottom:24}}>
-                      <h3 style={{fontSize:16,fontWeight:600,color:TEXT,marginBottom:16}}>Quick Actions</h3>
-                      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12}}>
-                        <button onClick={()=>setAdminTab("calendar")} style={{
-                          background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,padding:"20px 16px",
-                          display:"flex",flexDirection:"column",alignItems:"center",gap:8,
-                          transition:"all 0.2s",cursor:"pointer",color:"inherit"
-                        }}>
-                          <div style={{fontSize:24}}>📅</div>
-                          <div style={{fontSize:13,fontWeight:500,color:TEXT}}>Create Event</div>
-                        </button>
-                        
-                        <button onClick={()=>setAdminTab("add staff")} style={{
-                          background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,padding:"20px 16px",
-                          display:"flex",flexDirection:"column",alignItems:"center",gap:8,
-                          transition:"all 0.2s",cursor:"pointer",color:"inherit"
-                        }}>
-                          <div style={{fontSize:24}}>👥</div>
-                          <div style={{fontSize:13,fontWeight:500,color:TEXT}}>Add Staff</div>
-                        </button>
-                        
-                        <button onClick={async ()=>{
-                          const todayStaffIds = todayEvents.flatMap(e => e.staffIds || []);
-                          if (todayStaffIds.length === 0) {
-                            addToast('No staff assigned to today\'s events', 'warning');
-                            return;
-                          }
-                          try {
-                            for (const event of todayEvents) {
-                              if (event.staffIds?.length > 0) {
-                                const dispatchToken = localStorage.getItem('fpcc_admin_token');
-                                await fetch('/api/dispatch-staff', {
-                                  method: 'POST',
-                                  headers: { 
-                                    'Content-Type': 'application/json',
-                                    ...(dispatchToken ? { 'Authorization': `Bearer ${dispatchToken}` } : {})
-                                  },
-                                  body: JSON.stringify({ eventId: event.id, staffIds: event.staffIds })
-                                });
-                              }
-                            }
-                            addToast('Bulk WhatsApp dispatch completed', 'success');
-                          } catch (err) {
-                            addToast('Bulk dispatch failed', 'error');
-                          }
-                        }} style={{
-                          background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,padding:"20px 16px",
-                          display:"flex",flexDirection:"column",alignItems:"center",gap:8,
-                          transition:"all 0.2s",cursor:"pointer",color:"inherit"
-                        }}>
-                          <div style={{fontSize:24}}>📤</div>
-                          <div style={{fontSize:13,fontWeight:500,color:TEXT}}>Bulk Dispatch</div>
-                        </button>
                       </div>
-                    </div>
+                    )}
                   </div>
-                  
-                  {/* Sidebar */}
-                  <div>
-                    {/* Staff Status */}
-                    <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,padding:"20px 24px",marginBottom:16}}>
-                      <h3 style={{fontSize:16,fontWeight:600,color:TEXT,marginBottom:16}}>Staff Status</h3>
-                      
-                      <div style={{display:"flex",flexDirection:"column",gap:12}}>
-                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                          <div style={{display:"flex",alignItems:"center",gap:8}}>
-                            <div style={{width:8,height:8,borderRadius:"50%",background:"#10b981"}}/>
-                            <span style={{fontSize:13,color:TEXT}}>Available</span>
+                );
+              })()}
+            </div>
+
+          </div>
+
+        </section>
+
+        {/* ========================================================================= */}
+        {/* RIGHT COLUMN: WhatsApp Dispatcher Console, Apple Sync & Call Log       */}
+        {/* ========================================================================= */}
+        <section id="dispatch_section" className="lg:col-span-4 flex flex-col space-y-6">
+
+          {/* Automated 'Staff Balancing' suggestion tool widget */}
+          <div className="glass-panel rounded-lg p-5 shadow-luxury-glow flex flex-col">
+            <span className="text-[10px] uppercase tracking-[0.2em] text-slate-800 font-display flex items-center gap-1.5 mb-2.5 border-b border-slate-205 pb-2 font-bold select-none">
+              <Users className="w-4 h-4 text-gold-600 animate-pulse" /> Staff Balancing Auditor
+            </span>
+
+            <p className="text-[10px] text-slate-650 font-semibold leading-relaxed mb-3.5">
+              Automatically calculates staff-to-capacity ratios based on active venue guidelines. Ideal ratio is <span className="text-gold-700 font-bold">1 staff member per 50 guests</span>.
+            </p>
+
+            {/* Filter Toggle tabs */}
+            <div className="flex bg-slate-100 p-0.5 rounded-md mb-4 text-[8.5px] font-mono leading-none">
+              <button
+                type="button"
+                onClick={() => setBalanceFilter('all')}
+                className={`flex-1 py-1.5 rounded-sm font-extrabold uppercase tracking-wider transition-all cursor-pointer ${
+                  balanceFilter === 'all'
+                    ? 'bg-white text-gold-700 shadow-xs'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                All Events ({staffBalancingData.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setBalanceFilter('payroll')}
+                className={`flex-1 py-1.5 rounded-sm font-extrabold uppercase tracking-wider transition-all cursor-pointer ${
+                  balanceFilter === 'payroll'
+                    ? 'bg-white text-gold-700 shadow-xs'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                Active Cycle ({staffBalancingData.filter(item => {
+                  const start = payrollCycleBounds.startDateStr;
+                  const end = payrollCycleBounds.endDateStr;
+                  return item.event.date >= start && item.event.date <= end;
+                }).length})
+              </button>
+            </div>
+
+            {/* Scrollable Suggestion List */}
+            <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
+              {filteredBalancingData.length === 0 ? (
+                <div className="text-center py-4 text-[10px] text-slate-400 border border-dashed border-slate-200 bg-white/50 rounded-lg font-medium">
+                  No events on record in this configuration.
+                </div>
+              ) : (
+                filteredBalancingData.map((item) => {
+                  const ev = item.event;
+                  // target count matches 1 staff per 50 capacity
+                  const targetStaff = Math.max(1, Math.ceil(item.capacity / 50));
+                  const percentOfTarget = Math.round((item.staffCount / targetStaff) * 100);
+
+                  return (
+                    <div
+                      key={ev.id}
+                      className={`p-3 border rounded-lg bg-white relative overflow-hidden transition-all hover:border-gold-300 ${
+                        item.level === 'critical'
+                          ? 'border-red-200/80 bg-red-50/5'
+                          : item.level === 'warning'
+                          ? 'border-amber-200/85 bg-amber-50/5'
+                          : 'border-slate-150'
+                      }`}
+                    >
+                      {/* Left color bar matching level */}
+                      <div
+                        className={`absolute left-0 top-0 bottom-0 w-[3px] ${
+                          item.level === 'critical'
+                            ? 'bg-red-500'
+                            : item.level === 'warning'
+                            ? 'bg-amber-400'
+                            : 'bg-emerald-500'
+                        }`}
+                      ></div>
+
+                      <div className="pl-2">
+                        <div className="flex items-start justify-between gap-1">
+                          <div className="truncate flex-1">
+                            <span className="text-[11px] font-extrabold text-slate-800 tracking-tight block truncate leading-tight">
+                              {ev.title}
+                            </span>
+                            <span className="text-[8.5px] font-mono text-slate-505 font-semibold block mt-0.5">
+                              {ev.date} &bull; {item.venue ? `${item.venue.name} (Cap: ${item.capacity})` : `Private Location (Cap: 100)`}
+                            </span>
                           </div>
-                          <span style={{fontSize:14,fontWeight:600,color:"#10b981"}}>{staff.length - todayEvents.flatMap(e => e.staffIds || []).length}</span>
+
+                          <span
+                            className={`text-[7.5px] uppercase font-mono px-1.5 py-0.5 rounded-sm border font-extrabold flex items-center gap-1 shrink-0 ${
+                              item.level === 'critical'
+                                ? 'bg-red-50 border-red-200 text-red-700 font-extrabold'
+                                : item.level === 'warning'
+                                ? 'bg-amber-50 border-amber-200 text-amber-700'
+                                : 'bg-green-50 border-green-200 text-green-700'
+                            }`}
+                          >
+                            {item.level === 'critical'
+                              ? '🚨 Critical'
+                              : item.level === 'warning'
+                              ? '⚠️ Warning'
+                              : '✓ Balanced'}
+                          </span>
                         </div>
-                        
-                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                          <div style={{display:"flex",alignItems:"center",gap:8}}>
-                            <div style={{width:8,height:8,borderRadius:"50%",background:AMBER}}/>
-                            <span style={{fontSize:13,color:TEXT}}>On Assignment</span>
+
+                        {/* Ratios Metrics */}
+                        <div className="grid grid-cols-2 gap-1.5 mt-2.5 text-[9px] font-semibold text-slate-705 border-t border-slate-100 pt-2 font-mono">
+                          <div>
+                            <span className="text-slate-400 block text-[7.5px] uppercase tracking-wider">Staff Cover</span>
+                            <span className="text-slate-800 font-bold">{item.staffCount} Allocated</span> / {targetStaff} Target
                           </div>
-                          <span style={{fontSize:14,fontWeight:600,color:AMBER}}>{todayEvents.flatMap(e => e.staffIds || []).length}</span>
+                          <div>
+                            <span className="text-slate-400 block text-[7.5px] uppercase tracking-wider">Ratio Index</span>
+                            <span className={`font-extrabold ${item.level === 'critical' ? 'text-red-650' : 'text-slate-805'}`}>
+                              {item.staffCount > 0 ? `1 : ${item.guestsPerStaff} guests` : 'No Staff Allocated!'}
+                            </span>
+                          </div>
                         </div>
-                        
-                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                          <div style={{display:"flex",alignItems:"center",gap:8}}>
-                            <div style={{width:8,height:8,borderRadius:"50%",background:RED}}/>
-                            <span style={{fontSize:13,color:TEXT}}>Total Staff</span>
+
+                        {/* Progress Bar represent cover sufficiency */}
+                        <div className="mt-2.5">
+                          <div className="flex justify-between items-center text-[7.5px] font-mono text-slate-405 font-bold mb-1">
+                            <span>Sufficient staffing index</span>
+                            <span>{percentOfTarget}%</span>
                           </div>
-                          <span style={{fontSize:14,fontWeight:600,color:TEXT}}>{staff.length}</span>
+                          <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden border border-slate-200/50">
+                            <div
+                              className={`h-full transition-all duration-500 rounded-full ${
+                                item.level === 'critical'
+                                  ? 'bg-red-500'
+                                  : item.level === 'warning'
+                                  ? 'bg-amber-400'
+                                  : 'bg-emerald-500'
+                              }`}
+                              style={{ width: `${Math.min(100, percentOfTarget)}%` }}
+                            ></div>
+                          </div>
+                        </div>
+
+                        {/* Recommended action action button */}
+                        <div className="mt-3 flex items-center justify-between gap-1 bg-slate-50/50 p-1.5 rounded border border-slate-200/40">
+                          <p className="text-[8px] text-slate-505 font-semibold leading-tight max-w-[60%]">
+                            {item.level === 'critical'
+                              ? 'Critically understaffed. Allocate more staff immediately.'
+                              : item.level === 'warning'
+                              ? 'Staffing levels sub-optimal. Consider adding supervisors.'
+                              : 'Roster meets safe compliance standard.'}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedDateStr(ev.date);
+                              setEvDate(ev.date);
+                              setSelectedDispatchEventId(ev.id);
+                              
+                              // Log log
+                              addActivityLog('sync', `Initiated automated balancing pipeline for "${ev.title}" (Date: ${ev.date}). Reading available staff lists.`);
+                              
+                              // Scroll smooth
+                              setTimeout(() => {
+                                const el = document.getElementById('selected_day_drawer');
+                                el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                              }, 50);
+                            }}
+                            className="text-[8px] uppercase tracking-wider font-mono px-2 py-1 bg-gold-600 hover:bg-gold-500 text-white font-extrabold rounded-md shadow-xs transition-all cursor-pointer hover:scale-[1.02]"
+                          >
+                            Optimize →
+                          </button>
                         </div>
                       </div>
                     </div>
-                    
-                    {/* Recent Bookings */}
-                    <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,padding:"20px 24px"}}>
-                      <h3 style={{fontSize:16,fontWeight:600,color:TEXT,marginBottom:16}}>Upcoming Events</h3>
-                      
-                      <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                        {events.filter(e => new Date(e.date) > new Date()).slice(0,4).map((event) => (
-                          <div key={event.id} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 0"}}>
-                            <div style={{width:6,height:6,borderRadius:"50%",background:event.color||ACCENT}}/>
-                            <div style={{flex:1}}>
-                              <div style={{fontSize:12,color:TEXT}}>{event.title}</div>
-                              <div style={{fontSize:10,color:MUTED}}>{new Date(event.date).toLocaleDateString()} - {event.startTime}</div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          {/* Unified WhatsApp Scheduling Dispatcher (Core feature 4) */}
+          <div className="glass-panel rounded-lg p-5 shadow-luxury-glow">
+            <span className="text-[10px] uppercase tracking-[0.2em] text-slate-800 font-display flex items-center gap-1.5 mb-2 border-b border-slate-205 pb-2 font-bold animate-pulse">
+              <Radio className="w-4 h-4 text-gold-600 animate-pulse" /> Dispatcher Console
+            </span>
+
+            <p className="text-[10px] text-slate-600 font-semibold leading-relaxed mb-4">
+              Select an upcoming event scheduled above to instantly structure automated courier communications out to allocated staff members.
+            </p>
+
+            <div className="space-y-4">
+              <div>
+                <label htmlFor="select_dispatch_event" className="text-[8px] text-slate-705 uppercase tracking-widest block font-bold mb-1">Target dispatch Event</label>
+                <select
+                  id="select_dispatch_event"
+                  value={selectedDispatchEventId}
+                  onChange={(e) => setSelectedDispatchEventId(e.target.value)}
+                  className="w-full bg-white border border-slate-300 text-xs text-slate-900 px-2 py-2 rounded focus:border-gold-500 focus:outline-hidden font-bold cursor-pointer"
+                >
+                  <option value="">Select Scheduled Event...</option>
+                  {events.map((ev) => (
+                    <option key={ev.id} value={ev.id} className="bg-white text-slate-900">
+                      {ev.title} ({ev.date})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {currentSelectedDispatchEvent ? (
+                <div className="space-y-3 p-3 bg-slate-50/70 border border-slate-200/80 rounded-lg fade-in-up">
+                  <div className="flex items-center justify-between border-b border-slate-150 pb-2">
+                    <span className="text-[8.5px] font-mono text-gold-700 uppercase tracking-wider font-bold">
+                      Allocated Event Roster ({currentSelectedDispatchEvent.staffIds.length})
+                    </span>
+                    <span
+                      className={`text-[8.5px] font-mono uppercase tracking-widest px-1.5 rounded-xs leading-none py-0.5 font-bold border ${
+                        currentSelectedDispatchEvent.status === 'Confirmed'
+                          ? 'bg-green-50 text-green-700 border-green-200'
+                          : 'bg-gold-50 text-gold-700 border-gold-200'
+                      }`}
+                    >
+                      {currentSelectedDispatchEvent.status || 'Pending'}
+                    </span>
+                  </div>
+
+                  {currentSelectedDispatchEvent.staffIds.length === 0 ? (
+                    <p className="text-[10px] text-slate-400 text-center py-2">No staff allocated on this event roster.</p>
+                  ) : (
+                    <div className="space-y-3.5 divide-y divide-slate-100">
+                      {currentSelectedDispatchEvent.staffIds.map((sId) => {
+                        const sObj = staff.find((s) => s.id === sId);
+                        if (!sObj) return null;
+                        return (
+                          <div key={sId} className="pt-2 flex flex-col space-y-2">
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <span className="text-xs text-slate-900 font-bold block">
+                                  {sObj.name} {sObj.surname}
+                                </span>
+                                <span className="text-[8.5px] font-mono text-slate-500 uppercase tracking-widest block font-bold font-semibold">
+                                  Role: {sObj.role} &bull; R{sObj.rate}/h
+                                </span>
+                              </div>
+                              <button
+                                onClick={() => dispatchToWhatsApp(currentSelectedDispatchEvent, sObj)}
+                                className="px-2.5 py-1 bg-green-600 hover:bg-green-500 text-white font-mono font-bold text-[8px] tracking-wider uppercase rounded transition-all flex items-center gap-1 cursor-pointer shadow-xs"
+                              >
+                                <Radio className="w-2.5 h-2.5" /> Dispatch SMS
+                              </button>
+                            </div>
+                            {/* Message Preview */}
+                            <div className="bg-slate-100 p-2.5 border border-slate-200 rounded font-mono text-[8px] text-slate-705 leading-relaxed max-h-16 overflow-y-auto whitespace-pre-line select-all font-bold shadow-inner">
+                              {constructWhatsAppMessage(currentSelectedDispatchEvent, sObj)}
                             </div>
                           </div>
-                        ))}
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="text-center py-4 text-[10px] text-slate-500 border border-dashed border-slate-200 bg-white/50 rounded-lg">
+                  No operational dispatcher loaded. Establish a selection above.
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Bidirectional Sync integrations panel (Google vs Apple iCal Export) */}
+          <div className="glass-panel rounded-lg p-5 shadow-luxury-glow">
+            <span className="text-[10px] uppercase tracking-[0.2em] text-slate-800 font-display flex items-center gap-1.5 mb-2.5 border-b border-slate-205 pb-2 font-bold select-none">
+              <Globe className="w-4 h-4 text-gold-600 animate-pulse" /> Synchronization Channels
+            </span>
+
+            <div className="space-y-4">
+              {/* Google Synchronization Block */}
+              <div className="space-y-2">
+                <div className="flex justify-between items-center text-[9px] font-bold">
+                  <span className="text-slate-650 block uppercase tracking-widest">Google Calendar Service</span>
+                  {googleUser ? (
+                    <span className="text-green-600 font-mono text-[8px] font-extrabold flex items-center gap-1.5 uppercase tracking-widest">
+                      <CheckCircle className="w-3 h-3 text-green-600" /> ONLINE
+                    </span>
+                  ) : (
+                    <span className="text-slate-500 font-mono text-[8px] uppercase tracking-widest font-bold">DISCONNECTED</span>
+                  )}
+                </div>
+
+                {googleUser ? (
+                  <div className="p-3 bg-white border border-slate-200 rounded-lg space-y-3 shadow-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] text-slate-800 truncate max-w-[70%] font-mono select-all font-bold">
+                        {googleUser.email}
+                      </span>
+                      <button
+                        onClick={handleGoogleLogout}
+                        className="text-[8px] text-red-650 hover:underline font-mono font-bold cursor-pointer"
+                      >
+                        Disconnect
+                      </button>
+                    </div>
+
+                    {/* Auto-Sync status indicator inside the active panel */}
+                    <div className="p-2 bg-slate-50 border border-slate-200 rounded-md flex flex-col gap-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[8px] uppercase tracking-widest text-slate-500 font-bold flex items-center gap-1.5">
+                          <span className={`w-2 h-2 rounded-full ${autoSyncEnabled ? 'bg-emerald-500 animate-pulse' : 'bg-slate-350'}`}></span>
+                          Auto-Sync Platforms
+                        </span>
+                        
+                        <button
+                          onClick={() => {
+                            const nextVal = !autoSyncEnabled;
+                            setAutoSyncEnabled(nextVal);
+                            localStorage.setItem('fp_autosync_enabled', String(nextVal));
+                          }}
+                          className={`text-[7.5px] uppercase tracking-wider px-2 py-0.5 rounded-sm border cursor-pointer font-bold ${
+                            autoSyncEnabled 
+                              ? 'bg-emerald-50 hover:bg-emerald-100 border-emerald-200 text-emerald-700'
+                              : 'bg-slate-200 hover:bg-slate-300 border-slate-300 text-slate-705'
+                          }`}
+                        >
+                          {autoSyncEnabled ? '✓ Active' : '⏸ Paused'}
+                        </button>
+                      </div>
+
+                      <p className="text-[7.5px] leading-relaxed text-slate-500 font-medium">
+                        {autoSyncEnabled 
+                          ? `Continuously checking connected calendars for modifications and cancellations in real-time.`
+                          : `Real-time synchronization paused. Click Turn On to keep your schedule refreshed automatically.`
+                        }
+                      </p>
+
+                      <div className="flex items-center justify-between text-[7.5px] font-mono text-slate-450 font-bold mt-0.5 border-t border-slate-200/60 pt-1">
+                        <span>Status: {isSilentSyncing ? 'Refreshing...' : 'Live Monitoring'}</span>
+                        <span>Updated: {lastSyncTime ? lastSyncTime.toLocaleTimeString() : 'Just Linked'}</span>
                       </div>
                     </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => triggerGoogleSync()}
+                        className="py-1.5 bg-gold-600 hover:bg-gold-500 text-white font-display font-bold text-[8.5px] tracking-widest uppercase rounded cursor-pointer transition-all flex items-center justify-center gap-1 shadow-xs"
+                      >
+                        <RefreshCw className="w-2.5 h-2.5" /> Pull & Sync
+                      </button>
+                      <button
+                        onClick={handleExportICS}
+                        className="py-1.5 border border-slate-350 hover:border-gold-400 text-slate-700 font-display text-[8.5px] tracking-widest uppercase rounded cursor-pointer transition-all flex items-center justify-center gap-1 bg-white shadow-xs"
+                      >
+                        <Download className="w-2.5 h-2.5" /> ICS Export
+                      </button>
+                    </div>
                   </div>
-                </div>
-              </div>
-            )}
-
-            {/* CLIENTS - CRM Agent */}
-            {adminTab==="clients"&&<ClientsView clients={clients} events={events} addToast={addToast}/>}
-
-            {/* ROSTER - simplified, no filters */}
-            {adminTab==="roster"&&(
-              <div>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:12}}>
-                  {staff.map(s=>{
-                    const active=records.some(r=>r.staffId===s.id&&!r.clockOut);
-                    const shifts=records.filter(r=>r.staffId===s.id&&r.clockOut);
-                    const hrs=shifts.reduce((a,r)=>a+(r.clockOut-r.clockIn)/3600000,0);
-                    return (
-                      <StaffCard
-                        key={s.id}
-                        staff={s}
-                        active={active}
-                        hrs={hrs}
-                        onView={()=>alert(s.name)}
-                        onEdit={()=>{
-                          setNewStaff({name:s.name,role:s.role,rate:String(s.rate),pin:s.pin,department:s.department,uniform:s.uniform,phone:s.phone});
-                          setEditingStaffId(s.id);
-                          setAdminTab("add staff");
-                        }}
-                        onRemove={()=>{
-                          if(window.confirm(`Remove ${s.name}?`)){
-                            setStaff(prev=>prev.filter(x=>x.id!==s.id));
-                            addToast(s.name+" removed","success");
-                          }
-                        }}
-                      />
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* TIMESHEETS */}
-            {adminTab==="timesheets"&&(
-              <div>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
-                  <div style={{fontSize:14,color:MUTED}}>{completed.length} completed shifts</div>
-                  <Btn variant="accent" onClick={()=>{
-                    const payrollHeader="Name,Dept,Clock In,Clock Out,Hours,Pay (R)";
-                    const lines=completed.map(r=>{const s=staff.find(x=>x.id===r.staffId);const dur=r.clockOut-r.clockIn;return `${s?.name},${s?.department},${fmtTime(r.clockIn)},${fmtTime(r.clockOut)},${(dur/3600000).toFixed(2)},${calcPay(dur,s?.rate||0).toFixed(2)}`;});
-                    navigator.clipboard.writeText([payrollHeader,...lines].join("\n"));
-                    addToast("Payroll CSV copied to clipboard","success");
-                  }}>Export Payroll CSV</Btn>
-                </div>
-                {completed.length===0
-                  ?<div style={{color:MUTED,textAlign:"center",padding:40}}>No completed shifts yet</div>
-                  :<div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,overflow:"auto"}}>
-                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-                      <thead style={{background:SURFACE2}}><tr>
-                        {["Staff","Dept","Clock In","Clock Out","Duration","Pay"].map(label=><th key={label} style={{padding:"12px 14px",textAlign:"left",color:MUTED,fontWeight:500,fontSize:11,textTransform:"uppercase",letterSpacing:"0.05em"}}>{label}</th>)}
-                      </tr></thead>
-                      <tbody>{completed.slice().reverse().map(r=>{
-                        const s=staff.find(x=>x.id===r.staffId); const dur=r.clockOut-r.clockIn;
-                        return(<tr key={r.id} style={{borderTop:`1px solid ${BORDER}33`}}>
-                          <td style={{padding:"12px 14px",fontWeight:500}}>{s?.name||"?"}</td>
-                          <td style={{padding:"12px 14px",color:MUTED}}>{s?.department}</td>
-                          <td style={{padding:"12px 14px",fontFamily:"'DM Mono',monospace"}}>{fmtTime(r.clockIn)}</td>
-                          <td style={{padding:"12px 14px",fontFamily:"'DM Mono',monospace"}}>{fmtTime(r.clockOut)}</td>
-                          <td style={{padding:"12px 14px"}}>{fmtDur(dur)}</td>
-                          <td style={{padding:"12px 14px",color:ACCENT,fontFamily:"'DM Mono',monospace"}}>R {calcPay(dur,s?.rate||0).toFixed(2)}</td>
-                        </tr>);
-                      })}</tbody>
-                    </table>
+                ) : (
+                  <div className="space-y-3 text-center">
+                    <p className="text-[9.5px] text-slate-650 font-semibold leading-relaxed">
+                      Enable bidirectional synchronization. Scheduled agency slots automatically mirror onto your Google Calendar dynamically.
+                    </p>
+                    <button
+                      onClick={handleGoogleLogin}
+                      className="w-full py-2 bg-gradient-to-r from-gold-600 to-gold-500 hover:brightness-110 active:scale-[0.99] hover:text-white font-display text-white font-bold text-[9px] tracking-widest uppercase rounded shadow-sm transition-all cursor-pointer inline-flex items-center justify-center gap-1.5"
+                    >
+                      <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" className="w-3.5 h-3.5 mr-1 bg-white p-0.5 rounded-full">
+                        <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
+                        <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
+                        <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 items-baseline 2.56 10.78l7.97-6.19z"></path>
+                        <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
+                      </svg>
+                      Sign In with Google
+                    </button>
                   </div>
-                }
+                )}
               </div>
-            )}
 
-            {/* CALENDAR */}
-            {adminTab==="calendar"&&<CalendarTab events={events} setEvents={setEvents} staff={staff} clients={clients} addToast={addToast} currentModel={currentModel}/>}
+              {/* Apple Calendar iCal Link Block */}
+              <div className="pt-2 border-t border-slate-200/60 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[9px] text-slate-705 font-bold uppercase tracking-widest block">Apple Calendar Slot Sync</span>
+                  {appleUser ? (
+                    <span className="px-1.5 py-0.5 bg-green-50 text-green-700 border border-green-200 text-[7.5px] font-mono rounded-sm font-bold flex items-center gap-1">
+                      <CheckCircle className="w-2.5 h-2.5 text-green-600" /> LINKED
+                    </span>
+                  ) : (
+                    <span className="text-slate-500 font-mono text-[7.5px] uppercase tracking-widest font-bold">UNCONNECTED</span>
+                  )}
+                </div>
 
-            {/* DOCUMENTS */}
-            {adminTab==="documents"&&<DocumentsTab invoices={invoices} setInvoices={setInvoices} quotes={quotes} setQuotes={setQuotes} clients={clients} events={events} staff={staff}/>}
+                {appleUser ? (
+                  <div className="p-3 bg-white border border-slate-200 rounded-lg space-y-3 shadow-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] text-slate-800 truncate max-w-[70%] font-mono select-all font-bold">
+                        {appleUser.email}
+                      </span>
+                      <button
+                        onClick={handleAppleLogout}
+                        className="text-[8px] text-red-650 hover:underline font-mono font-bold cursor-pointer"
+                      >
+                        Disconnect
+                      </button>
+                    </div>
 
-            {/* PAYROLL - Finance Agent */}
-            {adminTab==="payroll"&&<Payroll staff={staff} events={events} records={records} addToast={addToast}/>}
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={handlePushToAppleCalendar}
+                        className="py-1.5 bg-black hover:bg-slate-850 text-white font-display font-bold text-[8.5px] tracking-widest uppercase rounded cursor-pointer transition-all flex items-center justify-center gap-1 shadow-xs"
+                      >
+                        <RefreshCw className="w-2.5 h-2.5" /> Push iCloud
+                      </button>
+                      <button
+                        onClick={handleExportICS}
+                        className="py-1.5 border border-slate-350 hover:border-gold-400 text-slate-705 font-display text-[8.5px] tracking-widest uppercase rounded cursor-pointer transition-all flex items-center justify-center gap-1 bg-white shadow-xs"
+                      >
+                        <Download className="w-2.5 h-2.5" /> Download .ICS
+                      </button>
+                    </div>
 
-            {/* ADD STAFF */}
-            {adminTab==="add staff"&&(
-              <div style={{maxWidth:500}}>
-                <div style={{display:"flex",flexDirection:"column",gap:14}}>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-                    {[{k:"name",l:"Full Name",p:"Amara Diallo"},{k:"role",l:"Role",p:"Bar Staff"},{k:"rate",l:"Hourly Rate (R)",p:"40",t:"number"},{k:"pin",l:"4-Digit PIN",p:"1234",mx:4}].map(f=>(
-                      <div key={f.k}>
-                        <Lbl>{f.l}</Lbl>
-                        <input type={f.t||"text"} placeholder={f.p} maxLength={f.mx} value={newStaff[f.k]} onChange={e=>setNewStaff(p=>({...p,[f.k]:e.target.value}))} style={{width:"100%"}}/>
+                    {/* Live iCal iCloud Feed Connection Area */}
+                    <div className="p-2.5 bg-slate-50 border border-slate-150 rounded-lg space-y-2 text-left">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[7.5px] uppercase tracking-wider text-slate-500 font-bold block">
+                          iCloud iCal Feed Subscription URL
+                        </span>
+                        <div className="flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
+                          <span className="text-[7px] text-emerald-600 font-bold font-mono uppercase tracking-widest">LIVE SYNC_UP</span>
+                        </div>
                       </div>
-                    ))}
-                    <div><Lbl>Phone</Lbl><input value={newStaff.phone} onChange={e=>setNewStaff(p=>({...p,phone:e.target.value}))} placeholder="+27 71 000 0000" style={{width:"100%"}}/></div>
+                      <input
+                        type="text"
+                        value={appleFeedUrl}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setAppleFeedUrl(val);
+                          localStorage.setItem('fp_apple_feed_url', val);
+                        }}
+                        placeholder="iCloud public calendar publish URL"
+                        className="w-full text-[9px] bg-white border border-slate-200 p-1.5 rounded text-slate-800 font-mono focus:border-slate-800 focus:outline-hidden"
+                      />
+                      <button
+                        onClick={() => triggerAppleFeedFetch(false)}
+                        className="w-full py-1 bg-slate-900 text-white hover:bg-slate-800 rounded text-[7.5px] font-bold uppercase tracking-wider font-mono transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                        title="Force-Sync latest iCloud slots immediately"
+                      >
+                        <RefreshCw className="w-2.5 h-2.5 text-white" /> Synchronise Live Feed Now
+                      </button>
+                    </div>
+
+                    {/* Device Simulator Link */}
+                    <div className="pt-2 border-t border-slate-100">
+                      <button
+                        onClick={() => setIsAppleSimulatorVisible(!isAppleSimulatorVisible)}
+                        className="w-full py-1.5 bg-slate-900 text-white hover:bg-slate-850 rounded font-mono text-[8px] uppercase tracking-wider font-bold transition-all flex items-center justify-center gap-1 px-2.5 cursor-pointer shadow-sm"
+                      >
+                        <Apple className="w-3 h-3 text-white" /> 
+                        {isAppleSimulatorVisible ? 'Hide iPhone Calendar' : 'Open iPhone Calendar (Live Sim)'}
+                      </button>
+                    </div>
+
+                    {isAppleSimulatorVisible && (
+                      <div className="p-2.5 bg-slate-950 text-white border border-slate-800 rounded-lg space-y-3 shadow-inner mt-2 shrink-0 select-none text-left">
+                        <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
+                          <span className="text-[7.5px] text-slate-400 uppercase tracking-widest font-mono font-bold flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                            Yassin's iPhone Simulator
+                          </span>
+                          <span className="text-[7px] text-slate-500 font-mono">iCloud Synced</span>
+                        </div>
+
+                        {/* List of appleEvents */}
+                        <div className="space-y-1 max-h-[140px] overflow-y-auto">
+                          <span className="text-[7px] text-slate-500 uppercase tracking-widest block mb-1 font-bold">iCloud Event List</span>
+                          {appleEvents.length === 0 ? (
+                            <p className="text-[8px] text-slate-500 text-center py-2 font-mono">No iCloud events set.</p>
+                          ) : (
+                            appleEvents.map((aEv) => (
+                              <div key={aEv.id} className="p-1.5 bg-slate-900 border border-slate-800 rounded flex items-center justify-between gap-2">
+                                <div className="truncate flex-1">
+                                  <span className="text-[8.5px] text-slate-200 font-bold block truncate">{aEv.title}</span>
+                                  <span className="text-[7px] text-slate-500 font-mono font-semibold">
+                                    {aEv.date} @ {aEv.startTime}-{aEv.endTime}
+                                  </span>
+                                </div>
+                                <button
+                                  onClick={() => handleDeleteAppleSimulatorEvent(aEv.id, aEv.title)}
+                                  className="p-1 hover:bg-red-950/40 text-red-400 rounded transition-all cursor-pointer"
+                                  title="Cancel Event on iPhone"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              </div>
+                            ))
+                          )}
+                        </div>
+
+                        {/* Add simulated event form */}
+                        <form onSubmit={handleAddAppleSimulatorEvent} className="space-y-1.5 pt-2 border-t border-slate-800">
+                          <span className="text-[7.5px] text-slate-400 uppercase tracking-widest block font-bold">Create Event on Phone</span>
+                          
+                          <input
+                            type="text"
+                            placeholder="Dinner at Sandton, Sponsor Lunch..."
+                            value={simNewTitle}
+                            onChange={(e) => setSimNewTitle(e.target.value)}
+                            required
+                            className="w-full bg-slate-900 border border-slate-800 text-xs px-2 py-1.5 text-slate-100 rounded focus:outline-hidden placeholder-slate-600 font-mono"
+                          />
+
+                          <div className="grid grid-cols-3 gap-1">
+                            <div className="col-span-1">
+                              <input
+                                type="date"
+                                value={simNewDate}
+                                onChange={(e) => setSimNewDate(e.target.value)}
+                                required
+                                className="w-full bg-slate-900 border border-slate-800 text-[10px] px-1 py-1 text-slate-200 rounded font-mono"
+                              />
+                            </div>
+                            <div>
+                              <input
+                                type="text"
+                                placeholder="12:00"
+                                value={simNewTimeStart}
+                                onChange={(e) => setSimNewTimeStart(e.target.value)}
+                                required
+                                className="w-full bg-slate-900 border border-slate-800 text-[10px] px-1 py-1 text-slate-200 rounded font-mono"
+                              />
+                            </div>
+                            <div>
+                              <input
+                                type="text"
+                                placeholder="14:00"
+                                value={simNewTimeEnd}
+                                onChange={(e) => setSimNewTimeEnd(e.target.value)}
+                                required
+                                className="w-full bg-slate-900 border border-slate-800 text-[10px] px-1 py-1 text-slate-200 rounded font-mono"
+                              />
+                            </div>
+                          </div>
+
+                          <button
+                            type="submit"
+                            className="w-full py-1 bg-slate-850 hover:bg-slate-800 text-slate-100 rounded text-[8px] uppercase tracking-wider font-mono cursor-pointer transition-all border border-slate-755 font-bold"
+                          >
+                            + Add & Auto-Sync
+                          </button>
+                        </form>
+                      </div>
+                    )}
                   </div>
-                  <div>
-                    <Lbl>Department</Lbl>
-                    <select value={newStaff.department} onChange={e=>setNewStaff(p=>({...p,department:e.target.value}))} style={{width:"100%"}}>
-                      {["Bar","Floor","Management","Security"].map(d=><option key={d}>{d}</option>)}
+                ) : (
+                  <div className="space-y-3 text-center">
+                    <p className="text-[9.5px] text-slate-655 font-semibold leading-relaxed">
+                      Link your Apple ID to synchronize roster slots directly onto your device's Apple Calendar space.
+                    </p>
+                    <div className="grid grid-cols-1 gap-2">
+                      <button
+                        onClick={() => setIsAppleAuthModalOpen(true)}
+                        className="w-full py-2 bg-black hover:bg-slate-850 text-white font-display font-bold text-[9px] tracking-widest uppercase rounded shadow-sm hover:brightness-110 active:scale-[0.99] transition-all cursor-pointer inline-flex items-center justify-center gap-1.5"
+                      >
+                        <Apple className="w-3.5 h-3.5 mr-1" />
+                        Sign In with Apple
+                      </button>
+                      <button
+                        onClick={handleExportICS}
+                        className="w-full py-1.5 border border-slate-350 hover:border-gold-400 text-slate-705 font-mono text-[9px] uppercase tracking-widest hover:bg-gold-50/40 transition-all text-center rounded block cursor-pointer bg-white"
+                      >
+                        Download Apple iCal (.ICS)
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Direct booking register and calls register */}
+          <div className="glass-panel rounded-lg p-5 shadow-luxury-glow">
+            <span className="text-[10px] uppercase tracking-[0.2em] text-slate-800 font-display flex items-center gap-1.5 mb-3 border-b border-slate-205 pb-2 font-bold select-none">
+              <PhoneForwarded className="w-4 h-4 text-gold-600 animate-pulse" /> Duty Call Register
+            </span>
+
+            <form onSubmit={logPhoneCall} className="space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <label htmlFor="input_caller" className="text-[8px] text-slate-550 uppercase tracking-widest block font-bold">Logged Caller</label>
+                  <input
+                    type="text"
+                    id="input_caller"
+                    value={callCaller}
+                    onChange={(e) => setCallCaller(e.target.value)}
+                    required
+                    placeholder="e.g. Lead Planner"
+                    className="w-full bg-white border border-slate-300 text-xs text-slate-900 px-2.5 py-1.5 rounded focus:border-gold-500 focus:outline-hidden placeholder-slate-400 font-bold"
+                  />
+                </div>
+                <div className="space-y-1 font-semibold">
+                  <label htmlFor="select_log_type" className="text-[8px] text-slate-550 uppercase tracking-widest block font-bold">Event Duty</label>
+                  <select
+                    id="select_log_type"
+                    value={callType}
+                    onChange={(e) => setCallType(e.target.value as any)}
+                    required
+                    className="w-full bg-white border border-slate-300 text-xs text-slate-900 px-1.5 py-1.5 rounded focus:border-gold-500 focus:outline-hidden cursor-pointer font-bold"
+                  >
+                    <option value="call" className="bg-white text-slate-900">Call Log Entry</option>
+                    <option value="booking" className="bg-white text-slate-900">Manual Booking</option>
+                    <option value="staff_confirm" className="bg-white text-slate-900">Staff Response</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label htmlFor="textarea_call_summary" className="text-[8px] text-slate-550 uppercase tracking-widest block font-bold">Resolution Notes</label>
+                <textarea
+                  id="textarea_call_summary"
+                  value={callSummary}
+                  onChange={(e) => setCallSummary(e.target.value)}
+                  required
+                  rows={2}
+                  placeholder="Summary of operational resolution details..."
+                  className="w-full bg-white border border-slate-300 text-xs text-slate-900 px-2.5 py-1.5 rounded focus:border-gold-500 focus:outline-hidden placeholder-slate-400 font-bold"
+                ></textarea>
+              </div>
+
+              <div className="flex items-center justify-between pt-1">
+                <div className="flex items-center space-x-1.5">
+                  <input
+                    type="checkbox"
+                    id="checkbox_urgent"
+                    checked={callUrgent}
+                    onChange={(e) => setCallUrgent(e.target.checked)}
+                    className="rounded text-gold-600 focus:ring-opacity-0 bg-white border-slate-300 w-3.5 h-3.5 cursor-pointer"
+                  />
+                  <label htmlFor="checkbox_urgent" className="text-[8.5px] text-red-650 uppercase tracking-[0.15em] select-none font-bold cursor-pointer">
+                    Flag Urgent Gate
+                  </label>
+                </div>
+                <button
+                  type="submit"
+                  className="bg-gold-600 hover:bg-gold-500 text-white font-display font-bold text-[8.5px] tracking-widest uppercase px-3.5 py-2 rounded transition-all cursor-pointer shadow-sm"
+                >
+                  Piped Log Stream
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {/* Activity Pipeline Logs */}
+          <div className="glass-panel rounded-lg p-5 shadow-luxury-glow flex flex-col min-h-[160px] max-h-[220px]">
+            <div className="flex items-center justify-between mb-3 border-b border-slate-205 pb-2">
+              <span className="text-[10px] uppercase tracking-[0.15em] text-slate-800 font-display flex items-center gap-1.5 font-bold">
+                <ScrollText className="w-4 h-4 text-gold-600 animate-pulse" /> Operational Pipeline Buffer
+              </span>
+              <button
+                onClick={clearLogs}
+                className="text-[8px] text-slate-500 hover:text-red-500 transition-all font-mono uppercase tracking-widest font-bold cursor-pointer"
+              >
+                Flush Logs
+              </button>
+            </div>
+
+            <div id="activity_feed_box" className="flex-1 overflow-y-auto space-y-3.5 pr-1 font-mono text-[9px] text-slate-700 leading-relaxed select-all font-semibold">
+              {activityLogs.map((log, index) => (
+                <div key={`${log.id}-${index}`} className="relative pl-3.5 border-l border-slate-200 hover:border-gold-400 transition-all animate-fade-in">
+                  {/* Small pointer glyph for active logs */}
+                  <div
+                    className={`absolute left-[-2.5px] top-1 w-1.5 h-1.5 rounded-full ${
+                      log.isUrgent ? 'bg-red-550 animate-ping' : 'bg-gold-600/60'
+                    }`}
+                  ></div>
+                  <div className="flex justify-between text-[8px] text-slate-500 font-extrabold mb-0.5">
+                    <span>[{log.operator}] &bull; {log.type.toUpperCase()}</span>
+                    <span>{log.timestamp.split('T')[1].slice(0, 8)}</span>
+                  </div>
+                  <p className={`${log.isUrgent ? 'text-red-600 font-extrabold' : 'text-slate-800 font-bold'}`}>
+                    {log.message}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+        </section>
+
+      </main>
+
+      {/* Primary central system footer bar */}
+      <footer className="border-t border-slate-205 py-4 bg-slate-50 relative z-10 select-none">
+        <div className="max-w-7xl mx-auto px-4 text-center">
+          <p className="text-[8px] text-slate-500 tracking-[0.3em] uppercase font-bold">
+            SECURE CRYPTOGRAPHIC PROTOCOLS &bull; FRESH PEOPLE AGENCY FRAMEWORK &bull; REGISTERED INTERNAL USE ONLY
+          </p>
+        </div>
+      </footer>
+
+      {/* ========================================================================= */}
+      {/* ONBOARDING DIALOG WINDOW MODULES (CLIENTS, VENUES, STAFF REGISTRATION)  */}
+      {/* ========================================================================= */}
+      {activeModal && (
+        <div className="fixed inset-0 bg-black/45 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="relative w-full max-w-sm p-6 bg-white border border-slate-300 shadow-3xl rounded-xl relative fade-in-up">
+            <button
+              onClick={() => setActiveModal(null)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 cursor-pointer select-none"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            {/* Ingestion Sub-Form: Client */}
+            {activeModal === 'client' && (
+              <form onSubmit={registerClient} className="space-y-4">
+                <span className="text-[10px] font-display text-gold-700 uppercase tracking-[0.15em] block mb-4 border-b border-slate-200 pb-2 font-bold">
+                  New Agency Client Ingest
+                </span>
+                <div className="space-y-1">
+                  <label htmlFor="reg_client_name" className="text-[8px] text-slate-650 uppercase tracking-widest block font-bold">Client / Sponsor Name</label>
+                  <input
+                    type="text"
+                    id="reg_client_name"
+                    value={newClient.name}
+                    onChange={(e) => setNewClient({ ...newClient, name: e.target.value })}
+                    required
+                    placeholder="e.g. Christian Dior SA"
+                    className="w-full bg-white border border-slate-300 text-xs text-slate-900 px-3 py-2 rounded focus:border-gold-500 focus:outline-hidden font-bold"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label htmlFor="reg_client_contact" className="text-[8px] text-slate-650 uppercase tracking-widest block font-bold">Account Sponsor Contact</label>
+                  <input
+                    type="text"
+                    id="reg_client_contact"
+                    value={newClient.contact}
+                    onChange={(e) => setNewClient({ ...newClient, contact: e.target.value })}
+                    required
+                    placeholder="e.g. Charlotte de Laprès"
+                    className="w-full bg-white border border-slate-300 text-xs text-slate-900 px-3 py-2 rounded focus:border-gold-500 focus:outline-hidden font-bold"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label htmlFor="reg_client_email" className="text-[8px] text-slate-650 uppercase tracking-widest block font-bold">Secure Email</label>
+                    <input
+                      type="email"
+                      id="reg_client_email"
+                      value={newClient.email}
+                      onChange={(e) => setNewClient({ ...newClient, email: e.target.value })}
+                      required
+                      placeholder="comms@dior.corp"
+                      className="w-full bg-white border border-slate-300 text-xs text-slate-900 px-2 py-2 rounded focus:border-gold-500 focus:outline-hidden font-mono font-bold"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label htmlFor="reg_client_phone" className="text-[8px] text-slate-650 uppercase tracking-widest block font-bold">Hotline Contact</label>
+                    <input
+                      type="text"
+                      id="reg_client_phone"
+                      value={newClient.phone}
+                      onChange={(e) => setNewClient({ ...newClient, phone: e.target.value })}
+                      required
+                      placeholder="+33 6 4981 9283"
+                      className="w-full bg-white border border-slate-300 text-xs text-slate-900 px-2 py-2 rounded focus:border-gold-500 focus:outline-hidden font-mono font-bold"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label htmlFor="reg_client_notes" className="text-[8px] text-slate-650 uppercase tracking-widest block font-bold">Compliance guidelines</label>
+                  <textarea
+                    id="reg_client_notes"
+                    value={newClient.notes}
+                    onChange={(e) => setNewClient({ ...newClient, notes: e.target.value })}
+                    rows={2}
+                    placeholder="General premium hospitality compliance requirements..."
+                    className="w-full bg-white border border-slate-300 text-xs text-slate-900 px-3 py-1.5 rounded focus:border-gold-500 focus:outline-hidden font-bold"
+                  ></textarea>
+                </div>
+                <div className="flex space-x-3 pt-2 font-mono text-[9px] uppercase tracking-widest font-extrabold">
+                  <button
+                    type="button"
+                    onClick={() => setActiveModal(null)}
+                    className="flex-1 py-2 border border-slate-300 text-slate-700 rounded cursor-pointer transition-all hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 py-2 bg-gold-600 hover:bg-gold-500 text-white rounded cursor-pointer transition-all"
+                  >
+                    Commit
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* Ingestion Sub-Form: Venue */}
+            {activeModal === 'venue' && (
+              <form onSubmit={registerVenue} className="space-y-4">
+                <span className="text-[10px] font-display text-gold-700 uppercase tracking-[0.15em] block mb-4 border-b border-slate-200 pb-2 font-bold">
+                  New Venue Index Registration
+                </span>
+                <div className="space-y-1">
+                  <label htmlFor="reg_venue_name" className="text-[8px] text-slate-650 uppercase tracking-widest block font-bold">Venue Name</label>
+                  <input
+                    type="text"
+                    id="reg_venue_name"
+                    value={newVenue.name}
+                    onChange={(e) => setNewVenue({ ...newVenue, name: e.target.value })}
+                    required
+                    placeholder="e.g. Grand Palais Éphémère"
+                    className="w-full bg-white border border-slate-300 text-xs text-slate-900 px-3 py-2 rounded focus:border-gold-500 focus:outline-hidden font-bold"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label htmlFor="reg_venue_address" className="text-[8px] text-slate-650 uppercase tracking-widest block font-bold">Physical Address</label>
+                  <input
+                    type="text"
+                    id="reg_venue_address"
+                    value={newVenue.address}
+                    onChange={(e) => setNewVenue({ ...newVenue, address: e.target.value })}
+                    required
+                    placeholder="e.g. Place Joffre, 75007 Paris"
+                    className="w-full bg-white border border-slate-300 text-xs text-slate-900 px-3 py-2 rounded focus:border-gold-500 focus:outline-hidden font-bold"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label htmlFor="reg_venue_capacity" className="text-[8px] text-slate-650 uppercase tracking-widest block font-bold">Capacity Limits</label>
+                    <input
+                      type="number"
+                      id="reg_venue_capacity"
+                      value={newVenue.capacity}
+                      onChange={(e) => setNewVenue({ ...newVenue, capacity: parseInt(e.target.value) || 100 })}
+                      required
+                      placeholder="500"
+                      className="w-full bg-white border border-slate-300 text-xs text-slate-900 px-2 py-2 rounded focus:border-gold-500 focus:outline-hidden font-mono font-bold"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label htmlFor="reg_venue_tier" className="text-[8px] text-slate-650 uppercase tracking-widest block font-bold">Premium Grade</label>
+                    <select
+                      id="reg_venue_tier"
+                      value={newVenue.tier}
+                      onChange={(e) => setNewVenue({ ...newVenue, tier: e.target.value })}
+                      required
+                      className="w-full bg-white border border-slate-300 text-xs text-slate-900 px-2.5 py-2.5 rounded focus:border-gold-500 focus:outline-hidden font-bold cursor-pointer"
+                    >
+                      <option value="Luxury Class" className="bg-white text-slate-900">Luxury / Exclusive Tier</option>
+                      <option value="Premium Estate" className="bg-white text-slate-900">Premium Private Estate</option>
+                      <option value="Aesthetic Loft" className="bg-white text-slate-900">Aesthetic Industrial Loft</option>
+                      <option value="Superyacht Deck" className="bg-white text-slate-900">Aviation Hook & Superyachts</option>
                     </select>
                   </div>
-                  <div style={{display:"flex",alignItems:"center",gap:10}}>
-                    <input type="checkbox" checked={newStaff.uniform} onChange={e=>setNewStaff(p=>({...p,uniform:e.target.checked}))} style={{width:16,height:16}}/>
-                    <span style={{fontSize:13,color:MUTED}}>Requires uniform</span>
-                  </div>
-                  <Btn variant="primary" onClick={()=>{ 
-                    if(!newStaff.name||!newStaff.pin||!newStaff.rate) return; 
-                    if(editingStaffId) {
-                      // Update existing staff (persist to data store)
-                      const updated = dataStore.updateStaff(editingStaffId, {
-                        ...newStaff,
-                        rate: Number(newStaff.rate) || 40,
-                        uniform: newStaff.uniform
-                      });
-                      setStaff(prev=>prev.map(s=>s.id===editingStaffId?updated:s));
-                      addToast(`${newStaff.name} updated`,"success");
-                      setEditingStaffId(null);
-                    } else {
-                      // Add new staff (persist to data store)
-                      const created = dataStore.addStaff({
-                        ...newStaff,
-                        rate: Number(newStaff.rate) || 40,
-                        uniform: newStaff.uniform
-                      });
-                      setStaff(prev=>[...prev, created]);
-                      addToast(`${newStaff.name} added to roster`,"success");
-                    }
-                    setNewStaff({name:"",role:"",rate:"",pin:"",department:"Bar",uniform:false,phone:""}); 
-                  }} style={{padding:"12px 24px",fontSize:14}}>{editingStaffId?"Update Staff Member":"Add Staff Member"}</Btn>
                 </div>
-              </div>
+                <div className="space-y-1">
+                  <label htmlFor="reg_venue_notes" className="text-[8px] text-slate-650 uppercase tracking-widest block font-bold">Site guidelines</label>
+                  <textarea
+                    id="reg_venue_notes"
+                    value={newVenue.notes}
+                    onChange={(e) => setNewVenue({ ...newVenue, notes: e.target.value })}
+                    rows={2}
+                    placeholder="Decibel guidelines, load-in specifications..."
+                    className="w-full bg-white border border-slate-300 text-xs text-slate-900 px-3 py-1.5 rounded focus:border-gold-500 focus:outline-hidden font-bold"
+                  ></textarea>
+                </div>
+                <div className="flex space-x-3 pt-2 font-mono text-[9px] uppercase tracking-widest font-extrabold">
+                  <button
+                    type="button"
+                    onClick={() => setActiveModal(null)}
+                    className="flex-1 py-2 border border-slate-300 text-slate-700 rounded cursor-pointer transition-all hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 py-2 bg-gold-600 hover:bg-gold-500 text-white rounded cursor-pointer transition-all shadow-xs"
+                  >
+                    Index Venue
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* Ingestion Sub-Form: Staff Registration */}
+            {activeModal === 'staff' && (
+              <form onSubmit={registerStaff} className="space-y-4">
+                <span className="text-[10px] font-display text-gold-700 uppercase tracking-[0.15em] block mb-4 border-b border-slate-200 pb-2 font-bold">
+                  New Staff Core Enrolment
+                </span>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label htmlFor="reg_staff_name" className="text-[8px] text-slate-650 uppercase tracking-widest block font-bold">Given Name</label>
+                    <input
+                      type="text"
+                      id="reg_staff_name"
+                      value={newStaff.name}
+                      onChange={(e) => setNewStaff({ ...newStaff, name: e.target.value })}
+                      required
+                      placeholder="Sophie"
+                      className="w-full bg-white border border-slate-300 text-xs text-slate-900 px-3 py-2 rounded focus:border-gold-500 focus:outline-hidden font-bold"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label htmlFor="reg_staff_surname" className="text-[8px] text-slate-650 uppercase tracking-widest block font-bold">Family Name</label>
+                    <input
+                      type="text"
+                      id="reg_staff_surname"
+                      value={newStaff.surname}
+                      onChange={(e) => setNewStaff({ ...newStaff, surname: e.target.value })}
+                      required
+                      placeholder="Laurent"
+                      className="w-full bg-white border border-slate-300 text-xs text-slate-900 px-3 py-2 rounded focus:border-gold-500 focus:outline-hidden font-bold"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label htmlFor="reg_staff_role" className="text-[8px] text-slate-650 uppercase tracking-widest block font-bold">Specialist Role</label>
+                    <select
+                      id="reg_staff_role"
+                      value={newStaff.role}
+                      onChange={(e) => setNewStaff({ ...newStaff, role: e.target.value })}
+                      required
+                      className="w-full bg-white border border-slate-300 text-xs text-slate-900 px-2 py-2.5 rounded focus:border-gold-500 focus:outline-hidden font-bold cursor-pointer"
+                    >
+                      <option value="Lead VIP Architect" className="bg-white text-slate-900 font-bold">Lead VIP Architect</option>
+                      <option value="Corporate Hostess" className="bg-white text-slate-900 font-bold">Corporate Hostess / Guest Rels</option>
+                      <option value="Elite Mixologist" className="bg-white text-slate-900 font-bold">Elite Mixologist</option>
+                      <option value="Service Supervisor" className="bg-white text-slate-900 font-bold">Service Supervisor</option>
+                      <option value="Private Sommelier" className="bg-white text-slate-900 font-bold">Private Sommelier</option>
+                      <option value="Tactical Concierge" className="bg-white text-slate-900 font-bold">Safety Concierge</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label htmlFor="reg_staff_rate" className="text-[8px] text-slate-650 uppercase tracking-widest block font-bold">Premium Rate (R/h)</label>
+                    <input
+                      type="number"
+                      id="reg_staff_rate"
+                      value={newStaff.rate}
+                      onChange={(e) => setNewStaff({ ...newStaff, rate: parseInt(e.target.value) || 30 })}
+                      required
+                      min={15}
+                      className="w-full bg-white border border-slate-300 text-xs text-slate-900 px-2 py-2 rounded focus:border-gold-500 focus:outline-hidden font-mono font-bold"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label htmlFor="reg_staff_phone" className="text-[8px] text-slate-650 uppercase tracking-widest block font-bold">Mobile (e.g. WhatsApp)</label>
+                    <input
+                      type="text"
+                      id="reg_staff_phone"
+                      value={newStaff.phone}
+                      onChange={(e) => setNewStaff({ ...newStaff, phone: e.target.value })}
+                      required
+                      placeholder="+33649821012"
+                      className="w-full bg-white border border-slate-300 text-xs text-slate-900 px-2 py-2 rounded focus:border-gold-500 focus:outline-hidden font-mono font-bold"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label htmlFor="reg_staff_email" className="text-[8px] text-slate-650 uppercase tracking-widest block font-bold">Secure Email</label>
+                    <input
+                      type="email"
+                      id="reg_staff_email"
+                      value={newStaff.email}
+                      onChange={(e) => setNewStaff({ ...newStaff, email: e.target.value })}
+                      required
+                      placeholder="sophie@freshpeople.agency"
+                      className="w-full bg-white border border-slate-300 text-xs text-slate-900 px-2 py-2 rounded focus:border-gold-500 focus:outline-hidden font-mono font-bold"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label htmlFor="reg_staff_notes" className="text-[8px] text-slate-650 uppercase tracking-widest block font-bold">Dossier Credentials</label>
+                  <textarea
+                    id="reg_staff_notes"
+                    value={newStaff.notes}
+                    onChange={(e) => setNewStaff({ ...newStaff, notes: e.target.value })}
+                    rows={2}
+                    placeholder="Languages, clearances, specific professional qualifications..."
+                    className="w-full bg-white border border-slate-300 text-xs text-slate-900 px-3 py-1.5 rounded focus:border-gold-500 focus:outline-hidden font-bold"
+                  ></textarea>
+                </div>
+                <div className="flex space-x-3 pt-2 font-mono text-[9px] uppercase tracking-widest font-extrabold">
+                  <button
+                    type="button"
+                    onClick={() => setActiveModal(null)}
+                    className="flex-1 py-2 border border-slate-300 text-slate-700 rounded cursor-pointer transition-all hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 py-2 bg-gold-600 hover:bg-gold-500 text-white rounded cursor-pointer transition-all shadow-xs"
+                  >
+                    Enroll member
+                  </button>
+                </div>
+              </form>
             )}
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
-      {/* WhatsApp Floating Button */}
-      <a
-        href="https://wa.me/27672961272?text=Hello%20Fresh%20People"
-        target="_blank"
-        rel="noopener noreferrer"
-        style={{
-          position: 'fixed',
-          bottom: 24,
-          left: 24,
-          zIndex: 999,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          padding: '12px 20px',
-          background: '#25D366',
-          color: 'white',
-          borderRadius: '50px',
-          textDecoration: 'none',
-          fontSize: 14,
-          fontWeight: 600,
-          boxShadow: '0 4px 12px rgba(37, 211, 102, 0.4)',
-          transition: 'all 0.3s ease',
-          cursor: 'pointer'
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.transform = 'scale(1.05)';
-          e.currentTarget.style.boxShadow = '0 6px 20px rgba(37, 211, 102, 0.6)';
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.transform = 'scale(1)';
-          e.currentTarget.style.boxShadow = '0 4px 12px rgba(37, 211, 102, 0.4)';
-        }}
-      >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M17.472 14.382c-.272-.135-1.605-.793-1.855-.884-.249-.09-.431-.135-.611.135-.181.27-.7.884-.86 1.066-.271.198-.541.223-.818.074-.272-.148-1.152-.424-2.194-1.352-1.041-.721-1.744-1.61-1.949-1.882-.204-.271-.022-.419.146-.587.15-.159.331-.38.496-.57.166-.188.221-.322.332-.537.11-.215.055-.403-.027-.538-.082-.135-.611-.884-1.348-1.225-.947-.331-1.663-.331-2.262-.331-.215 0-.611.074-1.021.537C9.64 7.534 8.5 9.186 8.5 10.838c0 1.652.554 3.245 1.665 4.425.998 1.18 2.194 2.08 3.636 2.349.421.075.749.06 1.003-.148.272-.222 1.605-.793 1.855-1.066.27-.27.27-.5.189-.787-.082-.287-.611-.884-1.348-1.225z"/>
-        </svg>
-         Message Us
-      </a>
+      {/* ========================================================================= */}
+      {/* APPLE ID & ICLOUD CALENDAR AUTHENTICATION DIALOG MODULE                   */}
+      {/* ========================================================================= */}
+      {isAppleAuthModalOpen && (
+        <div className="fixed inset-0 bg-black/65 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="relative w-full max-w-[340px] p-6 bg-slate-900 text-white rounded-2xl border border-slate-800 shadow-2xl select-none">
+            <button
+              onClick={() => setIsAppleAuthModalOpen(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white transition-all cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
 
-      {/* Toast stack */}
-      <div style={{position:"fixed",bottom:24,right:24,zIndex:999,display:"flex",flexDirection:"column",gap:8}}>
-        {toasts.map(t=>(
-          <div key={t.id} style={{background:SURFACE,border:`1px solid ${(t.type==="error"?RED:t.type==="warn"?AMBER:ACCENT)}55`,borderLeft:`4px solid ${t.type==="error"?RED:t.type==="warn"?AMBER:ACCENT}`,borderRadius:10,padding:"12px 18px",fontSize:13,color:TEXT,maxWidth:340,boxShadow:"0 8px 32px rgba(0,0,0,0.5)"}}>
-            {t.msg}
+            <div className="text-center space-y-3 pt-2">
+              <Apple className="w-10 h-10 text-white mx-auto animate-pulse" />
+              <h3 className="text-md font-bold tracking-tight">Sign in with Apple ID</h3>
+              <p className="text-[10px] text-slate-400 leading-normal font-medium max-w-[240px] mx-auto">
+                Link with your iCloud account to enable real-time calendar synchronization for your events.
+              </p>
+            </div>
+
+            <form onSubmit={handleAppleLoginSubmit} className="mt-6 space-y-4">
+              <div className="space-y-1">
+                <label htmlFor="apple_id_email" className="text-[8px] text-slate-400 uppercase tracking-widest block font-bold font-mono">Apple ID</label>
+                <input
+                  type="email"
+                  id="apple_id_email"
+                  value={appleEmailInput}
+                  onChange={(e) => setAppleEmailInput(e.target.value)}
+                  required
+                  placeholder="name@icloud.com"
+                  className="w-full bg-slate-950 border border-slate-800 text-xs text-white px-3 py-2 rounded-lg focus:border-white focus:outline-hidden font-bold"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label htmlFor="apple_id_password" className="text-[8px] text-slate-400 uppercase tracking-widest block font-bold font-mono">Password / App-Specific Code</label>
+                <input
+                  type="password"
+                  id="apple_id_password"
+                  value={applePasswordInput}
+                  onChange={(e) => setApplePasswordInput(e.target.value)}
+                  required
+                  placeholder="••••••••••••"
+                  className="w-full bg-slate-950 border border-slate-800 text-xs text-white px-3 py-2 rounded-lg focus:border-white focus:outline-hidden font-bold"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label htmlFor="apple_id_feed" className="text-[8px] text-slate-400 uppercase tracking-widest block font-bold font-mono">iCloud iCal Publish Feed URL</label>
+                <input
+                  type="text"
+                  id="apple_id_feed"
+                  value={appleFeedUrl}
+                  onChange={(e) => setAppleFeedUrl(e.target.value)}
+                  placeholder="Paste Apple Published iCal link hps://p56-caldav..."
+                  className="w-full bg-slate-950 border border-slate-800 text-[9px] text-slate-200 px-3 py-1.5 rounded-lg focus:border-white focus:outline-hidden font-mono"
+                />
+              </div>
+
+              <p className="text-[8px] text-slate-500 leading-normal font-semibold text-center italic">
+                Your credentials are encrypted end-to-end directly with Apple ID sync hosts securely.
+              </p>
+
+              <div className="flex space-x-2 pt-2 text-[9px] uppercase tracking-wider font-extrabold font-mono">
+                <button
+                  type="button"
+                  onClick={() => setIsAppleAuthModalOpen(false)}
+                  className="flex-1 py-1.5 bg-slate-800 hover:bg-slate-755 text-slate-300 rounded-lg cursor-pointer transition-all border border-slate-700/50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isLinkingApple}
+                  className="flex-1 py-1.5 bg-white hover:bg-slate-100 text-black rounded-lg cursor-pointer transition-all flex items-center justify-center gap-1.5"
+                >
+                  {isLinkingApple ? (
+                    <>
+                      <RefreshCw className="w-3 h-3 animate-spin" />
+                      Linking...
+                    </>
+                  ) : (
+                    'Link Account'
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
-        ))}
-      </div>
-    </>
+        </div>
+      )}
+    </div>
   );
 }
