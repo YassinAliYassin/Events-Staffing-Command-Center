@@ -64,9 +64,9 @@ if [ ! -f .env.production.local ] && [ -z "${VITE_GEMINI_API_KEY:-}" ]; then
 fi
 echo "Project: $FIREBASE_PROJECT | Branch: $GIT_BRANCH | Live: $LIVE_URL"
 
-# ── 1. Lint (non-blocking) ───────────────────────────────────────────────────
+# ── 1. Lint (non-blocking, time-bounded) ─────────────────────────────────────
 step "1/6 Typecheck (non-blocking)"
-npm run lint >/dev/null 2>&1 && c_grn "✓ typecheck clean" || c_ylw "⚠ typecheck warnings (continuing)"
+timeout 60 npm run lint >/dev/null 2>&1 && c_grn "✓ typecheck clean" || c_ylw "⚠ typecheck warnings/timeout (continuing)"
 
 # ── 2. Build ─────────────────────────────────────────────────────────────────
 step "2/6 Build"

@@ -6,7 +6,7 @@ import StaffCard from './components/StaffCard';
 import { FPCCCore } from './services/fpcc-core';
 import { FinanceApi } from './services/financeApi';
 import ModelPanel from './components/ModelPanel';
-import { geminiOpsInsights, geminiAvailable } from './services/geminiClient';
+import { geminiOpsInsights, geminiDraftClientMessage, geminiAvailable } from './services/geminiClient';
 import * as dataStore from './services/dataStore';
 import type { LocalStore } from './services/dataStore';
 
@@ -818,6 +818,9 @@ function CalendarTab({events,setEvents,staff,clients,addToast,currentModel}: any
   const [syncingApple,setSyncingApple] = useState(false);
   const [bookingModal,setBookingModal] = useState(null); // event to send notifications for
   const [sendingNotifs,setSendingNotifs] = useState(false);
+  const [draftMsg,setDraftMsg] = useState("");
+  const [draftIntent,setDraftIntent] = useState("Confirm staff are booked for this event and reassure the client.");
+  const [drafting,setDrafting] = useState(false);
   const [form,setForm] = useState({title:"",date:"",venue:"",startTime:"09:00",endTime:"17:00",staffIds:[],clientId:"",color:ACCENT,notes:""});
 
   const yr=viewDate.getFullYear(), mo=viewDate.getMonth();
@@ -944,6 +947,18 @@ function CalendarTab({events,setEvents,staff,clients,addToast,currentModel}: any
       setSendingNotifs(false);
       addToast("WhatsApp dispatch failed","error");
     }
+  }
+
+  // Draft a client message for this event with Gemini AI
+  async function draftClientMessage(ev){
+    setDrafting(true); setDraftMsg("");
+    try{
+      const client = clients.find(c=>c.id===ev.clientId);
+      const text = await geminiDraftClientMessage(client, ev, draftIntent);
+      if(text.startsWith("[Error")) addToast(text.replace(/^\[Error:\s*/,"").replace(/\]$/,""),"error");
+      else setDraftMsg(text);
+    }catch(e:any){ addToast(e?.message||"Draft failed","error"); }
+    finally{ setDrafting(false); }
   }
 
   function openNew(day){
@@ -1193,6 +1208,35 @@ function CalendarTab({events,setEvents,staff,clients,addToast,currentModel}: any
           <div style={{background:SURFACE2,borderRadius:8,padding:"10px 14px",fontSize:12,color:MUTED,marginBottom:20}}>
             💡 Sends a WhatsApp booking notice to each assigned staff member and records the dispatch result.
           </div>
+
+          {/* Gemini AI — draft a client message */}
+          <div style={{border:`1px solid ${BORDER}`,borderRadius:10,padding:"12px 14px",marginBottom:20}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+              <span style={{fontSize:14}}>✨</span>
+              <span style={{fontWeight:600,fontSize:13}}>Draft client message</span>
+              <span style={{fontSize:10,background:PURPLE+"22",color:PURPLE,padding:"2px 8px",borderRadius:6}}>Gemini</span>
+            </div>
+            <input value={draftIntent} onChange={e=>setDraftIntent(e.target.value)}
+              placeholder="What should the message say?" style={{width:"100%",marginBottom:8,fontSize:12}}/>
+            <Btn variant="ghost" onClick={()=>draftClientMessage(bookingModal)} disabled={drafting||!geminiAvailable()}
+              style={{width:"100%",fontSize:12,padding:"8px"}}>
+              {drafting?"Drafting…":geminiAvailable()?"✨ Generate message":"Gemini key not configured"}
+            </Btn>
+            {draftMsg&&(
+              <div style={{marginTop:10}}>
+                <textarea value={draftMsg} onChange={e=>setDraftMsg(e.target.value)} rows={5}
+                  style={{width:"100%",fontSize:12,fontFamily:"inherit",resize:"vertical"}}/>
+                <div style={{display:"flex",gap:8,marginTop:6}}>
+                  <Btn variant="ghost" onClick={()=>{navigator.clipboard.writeText(draftMsg);addToast("Message copied ✓","success");}} style={{flex:1,fontSize:11,padding:"6px"}}>📋 Copy</Btn>
+                  {(() => { const c=clients.find(x=>x.id===bookingModal.clientId); const phone=(c?.phone||"").replace(/[^0-9]/g,""); return phone?(
+                    <a href={`https://wa.me/${phone}?text=${encodeURIComponent(draftMsg)}`} target="_blank" rel="noreferrer" style={{flex:1,textDecoration:"none"}}>
+                      <Btn variant="primary" style={{width:"100%",fontSize:11,padding:"6px"}}>📱 WhatsApp client</Btn>
+                    </a>):null; })()}
+                </div>
+              </div>
+            )}
+          </div>
+
           <div style={{display:"flex",gap:10}}>
             <Btn variant="primary" onClick={()=>sendBookingNotifications(bookingModal)} disabled={sendingNotifs} style={{flex:1,padding:"11px"}}>
               {sendingNotifs?"Sending WhatsApp notices…":"📱 Send Booking Notices"}

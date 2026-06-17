@@ -356,8 +356,45 @@ Flow Events Finance Team`;
   };
 
   const exportPDF = () => {
-    // In production, integrate with a PDF library
-    alert('PDF export functionality would be implemented here');
+    if (!payroll) { alert('No payroll data to export.'); return; }
+    const rows = filteredStaff.map(s => `
+      <tr>
+        <td>${s.fullName}</td>
+        <td>${s.role}</td>
+        <td style="text-align:right">${s.totalHours.toFixed(2)}</td>
+        <td style="text-align:right">${formatCurrency(s.totalEarned)}</td>
+        <td>${s.paymentStatus}</td>
+        <td style="text-align:right">${formatCurrency(s.pendingAmount || 0)}</td>
+      </tr>`).join('');
+    const html = `<!doctype html><html><head><meta charset="utf-8"/>
+      <title>Fresh People — Finance Report ${payroll.cycleStart} to ${payroll.cycleEnd}</title>
+      <style>
+        body{font-family:Arial,Helvetica,sans-serif;color:#111;padding:32px;}
+        h1{font-size:20px;margin:0 0 4px;} .sub{color:#666;font-size:13px;margin-bottom:20px;}
+        table{width:100%;border-collapse:collapse;font-size:12px;}
+        th,td{border:1px solid #ddd;padding:8px 10px;text-align:left;}
+        th{background:#f5f5f5;text-transform:uppercase;font-size:10px;letter-spacing:.05em;}
+        .totals{margin-top:18px;font-size:13px;} .totals div{margin:3px 0;}
+        @media print{button{display:none;}}
+      </style></head><body>
+      <h1>Fresh People — Finance Report</h1>
+      <div class="sub">Cycle: ${payroll.cycleStart} to ${payroll.cycleEnd} · Generated ${new Date().toLocaleString('en-ZA')}</div>
+      <table><thead><tr>
+        <th>Staff</th><th>Role</th><th style="text-align:right">Hours</th>
+        <th style="text-align:right">Earned</th><th>Status</th><th style="text-align:right">Pending</th>
+      </tr></thead><tbody>${rows}</tbody></table>
+      <div class="totals">
+        <div><strong>Total staff:</strong> ${payroll.summary.totalStaff}</div>
+        <div><strong>Total hours:</strong> ${payroll.summary.totalHours.toFixed(2)}</div>
+        <div><strong>Total earnings:</strong> ${formatCurrency(payroll.summary.totalEarnings)}</div>
+        <div><strong>Pending:</strong> ${formatCurrency(payroll.summary.pendingAmount)}</div>
+      </div>
+      <script>window.onload=function(){window.print();}<\/script>
+      </body></html>`;
+    const w = window.open('', '_blank');
+    if (!w) { alert('Please allow pop-ups to export the PDF.'); return; }
+    w.document.write(html);
+    w.document.close();
   };
 
   const handleBulkWhatsApp = () => {
