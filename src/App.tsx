@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, lazy, Suspense } from 'react';
 import {
   Lock,
   Unlock,
@@ -32,17 +32,6 @@ import {
 } from 'lucide-react';
 import { Client, Venue, Staff, Event, ActivityLog } from './types';
 import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-  Cell
-} from 'recharts';
-import {
   initAuth,
   googleSignIn,
   logoutGoogle,
@@ -55,6 +44,8 @@ import {
   deleteEventFromGoogleCalendar,
   GoogleCalendarEvent
 } from './lib/googleCalendar';
+
+const RoleChart = lazy(() => import('./components/RoleChart'));
 
 // Safe self-healing global localStorage wrapper to prevent QuotaExceededError crashes
 try {
@@ -3176,43 +3167,13 @@ export default function App() {
             </p>
 
             <div className="w-full h-44 mt-1">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
+              <Suspense fallback={<div className="w-full h-full flex items-center justify-center text-[10px] text-slate-400">Loading chart...</div>}>
+                <RoleChart
                   data={roleViewTab === 'specialist' ? freshPeopleGroupedData : roleUtilizationData}
-                  margin={{ top: 10, right: 10, left: -25, bottom: 5 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
-                  <XAxis
-                    dataKey="name"
-                    tick={{ fill: '#475569', fontSize: 7, fontWeight: 'bold' }}
-                    axisLine={{ stroke: '#CBD5E1' }}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    tick={{ fill: '#475569', fontSize: 8, fontWeight: 'bold' }}
-                    axisLine={{ stroke: '#CBD5E1' }}
-                    tickLine={false}
-                    allowDecimals={false}
-                  />
-                  <Tooltip
-                    cursor={{ fill: 'rgba(234, 179, 8, 0.04)' }}
-                    contentStyle={{
-                      backgroundColor: 'rgba(255, 255, 255, 0.98)',
-                      borderRadius: '6px',
-                      border: '1px solid #CBD5E1',
-                      fontSize: '9px',
-                      fontWeight: 'bold',
-                      color: '#0F172A',
-                      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.05)'
-                    }}
-                  />
-                  <Bar dataKey="Hours" radius={[3, 3, 0, 0]}>
-                    {(roleViewTab === 'specialist' ? freshPeopleGroupedData : roleUtilizationData).map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={(entry as any).color || ROLE_COLORS[entry.name] || '#B8860B'} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+                  roleViewTab={roleViewTab}
+                  ROLE_COLORS={ROLE_COLORS}
+                />
+              </Suspense>
             </div>
 
             <div className="mt-4 pt-3 border-t border-slate-105 space-y-2 max-h-[220px] overflow-y-auto pr-0.5">
