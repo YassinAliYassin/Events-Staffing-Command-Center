@@ -1156,6 +1156,7 @@ export default function App() {
   const [showRSVPPanel, setShowRSVPPanel] = useState<string | null>(null);
   const [logSearchQuery, setLogSearchQuery] = useState('');
   const [logTypeFilter, setLogTypeFilter] = useState<'all' | 'auth' | 'event_create' | 'event_delete' | 'sync' | 'direct_booking' | 'call' | 'staff_reply'>('all');
+  const [showShortcutsModal, setShowShortcutsModal] = useState(false);
 
   // Load and apply local data and parameter hooks
   useEffect(() => {
@@ -1354,6 +1355,79 @@ export default function App() {
     
     return () => clearInterval(interval);
   }, [isUnlocked]);
+
+  // Keyboard shortcuts handler
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger shortcuts when typing in inputs
+      const target = e.target as HTMLElement;
+      const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable;
+
+      // Esc always works — close modals/panels
+      if (e.key === 'Escape') {
+        if (showShortcutsModal) { setShowShortcutsModal(false); return; }
+        if (activeModal) { setActiveModal(null); return; }
+        if (showDeleteConfirm) { setShowDeleteConfirm(null); return; }
+        if (showRSVPPanel) { setShowRSVPPanel(null); return; }
+        if (editingEventId) { handleCancelEdit(); return; }
+        return;
+      }
+
+      // '?' — show keyboard shortcuts help (Shift+/)
+      if (e.key === '?' && !isInput) {
+        e.preventDefault();
+        setShowShortcutsModal(prev => !prev);
+        return;
+      }
+
+      // Ctrl+N — New event (scroll to event form)
+      if (e.key === 'n' && e.ctrlKey && !isInput) {
+        e.preventDefault();
+        const formEl = document.getElementById('directory_section');
+        if (formEl) formEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return;
+      }
+
+      // Alt+C — Switch to Clients tab
+      if (e.key === 'c' && e.altKey && !isInput) {
+        e.preventDefault();
+        switchTab('clients');
+        return;
+      }
+
+      // Alt+V — Switch to Venues tab
+      if (e.key === 'v' && e.altKey && !isInput) {
+        e.preventDefault();
+        switchTab('venues');
+        return;
+      }
+
+      // Alt+S — Switch to Staff tab
+      if (e.key === 's' && e.altKey && !isInput) {
+        e.preventDefault();
+        switchTab('staff');
+        return;
+      }
+
+      // Alt+E — Open event creation modal (same as clicking New Event)
+      if (e.key === 'e' && e.altKey && !isInput) {
+        e.preventDefault();
+        const formEl = document.getElementById('directory_section');
+        if (formEl) formEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return;
+      }
+
+      // Ctrl+B — Export JSON backup
+      if (e.key === 'b' && e.ctrlKey && !isInput) {
+        e.preventDefault();
+        handleExportJSON();
+        return;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeModal, showDeleteConfirm, showRSVPPanel, editingEventId, showShortcutsModal]);
 
   // Sync state functions
   const addActivityLog = (type: ActivityLog['type'], message: string, isUrgent = false) => {
@@ -5376,6 +5450,53 @@ export default function App() {
                 <Trash2 className="w-3 h-3" />
                 Delete Event
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Keyboard Shortcuts Help Modal */}
+      {showShortcutsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm" onClick={() => setShowShortcutsModal(false)}>
+          <div className="w-full max-w-md p-6 glass-panel rounded-xl shadow-2xl bg-white/95 border border-gold-200/50 fade-in-up" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-5 border-b border-slate-200/60 pb-3">
+              <h3 className="font-display text-sm tracking-[0.15em] text-slate-900 font-bold uppercase flex items-center gap-2">
+                ⌨️ Keyboard Shortcuts
+              </h3>
+              <button
+                onClick={() => setShowShortcutsModal(false)}
+                className="text-slate-400 hover:text-slate-700 cursor-pointer select-none"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="space-y-3 text-[10px]">
+              <div className="grid grid-cols-2 gap-2">
+                <div className="text-slate-500 font-bold uppercase tracking-wider">Navigation</div>
+                <div className="text-slate-400 font-mono text-[8px] text-right">Press ? to toggle</div>
+              </div>
+              {[
+                { key: 'Alt + C', desc: 'Switch to Clients tab' },
+                { key: 'Alt + V', desc: 'Switch to Venues tab' },
+                { key: 'Alt + S', desc: 'Switch to Staff tab' },
+                { key: 'Alt + E', desc: 'Scroll to Event form' },
+                { key: 'Ctrl + N', desc: 'New event (scroll to form)' },
+                { key: 'Ctrl + B', desc: 'Export JSON backup' },
+                { key: 'Esc', desc: 'Close modal / Cancel edit' },
+                { key: '?', desc: 'Show this help panel' },
+              ].map((shortcut, i) => (
+                <div key={i} className="flex items-center justify-between py-1.5 border-b border-slate-100 last:border-0">
+                  <span className="text-slate-700 font-medium">{shortcut.desc}</span>
+                  <kbd className="px-2 py-0.5 bg-slate-100 border border-slate-200 rounded text-[8px] font-mono font-bold text-slate-600 shadow-sm">
+                    {shortcut.key}
+                  </kbd>
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 pt-3 border-t border-slate-200/60 text-center">
+              <p className="text-[8px] text-slate-400 uppercase tracking-widest font-bold">
+                Shortcuts disabled while typing in input fields
+              </p>
             </div>
           </div>
         </div>
