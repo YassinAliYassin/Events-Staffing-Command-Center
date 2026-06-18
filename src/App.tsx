@@ -51,6 +51,7 @@ import {
 import {
   fetchGoogleCalendarEvents,
   pushEventToGoogleCalendar,
+  updateEventInGoogleCalendar,
   deleteEventFromGoogleCalendar,
   GoogleCalendarEvent
 } from './lib/googleCalendar';
@@ -1138,6 +1139,9 @@ export default function App() {
   const [evClientRequirements, setEvClientRequirements] = useState('');
   const [evSelectedStaffIds, setEvSelectedStaffIds] = useState<string[]>([]);
 
+  // Edit mode state
+  const [editingEventId, setEditingEventId] = useState<string | null>(null);
+
   // Dispatch details
   const [selectedDispatchEventId, setSelectedDispatchEventId] = useState('');
   const [dispatchTemplate, setDispatchTemplate] = useState(
@@ -1459,6 +1463,105 @@ export default function App() {
   // Create scheduled Local Event & Sync to Google Calendar automatically
   const createEvent = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Edit mode: update existing event
+    if (editingEventId) {
+      if (!evClient || !evVenue) {
+        showToast('Please select Client and Venue partners before proceeding.', 'warn');
+        return;
+      }
+
+      const existingEvent = events.find(ev => ev.id === editingEventId);
+      if (!existingEvent) {
+        showToast('Event not found. It may have been deleted.', 'error');
+        setEditingEventId(null);
+        return;
+      }
+
+      // Double-booking validation (exclude the event being edited)
+      const { start: newStart, end: newEnd } = getEventDates(evDate, evTimeStart, evTimeEnd);
+      const doubleBookedStaffDetails: string[] = [];
+
+      evSelectedStaffIds.forEach(staffId => {
+        const conflictingEvents = events.filter(existingEv => {
+          if (existingEv.id === editingEventId) return false;
+          if (!existingEv.staffIds.includes(staffId)) return false;
+          const { start: existStart, end: existEnd } = getEventDates(
+            existingEv.date, existingEv.startTime, existingEv.endTime
+          );
+          return newStart < existEnd && existStart < newEnd;
+        });
+        if (conflictingEvents.length > 0) {
+          const staffObj = staff.find(s => s.id === staffId);
+          const name = staffObj ? `${staffObj.name} ${staffObj.surname} (${staffObj.role})` : `Staff ID: ${staffId}`;
+          const eventTitles = conflictingEvents.map(ev => `"${ev.title}" on ${ev.date} at ${ev.startTime}-${ev.endTime}`).join(', ');
+          doubleBookedStaffDetails.push(`• ${name} is busy with: ${eventTitles}`);
+        }
+      });
+
+      if (doubleBookedStaffDetails.length > 0) {
+        showToast(`Staff Double-Booking overlap detected!\n` + doubleBookedStaffDetails.join('\n'), 'error');
+        return;
+      }
+
+      const rsvps: Record<string, 'Available' | 'Pending'> = {};
+      evSelectedStaffIds.forEach(id => {
+        // Preserve existing RSVP for staff that were already allocated, default new ones
+        rsvps[id] = existingEvent.staffRSVPs?.[id] || (isDirectBookingChecked ? 'Available' : 'Pending');
+      });
+
+      const updatedEvent: Event = {
+        ...existingEvent,
+        title: evTitle,
+        clientId: evClient,
+        venueId: evVenue,
+        date: evDate,
+        startTime: evTimeStart,
+        endTime: evTimeEnd,
+        staffIds: evSelectedStaffIds,
+        notes: evNotes,
+        clientRequirements: evClientRequirements,
+        status: isDirectBookingChecked ? 'Confirmed' : (existingEvent.status === 'Confirmed' ? 'Confirmed' : 'Pending'),
+        isDirectBooking: isDirectBookingChecked,
+        staffRSVPs: rsvps,
+      };
+
+      const updatedEvents = events.map(ev => ev.id === editingEventId ? updatedEvent : ev);
+      setEvents(updatedEvents);
+      localStorage.setItem('fp_events', JSON.stringify(updatedEvents));
+      addActivityLog('event_create', `Updated event: "${updatedEvent.title}" on ${updatedEvent.date}.`);
+
+      // Update Google Calendar if synced
+      const token = await getAccessToken();
+      if (googleUser && token && existingEvent.googleEventId) {
+        try {
+          setSyncStatusMsg('Updating Google Calendar event...');
+          const clientObj = clients.find(c => c.id === evClient);
+          const venueObj = venues.find(v => v.id === evVenue);
+          await updateEventInGoogleCalendar(
+            token,
+            existingEvent.googleEventId,
+            updatedEvent,
+            clientObj?.name || 'Local client',
+            venueObj?.name || 'Local venue',
+            venueObj?.address || 'Local Address'
+          );
+          addActivityLog('sync', `Google Calendar event updated for "${updatedEvent.title}".`);
+          triggerGoogleSync(token);
+        } catch (err: any) {
+          console.error('Google update failed:', err);
+          addActivityLog('sync', `Failed to update Google Calendar: ${err.message}`, true);
+        } finally {
+          setSyncStatusMsg('');
+        }
+      }
+
+      // Reset form and exit edit mode
+      resetEventForm();
+      setEditingEventId(null);
+      showToast(`Event "${updatedEvent.title}" updated successfully.`, 'success');
+      return;
+    }
     if (!evClient || !evVenue) {
       showToast('Please select Client and Venue partners before proceeding.', 'warn');
       return;
@@ -1568,11 +1671,48 @@ export default function App() {
     }
 
     // Reset fields
+    resetEventForm();
+  };
+
+  // Reset event form fields
+  const resetEventForm = () => {
     setEvTitle('');
     setEvNotes('');
     setEvClientRequirements('');
     setEvSelectedStaffIds([]);
+    setIsDirectBookingChecked(false);
+    setEvClient('');
+    setEvVenue('');
+    setEvTimeStart('18:00');
+    setEvTimeEnd('22:00');
     setSelectedDateStr(evDate);
+  };
+
+  // Populate form for editing an existing event
+  const handleEditEvent = (event: Event) => {
+    setEditingEventId(event.id);
+    setEvTitle(event.title);
+    setEvClient(event.clientId);
+    setEvVenue(event.venueId);
+    setEvDate(event.date);
+    setEvTimeStart(event.startTime);
+    setEvTimeEnd(event.endTime);
+    setEvNotes(event.notes || '');
+    setEvClientRequirements(event.clientRequirements || '');
+    setEvSelectedStaffIds(event.staffIds || []);
+    setIsDirectBookingChecked(event.isDirectBooking || false);
+    setSelectedDateStr(event.date);
+    // Scroll to the Event Architect form
+    setTimeout(() => {
+      document.querySelector('#input_ev_title')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      document.getElementById('input_ev_title')?.focus();
+    }, 100);
+  };
+
+  // Cancel edit mode and reset form
+  const handleCancelEdit = () => {
+    setEditingEventId(null);
+    resetEventForm();
   };
 
   // Toggle/Override individual RSVP status manually from the audit engine
@@ -3131,10 +3271,22 @@ export default function App() {
           </div>
 
           {/* Scheduling & Core Event Architecture Planner Form */}
-          <div className="glass-panel rounded-lg p-5 shadow-luxury-glow">
-            <span className="text-[10px] uppercase tracking-[0.2em] text-slate-800 font-display flex items-center gap-1.5 mb-4 border-b border-slate-205 pb-2 font-bold">
-              <Sparkles className="w-4 h-4 text-gold-600 animate-pulse" /> Event Architect
-            </span>
+          <div className={`glass-panel rounded-lg p-5 shadow-luxury-glow ${editingEventId ? 'ring-2 ring-gold-400' : ''}`}>
+            <div className="flex items-center justify-between mb-4 border-b border-slate-205 pb-2">
+              <span className="text-[10px] uppercase tracking-[0.2em] text-slate-800 font-display flex items-center gap-1.5 font-bold">
+                <Sparkles className="w-4 h-4 text-gold-600 animate-pulse" />
+                {editingEventId ? 'Edit Event' : 'Event Architect'}
+              </span>
+              {editingEventId && (
+                <button
+                  type="button"
+                  onClick={handleCancelEdit}
+                  className="text-[8px] text-slate-500 hover:text-red-600 font-mono uppercase tracking-widest font-bold cursor-pointer flex items-center gap-1 transition-all"
+                >
+                  <X className="w-3 h-3" /> Cancel Edit
+                </button>
+              )}
+            </div>
 
             <form onSubmit={createEvent} className="space-y-4">
               <div className="space-y-1">
@@ -3300,9 +3452,13 @@ export default function App() {
 
               <button
                 type="submit"
-                className="w-full py-2 bg-gradient-to-r from-gold-600 to-gold-500 hover:brightness-110 text-white font-display font-bold text-[9px] tracking-widest uppercase transition-all rounded shadow-sm cursor-pointer"
+                className={`w-full py-2 font-display font-bold text-[9px] tracking-widest uppercase transition-all rounded shadow-sm cursor-pointer ${
+                  editingEventId
+                    ? 'bg-gradient-to-r from-blue-600 to-blue-500 hover:brightness-110 text-white'
+                    : 'bg-gradient-to-r from-gold-600 to-gold-500 hover:brightness-110 text-white'
+                }`}
               >
-                Assemble Event & Sync Log
+                {editingEventId ? 'Update Event & Sync Log' : 'Assemble Event & Sync Log'}
               </button>
             </form>
           </div>
@@ -3581,12 +3737,21 @@ export default function App() {
                               Brand Note: {ev.notes || 'No directive guidelines.'}
                             </p>
                             {!isGoogleImport && !isAppleImport && (
-                              <button
-                                onClick={() => deleteEvent(ev.id)}
-                                className="text-[8.5px] text-red-650 hover:text-red-500 hover:underline transition-all font-mono font-bold cursor-pointer"
-                              >
-                                Delete
-                              </button>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => handleEditEvent(ev)}
+                                  className="text-[8.5px] text-gold-700 hover:text-gold-600 hover:underline transition-all font-mono font-bold cursor-pointer"
+                                >
+                                  Edit
+                                </button>
+                                <span className="text-slate-300">|</span>
+                                <button
+                                  onClick={() => deleteEvent(ev.id)}
+                                  className="text-[8.5px] text-red-650 hover:text-red-500 hover:underline transition-all font-mono font-bold cursor-pointer"
+                                >
+                                  Delete
+                                </button>
+                              </div>
                             )}
                           </div>
                         </div>

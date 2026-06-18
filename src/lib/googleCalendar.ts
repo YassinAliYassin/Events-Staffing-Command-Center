@@ -123,6 +123,64 @@ export async function pushEventToGoogleCalendar(
 }
 
 /**
+ * Updates an existing event in Google Calendar
+ */
+export async function updateEventInGoogleCalendar(
+  token: string,
+  googleEventId: string,
+  event: Event,
+  clientName: string,
+  venueName: string,
+  venueAddress: string
+): Promise<void> {
+  const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events/${googleEventId}`;
+
+  const startISO = `${event.date}T${event.startTime}:00`;
+  const endISO = `${event.date}T${event.endTime}:00`;
+
+  const body = {
+    summary: event.title,
+    description: `Fresh People Command Center Scheduled Event\n\nClient Partner: ${clientName}\nVenue Location: ${venueName} (${venueAddress})\n\nNotes: ${event.notes || 'No manual notes specified.'}`,
+    location: venueAddress || venueName,
+    start: {
+      dateTime: startISO,
+      timeZone: 'Africa/Johannesburg',
+    },
+    end: {
+      dateTime: endISO,
+      timeZone: 'Africa/Johannesburg',
+    },
+    extendedProperties: {
+      private: {
+        freshPeopleEventId: event.id,
+        clientId: event.clientId,
+        venueId: event.venueId,
+        staffIds: event.staffIds.join(','),
+      },
+    },
+  };
+
+  try {
+    const response = await fetch(url, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok && response.status !== 404) {
+      const errorMsg = await response.text();
+      throw new Error(`Update failed: ${response.status} - ${errorMsg}`);
+    }
+  } catch (error) {
+    console.error('Failed to update Google Calendar event:', error);
+    throw error;
+  }
+}
+
+/**
  * Deletes a synced event coordinates from Google Calendar
  */
 export async function deleteEventFromGoogleCalendar(token: string, googleEventId: string): Promise<void> {
