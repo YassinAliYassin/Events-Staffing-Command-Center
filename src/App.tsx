@@ -1158,6 +1158,12 @@ export default function App() {
   const [logTypeFilter, setLogTypeFilter] = useState<'all' | 'auth' | 'event_create' | 'event_delete' | 'sync' | 'direct_booking' | 'call' | 'staff_reply'>('all');
   const [showShortcutsModal, setShowShortcutsModal] = useState(false);
 
+  // Force-create conflict confirmation state
+  const [pendingConflict, setPendingConflict] = useState<{
+    doubleBookedStaffDetails: string[];
+    onConfirm: () => void;
+  } | null>(null);
+
   // Load and apply local data and parameter hooks
   useEffect(() => {
     // Check local storage or seed, force-migrating to South Africa Johannesburg setup
@@ -1580,8 +1586,11 @@ export default function App() {
       });
 
       if (doubleBookedStaffDetails.length > 0) {
-        showToast(`Staff Double-Booking overlap detected!\n` + doubleBookedStaffDetails.join('\n'), 'error');
-        return;
+        const warningMessage = `Staff Double-Booking overlap detected!\n\n${doubleBookedStaffDetails.join('\n')}\n\nProceed anyway?`;
+        if (!window.confirm(warningMessage)) {
+          return;
+        }
+        addActivityLog('event_create', `⚠ Operator overrode double-booking conflict for edit of "${evTitle}".`);
       }
 
       const rsvps: Record<string, 'Available' | 'Pending'> = {};
@@ -1676,9 +1685,11 @@ export default function App() {
     });
 
     if (doubleBookedStaffDetails.length > 0) {
-      const warningMessage = `Staff Double-Booking overlap detected!\n` + doubleBookedStaffDetails.join('\n');
-      showToast(warningMessage, 'error');
-      return;
+      const warningMessage = `Staff Double-Booking overlap detected!\n\n${doubleBookedStaffDetails.join('\n')}\n\nProceed anyway?`;
+      if (!window.confirm(warningMessage)) {
+        return;
+      }
+      addActivityLog('event_create', `⚠ Operator overrode double-booking conflict for "${evTitle}".`);
     }
 
     const eventId = `event-${Date.now()}`;
@@ -2570,6 +2581,67 @@ export default function App() {
       };
     }).filter((item) => item.events.length >= 2);
   }, [events, selectedDateStr, staff]);
+
+  // Conflict detection: find all staff-time overlaps across ALL events (not just same-day)
+  const selectedDayConflicts = useMemo(() => {
+    const conflicts: Array<{
+      staffId: string;
+      staffName: string;
+      staffRole: string;
+      eventA: { id: string; title: string; date: string; startTime: string; endTime: string };
+      eventB: { id: string; title: string; date: string; startTime: string; endTime: string };
+    }> = [];
+
+    const localEvents = events.filter(e => !e.id.startsWith('gcal-import') && !e.id.startsWith('apple-import') && !e.id.startsWith('apple-live'));
+
+    // Check every pair of events that share staff
+    for (let i = 0; i < localEvents.length; i++) {
+      for (let j = i + 1; j < localEvents.length; j++) {
+        const evA = localEvents[i];
+        const evB = localEvents[j];
+
+        // Find shared staff
+        const sharedStaff = evA.staffIds.filter(id => evB.staffIds.includes(id));
+        if (sharedStaff.length === 0) continue;
+
+        // Check time overlap
+        const { start: startA, end: endA } = getEventDates(evA.date, evA.startTime, evA.endTime);
+        const { start: startB, end: endB } = getEventDates(evB.date, evB.startTime, evB.endTime);
+        const overlaps = startA < endB && startB < endA;
+
+        if (overlaps) {
+          sharedStaff.forEach(sId => {
+            const sObj = staff.find(s => s.id === sId);
+            conflicts.push({
+              staffId: sId,
+              staffName: sObj ? `${sObj.name} ${sObj.surname}` : sId,
+              staffRole: sObj?.role || '',
+              eventA: { id: evA.id, title: evA.title, date: evA.date, startTime: evA.startTime, endTime: evA.endTime },
+              eventB: { id: evB.id, title: evB.title, date: evB.date, startTime: evB.startTime, endTime: evB.endTime },
+            });
+          });
+        }
+      }
+    }
+    return conflicts;
+  }, [events, staff]);
+
+  // Filter conflicts for the selected day only
+  const selectedDayFilteredConflicts = useMemo(() => {
+    return selectedDayConflicts.filter(
+      c => c.eventA.date === selectedDateStr || c.eventB.date === selectedDateStr
+    );
+  }, [selectedDayConflicts, selectedDateStr]);
+
+  // Set of event IDs that have conflicts (for badge display)
+  const conflictingEventIds = useMemo(() => {
+    const ids = new Set<string>();
+    selectedDayFilteredConflicts.forEach(c => {
+      ids.add(c.eventA.id);
+      ids.add(c.eventB.id);
+    });
+    return ids;
+  }, [selectedDayFilteredConflicts]);
 
   // Handle click on staff checkboxes in scheduler
   const toggleStaffAllocation = (staffId: string) => {
@@ -3837,6 +3909,29 @@ export default function App() {
                 </div>
               )}
 
+              {/* Conflict Warning Banner */}
+              {selectedDayFilteredConflicts.length > 0 && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[10px] font-bold text-red-800 uppercase tracking-widest">
+                        ⚠ Staff Conflict{selectedDayFilteredConflicts.length > 1 ? 's' : ''} Detected ({selectedDayFilteredConflicts.length})
+                      </p>
+                      <div className="mt-1.5 space-y-1 max-h-[80px] overflow-y-auto">
+                        {selectedDayFilteredConflicts.map((c, idx) => (
+                          <p key={idx} className="text-[8.5px] text-red-700 leading-relaxed">
+                            <span className="font-bold">{c.staffName}</span> ({c.staffRole}) is double-booked:{' '}
+                            <span className="font-mono">"{c.eventA.title}"</span> ({c.eventA.date} {c.eventA.startTime}-{c.eventA.endTime}) ↔{' '}
+                            <span className="font-mono">"{c.eventB.title}"</span> ({c.eventB.date} {c.eventB.startTime}-{c.eventB.endTime})
+                          </p>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {selectedDayEvents.length === 0 ? (
                 <div className="text-center py-6 text-slate-500 text-xs border border-dashed border-slate-200 bg-white/50 rounded-lg font-medium">
                   No operational mappings budgeted on this calendar date.
@@ -3888,6 +3983,11 @@ export default function App() {
                                 {isAppleImport && (
                                   <span className="flex items-center gap-1 text-[8px] font-mono bg-slate-900 text-white px-1.5 py-0.5 rounded border border-slate-750">
                                     <Apple className="w-2.2 h-2.2 text-white" /> Apple Cal
+                                  </span>
+                                )}
+                                {!isGoogleImport && !isAppleImport && conflictingEventIds.has(ev.id) && (
+                                  <span className="flex items-center gap-1 text-[8px] font-mono bg-red-50 text-red-700 px-1.5 py-0.5 rounded border border-red-200 animate-pulse">
+                                    ⚠ Conflict
                                   </span>
                                 )}
                               </h4>
@@ -4237,6 +4337,11 @@ export default function App() {
               <div className="bg-white border border-slate-200/60 rounded-md p-2.5 text-center">
                 <span className="text-[18px] font-extrabold text-slate-900 font-mono leading-none block">{staff.length}</span>
                 <span className="text-[7px] text-slate-500 uppercase tracking-widest font-bold mt-1 block">Active Staff</span>
+              </div>
+              {/* Conflicts */}
+              <div className={`border rounded-md p-2.5 text-center ${selectedDayConflicts.length > 0 ? 'bg-red-50/60 border-red-200/60' : 'bg-white border-slate-200/60'}`}>
+                <span className={`text-[18px] font-extrabold font-mono leading-none block ${selectedDayConflicts.length > 0 ? 'text-red-700' : 'text-slate-400'}`}>{selectedDayConflicts.length}</span>
+                <span className={`text-[7px] uppercase tracking-widest font-bold mt-1 block ${selectedDayConflicts.length > 0 ? 'text-red-600' : 'text-slate-500'}`}>Conflicts</span>
               </div>
               {/* Confirmed */}
               <div className="bg-emerald-50/60 border border-emerald-200/60 rounded-md p-2.5 text-center">
