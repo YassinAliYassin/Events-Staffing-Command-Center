@@ -49,6 +49,7 @@ import {
 
 import { OperationsSnapshot } from './components/OperationsSnapshot';
 import { EventCard } from './components/EventCard';
+import StaffTimeline from './components/StaffTimeline';
 
 const RoleChart = lazy(() => import('./components/RoleChart'));
 const StaffShiftCalendar = lazy(() => import('./components/StaffShiftCalendar'));
@@ -4200,6 +4201,18 @@ export default function App() {
                     </div>
                   </div>
                 </div>
+              )}
+
+              {/* Staff Timeline View for selected day */}
+              {selectedDayEvents.length > 0 && (
+                <StaffTimeline
+                  events={events}
+                  staff={staff}
+                  clients={clients}
+                  venues={venues}
+                  selectedDate={selectedDateStr}
+                  onSelectEvent={(eventId) => setSelectedDispatchEventId(eventId)}
+                />
               )}
 
               {selectedDayEvents.length === 0 ? (
