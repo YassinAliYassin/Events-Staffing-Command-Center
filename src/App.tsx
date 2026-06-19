@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useMemo, lazy, Suspense, useRef } from 'react';
 import {
   Lock,
   Unlock,
@@ -28,7 +28,9 @@ import {
   LogOut,
   Globe,
   Apple,
-  Trash2
+  Trash2,
+  Undo2,
+  Redo2
 } from 'lucide-react';
 import { Client, Venue, Staff, Event, EventTemplate, ActivityLog } from './types';
 import {
@@ -693,6 +695,13 @@ export default function App() {
   const [events, setEventsState] = useState<Event[]>([]);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
 
+  // Undo/Redo History System (must be declared before setEvents for tracking)
+  const [undoStack, setUndoStack] = useState<Event[][]>([]);
+  const [redoStack, setRedoStack] = useState<Event[][]>([]);
+  const [undoToast, setUndoToast] = useState<string | null>(null);
+  const isUndoRedoAction = useRef(false);
+  const MAX_UNDO_HISTORY = 50;
+
   // Active Tab for Registry List Left Panel
   const [activeTab, setActiveTab ] = useState<'clients' | 'venues' | 'staff'>('clients');
   const [roleViewTab, setRoleViewTab] = useState<'individual' | 'specialist'>('specialist');
@@ -1024,7 +1033,16 @@ export default function App() {
   const setEvents = (val: Event[] | ((prev: Event[]) => Event[])) => {
     setEventsState((prev) => {
       const resolved = typeof val === 'function' ? val(prev) : val;
-      
+
+      // Track undo history (skip during undo/redo to prevent loops)
+      if (!isUndoRedoAction.current && resolved !== prev) {
+        setUndoStack(u => {
+          const newStack = [...u, prev];
+          return newStack.length > MAX_UNDO_HISTORY ? newStack.slice(-MAX_UNDO_HISTORY) : newStack;
+        });
+        setRedoStack([]);
+      }
+
       const rawApple = localStorage.getItem('fp_apple_events');
       let currentApple: Event[] = rawApple ? JSON.parse(rawApple) : [];
 
@@ -1061,13 +1079,44 @@ export default function App() {
       });
 
       localStorage.setItem('fp_apple_events', JSON.stringify(currentApple));
-      
+
       setTimeout(() => {
         setAppleEvents(currentApple);
       }, 0);
 
       return resolved;
     });
+  };
+
+  const undo = () => {
+    if (undoStack.length === 0) return;
+    const prev = undoStack[undoStack.length - 1];
+    setUndoStack(s => s.slice(0, -1));
+    setRedoStack(s => {
+      const current = events;
+      return [...s, current];
+    });
+    isUndoRedoAction.current = true;
+    setEventsState(prev);
+    setUndoToast('Action undone');
+    addActivityLog('event_create', `↪ Undone — events restored to previous state`);
+    setTimeout(() => setUndoToast(null), 2500);
+  };
+
+  const redo = () => {
+    if (redoStack.length === 0) return;
+    const next = redoStack[redoStack.length - 1];
+    setRedoStack(s => s.slice(0, -1));
+    setUndoStack(u => {
+      const current = events;
+      const newStack = [...u, current];
+      return newStack.length > MAX_UNDO_HISTORY ? newStack.slice(-MAX_UNDO_HISTORY) : newStack;
+    });
+    isUndoRedoAction.current = true;
+    setEventsState(next);
+    setUndoToast('Action redone');
+    addActivityLog('event_create', `↩ Redone — events restored`);
+    setTimeout(() => setUndoToast(null), 2500);
   };
 
   const handleAddAppleSimulatorEvent = (e: React.FormEvent) => {
@@ -1445,11 +1494,29 @@ export default function App() {
         handleExportJSON();
         return;
       }
+
+      // Ctrl+Z — Undo (with Shift for Redo, or Ctrl+Y)
+      if (e.key === 'z' && (e.ctrlKey || e.metaKey) && !isInput) {
+        e.preventDefault();
+        if (e.shiftKey) {
+          redo();
+        } else {
+          undo();
+        }
+        return;
+      }
+
+      // Ctrl+Y — Redo (alternative)
+      if (e.key === 'y' && (e.ctrlKey || e.metaKey) && !isInput) {
+        e.preventDefault();
+        redo();
+        return;
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeModal, showDeleteConfirm, showRSVPPanel, editingEventId, showShortcutsModal]);
+  }, [activeModal, showDeleteConfirm, showRSVPPanel, editingEventId, showShortcutsModal, undo, redo]);
 
   // Sync state functions
   const addActivityLog = (type: ActivityLog['type'], message: string, isUrgent = false) => {
@@ -1930,8 +1997,9 @@ export default function App() {
     });
     setEvents(updatedEvents);
     localStorage.setItem('fp_events', JSON.stringify(updatedEvents));
-    const staffCount = e.staffIds?.length || 0;
-    addActivityLog('staff_reply', `Bulk RSVP: marked ${staffCount} staff as ${state} for "${updatedEvents.find(e => e.id === eventId)?.title}".`);
+    const updatedEvent = updatedEvents.find(ev => ev.id === eventId);
+    const staffCount = updatedEvent?.staffIds?.length || 0;
+    addActivityLog('staff_reply', `Bulk RSVP: marked ${staffCount} staff as ${state} for "${updatedEvent?.title}".`);
   };
 
   // Delete scheduled event + remove from Google Calendar sync ID references
@@ -3183,6 +3251,17 @@ export default function App() {
         </div>
       )}
 
+      {/* Undo/Redo Toast */}
+      {undoToast && (
+        <div
+          className="fixed top-5 left-1/2 -translate-x-1/2 z-[100] px-5 py-2.5 rounded-lg border border-slate-300/60 bg-slate-800/95 backdrop-blur-md text-white text-[10px] font-mono font-bold tracking-wider uppercase shadow-2xl flex items-center gap-2 animate-fade-in"
+        >
+          <span className="text-amber-400">↩</span>
+          {undoToast}
+          <span className="text-slate-400 ml-1">| Ctrl+Z</span>
+        </div>
+      )}
+
       {/* Decorative Blur Background Circles */}
       <div className="ambient-glow-1"></div>
       <div className="ambient-glow-2"></div>
@@ -3226,6 +3305,31 @@ export default function App() {
                 <span className="h-2 w-[1px] bg-slate-200"></span>
                 <span className="text-[8px] text-gold-600 font-black uppercase tracking-widest animate-pulse">Session: {sessionTimeLeft}</span>
               </div>
+            </div>
+
+            {/* Undo / Redo Controls */}
+            <div className="flex items-center gap-1">
+              <button
+                onClick={undo}
+                disabled={undoStack.length === 0}
+                title="Undo (Ctrl+Z)"
+                className="p-1.5 rounded border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed text-slate-500 hover:text-slate-700 transition-all cursor-pointer"
+              >
+                <Undo2 className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={redo}
+                disabled={redoStack.length === 0}
+                title="Redo (Ctrl+Shift+Z)"
+                className="p-1.5 rounded border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed text-slate-500 hover:text-slate-700 transition-all cursor-pointer"
+              >
+                <Redo2 className="w-3.5 h-3.5" />
+              </button>
+              {undoStack.length > 0 && (
+                <span className="text-[7px] font-mono text-slate-400 ml-0.5" title={`${undoStack.length} steps in history`}>
+                  {undoStack.length}
+                </span>
+              )}
             </div>
 
             {/* Lock Trigger */}
@@ -5490,6 +5594,9 @@ export default function App() {
                 { key: 'Alt + E', desc: 'Scroll to Event form' },
                 { key: 'Ctrl + N', desc: 'New event (scroll to form)' },
                 { key: 'Ctrl + B', desc: 'Export JSON backup' },
+                { key: 'Ctrl + Z', desc: 'Undo last event change' },
+                { key: 'Ctrl + Shift + Z', desc: 'Redo last undone change' },
+                { key: 'Ctrl + Y', desc: 'Redo (alternative)' },
                 { key: 'Esc', desc: 'Close modal / Cancel edit' },
                 { key: '?', desc: 'Show this help panel' },
               ].map((shortcut, i) => (
