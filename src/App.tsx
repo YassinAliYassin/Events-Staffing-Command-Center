@@ -30,7 +30,7 @@ import {
   Apple,
   Trash2
 } from 'lucide-react';
-import { Client, Venue, Staff, Event, ActivityLog } from './types';
+import { Client, Venue, Staff, Event, EventTemplate, ActivityLog } from './types';
 import {
   initAuth,
   googleSignIn,
@@ -1164,6 +1164,19 @@ export default function App() {
     onConfirm: () => void;
   } | null>(null);
 
+  // Event Templates
+  const [eventTemplates, setEventTemplates] = useState<EventTemplate[]>(() => {
+    try {
+      const saved = localStorage.getItem('fp_event_templates');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [showTemplatePanel, setShowTemplatePanel] = useState(false);
+  const [templateName, setTemplateName] = useState('');
+  const [templateToApply, setTemplateToApply] = useState<EventTemplate | null>(null);
+
   // Load and apply local data and parameter hooks
   useEffect(() => {
     // Check local storage or seed, force-migrating to South Africa Johannesburg setup
@@ -1778,6 +1791,60 @@ export default function App() {
     setEvTimeStart('18:00');
     setEvTimeEnd('22:00');
     setSelectedDateStr(evDate);
+  };
+
+  // --- Event Templates ---
+  const saveEventTemplate = () => {
+    if (!templateName.trim()) {
+      showToast('Please enter a template name.', 'warn');
+      return;
+    }
+    if (!evClient || !evVenue) {
+      showToast('Select Client and Venue before saving as template.', 'warn');
+      return;
+    }
+    const newTemplate: EventTemplate = {
+      id: `tmpl-${Date.now()}`,
+      name: templateName.trim(),
+      title: evTitle,
+      clientId: evClient,
+      venueId: evVenue,
+      startTime: evTimeStart,
+      endTime: evTimeEnd,
+      staffIds: evSelectedStaffIds,
+      notes: evNotes,
+      clientRequirements: evClientRequirements,
+      isDirectBooking: isDirectBookingChecked,
+      createdAt: new Date().toISOString(),
+    };
+    const updated = [...eventTemplates, newTemplate];
+    setEventTemplates(updated);
+    localStorage.setItem('fp_event_templates', JSON.stringify(updated));
+    setTemplateName('');
+    showToast(`Template "${newTemplate.name}" saved.`, 'success');
+    addActivityLog('event_create', `Saved event template: "${newTemplate.name}".`);
+  };
+
+  const applyEventTemplate = (tmpl: EventTemplate) => {
+    setEvTitle(tmpl.title);
+    setEvClient(tmpl.clientId);
+    setEvVenue(tmpl.venueId);
+    setEvTimeStart(tmpl.startTime);
+    setEvTimeEnd(tmpl.endTime);
+    setEvNotes(tmpl.notes);
+    setEvClientRequirements(tmpl.clientRequirements);
+    setEvSelectedStaffIds(tmpl.staffIds);
+    setIsDirectBookingChecked(tmpl.isDirectBooking);
+    setShowTemplatePanel(false);
+    showToast(`Template "${tmpl.name}" applied. Set date and create event.`, 'info');
+  };
+
+  const deleteEventTemplate = (id: string) => {
+    const tmpl = eventTemplates.find(t => t.id === id);
+    const updated = eventTemplates.filter(t => t.id !== id);
+    setEventTemplates(updated);
+    localStorage.setItem('fp_event_templates', JSON.stringify(updated));
+    if (tmpl) addActivityLog('event_delete', `Deleted event template: "${tmpl.name}".`);
   };
 
   // Populate form for editing an existing event
@@ -3491,7 +3558,86 @@ export default function App() {
                   <X className="w-3 h-3" /> Cancel Edit
                 </button>
               )}
+              <button
+                type="button"
+                onClick={() => setShowTemplatePanel(!showTemplatePanel)}
+                className={`text-[8px] font-mono uppercase tracking-widest font-bold cursor-pointer flex items-center gap-1 transition-all px-2 py-1 rounded border ${
+                  showTemplatePanel
+                    ? 'bg-violet-100 text-violet-700 border-violet-300'
+                    : 'text-slate-500 hover:text-violet-600 border-slate-200 hover:border-violet-300'
+                }`}
+              >
+                📋 Templates
+              </button>
             </div>
+
+            {/* Event Templates Panel */}
+            {showTemplatePanel && (
+              <div className="mb-4 p-3 bg-violet-50/50 border border-violet-200 rounded-lg space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[8px] text-violet-700 uppercase tracking-widest font-bold">Event Templates</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowTemplatePanel(false)}
+                    className="text-[8px] text-violet-400 hover:text-violet-700 cursor-pointer"
+                  >✕</button>
+                </div>
+                {/* Save current form as template */}
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={templateName}
+                    onChange={(e) => setTemplateName(e.target.value)}
+                    placeholder="Template name..."
+                    className="flex-1 bg-white border border-violet-200 text-[10px] text-slate-900 px-2 py-1.5 rounded focus:border-violet-400 focus:outline-hidden placeholder-slate-400"
+                  />
+                  <button
+                    type="button"
+                    onClick={saveEventTemplate}
+                    className="text-[8px] px-3 py-1.5 bg-violet-600 text-white rounded font-bold uppercase tracking-wider hover:bg-violet-700 transition-all cursor-pointer"
+                  >
+                    Save Current
+                  </button>
+                </div>
+                {/* Template list */}
+                {eventTemplates.length === 0 ? (
+                  <p className="text-[9px] text-slate-400 italic">No templates yet. Fill the form above and save as template.</p>
+                ) : (
+                  <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                    {eventTemplates.map((tmpl) => {
+                      const clientObj = clients.find(c => c.id === tmpl.clientId);
+                      const venueObj = venues.find(v => v.id === tmpl.venueId);
+                      return (
+                        <div key={tmpl.id} className="flex items-center justify-between bg-white border border-violet-100 rounded px-2 py-1.5">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-[9px] font-bold text-slate-800 truncate">{tmpl.name}</span>
+                            <span className="text-[7px] text-slate-500 truncate">
+                              {clientObj?.name || '?'} @ {venueObj?.name || '?'} · {tmpl.startTime}-{tmpl.endTime} · {tmpl.staffIds.length} staff
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => applyEventTemplate(tmpl)}
+                              className="text-[7px] px-2 py-0.5 bg-violet-100 text-violet-700 rounded font-bold hover:bg-violet-200 transition-all cursor-pointer"
+                            >
+                              Apply
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => deleteEventTemplate(tmpl.id)}
+                              className="text-[7px] px-1.5 py-0.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded font-bold transition-all cursor-pointer"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
 
             <form onSubmit={createEvent} className="space-y-4">
               <div className="space-y-1">

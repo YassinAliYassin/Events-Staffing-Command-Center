@@ -50,6 +50,21 @@ export interface Event {
   staffRSVPs?: Record<string, 'Pending' | 'Available' | 'Unavailable'>; // Tracking responses per staff member
 }
 
+export interface EventTemplate {
+  id: string;
+  name: string;
+  title: string;
+  clientId: string;
+  venueId: string;
+  startTime: string;
+  endTime: string;
+  staffIds: string[];
+  notes: string;
+  clientRequirements: string;
+  isDirectBooking: boolean;
+  createdAt: string;
+}
+
 export interface ActivityLog {
   id: string;
   timestamp: string;
