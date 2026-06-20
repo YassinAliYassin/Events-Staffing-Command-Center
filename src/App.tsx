@@ -53,6 +53,7 @@ import DispatchPanel from './components/DispatchPanel';
 import PayrollCalendar from './components/PayrollCalendar';
 import RegistrationModals from './components/RegistrationModals';
 import DialogsModals from './components/DialogsModals';
+import StaffAvailabilityPanel from './components/StaffAvailabilityPanel';
 
 const RoleChart = lazy(() => import('./components/RoleChart'));
 const StaffShiftCalendar = lazy(() => import('./components/StaffShiftCalendar'));
@@ -3239,6 +3240,15 @@ export default function App() {
             onAddClient={() => setActiveModal('client')}
             onAddVenue={() => setActiveModal('venue')}
             onAddStaff={() => setActiveModal('staff')}
+          />
+
+          {/* Staff Availability Dashboard */}
+          <StaffAvailabilityPanel
+            staff={staff}
+            events={events}
+            clients={clients}
+            venues={venues}
+            bulkUpdateRSVP={bulkUpdateRSVP}
           />
 
           {/* Staff Shift Calendar */}
