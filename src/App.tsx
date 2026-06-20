@@ -5,25 +5,16 @@
 
 import React, { useState, useEffect, useMemo, lazy, Suspense, useRef } from 'react';
 import {
-  Lock,
-  Unlock,
   Calendar,
   CalendarDays,
-  User,
   Users,
   ChevronLeft,
   ChevronRight,
   Radio,
   PhoneForwarded,
-  X,
   CheckCircle,
   AlertCircle,
   Briefcase,
-  RefreshCw,
-  LogOut,
-  Globe,
-  Undo2,
-  Redo2
 } from 'lucide-react';
 import { Client, Venue, Staff, Event, EventTemplate, ActivityLog } from './types';
 import {
@@ -52,6 +43,9 @@ import RegistrationModals from './components/RegistrationModals';
 import DialogsModals from './components/DialogsModals';
 import StaffAvailabilityPanel from './components/StaffAvailabilityPanel';
 import ExportToolbar from './components/ExportToolbar';
+import AuthGateway from './components/AuthGateway';
+import AppHeader from './components/AppHeader';
+import ToastNotifications from './components/ToastNotifications';
 
 const RoleChart = lazy(() => import('./components/RoleChart'));
 const StaffShiftCalendar = lazy(() => import('./components/StaffShiftCalendar'));
@@ -2953,289 +2947,50 @@ export default function App() {
   // Authenticated Gateway form render
   if (!isUnlocked) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-md transition-all duration-700">
-        <div className="w-full max-w-sm p-8 glass-panel rounded-lg shadow-2xl relative overflow-hidden bg-white/95 border border-gold-300/40 fade-in-up">
-          {/* Decorative glowing header segment */}
-          <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-transparent via-gold-500 to-transparent"></div>
-
-          <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-gold-50 border border-gold-300/30 mb-5 shadow-gold-glow">
-              <span className="font-display text-lg tracking-[0.2em] text-gold-600 font-bold translate-x-0.5">FP</span>
-            </div>
-            <h1 className="font-display text-xl tracking-[0.25em] text-slate-900 font-bold uppercase text-center">FRESH PEOPLE</h1>
-            <p className="text-[9px] text-slate-500 uppercase tracking-widest mt-1.5 text-center font-medium">Elite Staffing gateway</p>
-          </div>
-
-          {isForgotPasswordMode ? (
-            <form onSubmit={handleResetPasswordRequest} id="pword_reset_form" className="space-y-5">
-              <span className="text-[9px] uppercase tracking-widest text-gold-600 font-bold block border-b border-slate-100 pb-2 text-center">
-                Secure Password Recovery Protocol
-              </span>
-
-              {resetSuccessMessage ? (
-                <div className="text-[10px] text-emerald-800 border border-emerald-200 bg-emerald-50 px-3 py-2.5 rounded text-left leading-relaxed">
-                  {resetSuccessMessage}
-                </div>
-              ) : (
-                <p className="text-[9px] text-slate-500 leading-relaxed text-center font-medium">
-                  Enter your Operator credentials and security recovery email below. An encrypted access bypass key will be dispatched.
-                </p>
-              )}
-
-              <div className="space-y-1.5">
-                <label htmlFor="recovery_operator_id" className="text-[8px] text-slate-500 uppercase tracking-widest font-semibold block">Operator ID</label>
-                <div className="relative">
-                  <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-400">
-                    <User className="w-3.5 h-3.5" />
-                  </span>
-                  <input
-                    type="text"
-                    id="recovery_operator_id"
-                    value={forgotOperatorId}
-                    onChange={(e) => setForgotOperatorId(e.target.value)}
-                    required
-                    className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-300 text-xs text-slate-900 rounded focus:border-gold-500 focus:bg-white focus:outline-hidden transition-all font-mono placeholder-slate-400 font-medium"
-                    placeholder="e.g. yassin"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label htmlFor="recovery_email" className="text-[8px] text-slate-500 uppercase tracking-widest font-semibold block">Recovery Registry Email</label>
-                <div className="relative">
-                  <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-400">
-                    <Briefcase className="w-3.5 h-3.5" />
-                  </span>
-                  <input
-                    type="email"
-                    id="recovery_email"
-                    value={forgotEmail}
-                    onChange={(e) => setForgotEmail(e.target.value)}
-                    required
-                    className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-300 text-xs text-slate-900 rounded focus:border-gold-500 focus:bg-white focus:outline-hidden transition-all font-mono placeholder-slate-400 font-medium"
-                    placeholder="e.g. realyassinali@gmail.com"
-                  />
-                </div>
-              </div>
-
-              <div className="flex flex-col space-y-2 pt-2">
-                <button
-                  type="submit"
-                  className="w-full py-2 bg-gradient-to-r from-gold-600 to-gold-500 hover:brightness-110 active:scale-[0.99] transition-all text-white font-display font-semibold text-[10px] tracking-[0.2em] uppercase rounded shadow-sm cursor-pointer"
-                >
-                  Dispatch Recovery Key
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsForgotPasswordMode(false);
-                    setResetSuccessMessage(null);
-                  }}
-                  className="w-full py-2 border border-slate-200 hover:bg-slate-50 text-slate-600 transition-all font-mono text-[9px] uppercase tracking-widest rounded cursor-pointer font-medium"
-                >
-                  Return to Gateway Login
-                </button>
-              </div>
-            </form>
-          ) : (
-            <form onSubmit={handleAuthSubmit} id="pword_login_form" className="space-y-5">
-              {authError && (
-                <div className="text-[10px] text-red-800 border border-red-200 bg-red-50 px-3 py-2.5 rounded text-center leading-relaxed font-medium">
-                  Verification credentials rejected.<br />Please re-enter correct security key phrases.
-                </div>
-              )}
-
-              <div className="space-y-1.5">
-                <label htmlFor="gate_operator" className="text-[8px] text-slate-500 uppercase tracking-widest font-semibold block">Operator ID</label>
-                <div className="relative">
-                  <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-400">
-                    <User className="w-3.5 h-3.5" />
-                  </span>
-                  <input
-                    type="text"
-                    id="gate_operator"
-                    value={operatorId}
-                    onChange={(e) => setOperatorId(e.target.value)}
-                    required
-                    autoComplete="username"
-                    className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-300 text-xs text-slate-900 rounded focus:border-gold-500 focus:bg-white focus:outline-hidden transition-all font-mono placeholder-slate-400 font-medium"
-                    placeholder="e.g. yassin"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <div className="flex justify-between items-center">
-                  <label htmlFor="gate_phrase" className="text-[8px] text-slate-500 uppercase tracking-widest font-semibold block">Security Phrase</label>
-                  <button
-                    type="button"
-                    onClick={() => setIsForgotPasswordMode(true)}
-                    className="text-[8px] text-gold-600 hover:underline hover:text-gold-700 tracking-wider uppercase font-mono cursor-pointer font-bold"
-                  >
-                    Forgot phrase?
-                  </button>
-                </div>
-                <div className="relative">
-                  <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-400">
-                    <Lock className="w-3.5 h-3.5" />
-                  </span>
-                  <input
-                    type="password"
-                    id="gate_phrase"
-                    value={securityPhrase}
-                    onChange={(e) => setSecurityPhrase(e.target.value)}
-                    required
-                    autoComplete="current-password"
-                    className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-300 text-xs text-slate-900 rounded focus:border-gold-500 focus:bg-white focus:outline-hidden transition-all font-mono placeholder-slate-400 font-medium"
-                    placeholder="•••••••••••••••••"
-                  />
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                className="w-full py-2.5 mt-5 bg-gradient-to-r from-gold-600 to-gold-500 hover:brightness-110 active:scale-[0.99] transition-all text-white font-display font-semibold text-[10px] tracking-[0.2em] uppercase rounded shadow-md cursor-pointer"
-              >
-                Verify Command Access
-              </button>
-            </form>
-          )}
-
-          <div className="mt-8 text-center border-t border-slate-100 pt-4">
-            <p className="text-[8px] text-slate-500 tracking-widest leading-relaxed uppercase font-medium">
-              FRESH PEOPLE OPERATIONAL SYSTEM V.26<br />
-              Encryption bound active. Logs streamed to secure database.
-            </p>
-          </div>
-        </div>
-      </div>
+      <AuthGateway
+        operatorId={operatorId}
+        setOperatorId={setOperatorId}
+        securityPhrase={securityPhrase}
+        setSecurityPhrase={setSecurityPhrase}
+        authError={authError}
+        isForgotPasswordMode={isForgotPasswordMode}
+        setIsForgotPasswordMode={setIsForgotPasswordMode}
+        forgotOperatorId={forgotOperatorId}
+        setForgotOperatorId={setForgotOperatorId}
+        forgotEmail={forgotEmail}
+        setForgotEmail={setForgotEmail}
+        resetSuccessMessage={resetSuccessMessage}
+        setResetSuccessMessage={setResetSuccessMessage}
+        handleAuthSubmit={handleAuthSubmit}
+        handleResetPasswordRequest={handleResetPasswordRequest}
+      />
     );
   }
 
   return (
     <div className="min-h-screen flex flex-col relative z-20">
-      {/* Premium Toast Overlay Notifications */}
-      {toastAlert && (
-        <div
-          onClick={() => setToastAlert(null)}
-          className={`fixed top-5 right-5 z-55 p-4 rounded-lg border shadow-xl max-w-sm max-h-[80vh] overflow-y-auto transition-all duration-300 backdrop-blur-md cursor-pointer flex items-start gap-3 select-none animate-fade-in ${
-            toastAlert.type === 'error'
-              ? 'bg-red-50/95 border-red-200 text-red-800'
-              : toastAlert.type === 'warn'
-              ? 'bg-amber-50/95 border-amber-200 text-amber-800'
-              : toastAlert.type === 'success'
-              ? 'bg-emerald-50/95 border-emerald-250 text-emerald-805'
-              : 'bg-gold-50/95 border-gold-200 text-gold-900'
-          }`}
-          style={{ zIndex: 9999 }}
-        >
-          <div className="flex-1">
-            <h4 className="text-[10px] font-extrabold font-display uppercase tracking-widest flex items-center gap-1.5 mb-1.5">
-              {toastAlert.type === 'error' && '🚨 System Alert'}
-              {toastAlert.type === 'warn' && '⚠️ Attention'}
-              {toastAlert.type === 'success' && '✓ Operation Complete'}
-              {toastAlert.type === 'info' && 'ℹ Communication Update'}
-            </h4>
-            <p className="text-[9px] font-mono font-semibold leading-relaxed whitespace-pre-line">
-              {toastAlert.message}
-            </p>
-          </div>
-          <button type="button" className="text-xs font-extrabold select-none opacity-40 hover:opacity-100 p-0.5 leading-none">&times;</button>
-        </div>
-      )}
-
-      {/* Undo/Redo Toast */}
-      {undoToast && (
-        <div
-          className="fixed top-5 left-1/2 -translate-x-1/2 z-[100] px-5 py-2.5 rounded-lg border border-slate-300/60 bg-slate-800/95 backdrop-blur-md text-white text-[10px] font-mono font-bold tracking-wider uppercase shadow-2xl flex items-center gap-2 animate-fade-in"
-        >
-          <span className="text-amber-400">↩</span>
-          {undoToast}
-          <span className="text-slate-400 ml-1">| Ctrl+Z</span>
-        </div>
-      )}
+      <ToastNotifications
+        toastAlert={toastAlert}
+        setToastAlert={setToastAlert}
+        undoToast={undoToast}
+        syncStatusMsg={syncStatusMsg}
+      />
 
       {/* Decorative Blur Background Circles */}
       <div className="ambient-glow-1"></div>
       <div className="ambient-glow-2"></div>
 
-      {/* Synchronizing indicator ticker */}
-      {syncStatusMsg && (
-        <div className="bg-gold-500 text-black text-[10px] font-mono py-1 px-4 text-center tracking-widest uppercase transition-all flex items-center justify-center gap-2 font-medium z-50 sticky top-0">
-          <RefreshCw className="w-3 h-3 animate-spin" />
-          <span>{syncStatusMsg}</span>
-        </div>
-      )}
-
-      {/* Main Command Header */}
-      <header className="border-b border-gold-200/40 bg-white/80 backdrop-blur-md sticky top-0 z-40 shadow-xs">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            {/* Mobile hamburger menu button */}
-            <button
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="lg:hidden p-2 -ml-2 text-slate-600 hover:text-gold-600 hover:bg-slate-100 rounded transition-all cursor-pointer"
-              aria-label="Toggle menu"
-            >
-              {mobileMenuOpen ? <X className="w-5 h-5" /> : <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>}
-            </button>
-            <div className="flex items-center space-x-3">
-              <div className="w-2.5 h-2.5 rounded-full bg-gold-500 animate-pulse"></div>
-              <span className="font-display tracking-[0.25em] font-bold text-slate-900 text-base md:text-lg">FRESH PEOPLE</span>
-            </div>
-            <span className="hidden md:inline h-4 w-[1px] bg-slate-200"></span>
-            <span className="hidden md:inline font-mono text-[9px] text-gold-700 uppercase tracking-widest bg-gold-50 px-2.5 py-0.5 border border-gold-200/40 rounded">
-              Operational Command Hub
-            </span>
-          </div>
-
-          <div className="flex items-center space-x-6">
-            {/* System clock & Session status */}
-            <div className="hidden sm:flex flex-col items-end font-mono text-right select-none">
-              <span className="text-xs text-slate-800 tracking-widest font-bold">{systime} UTC</span>
-              <div className="flex items-center gap-1.5 mt-0.5">
-                <span className="text-[8px] text-slate-500 uppercase tracking-widest font-medium">Operator: yassin</span>
-                <span className="h-2 w-[1px] bg-slate-200"></span>
-                <span className="text-[8px] text-gold-600 font-black uppercase tracking-widest animate-pulse">Session: {sessionTimeLeft}</span>
-              </div>
-            </div>
-
-            {/* Undo / Redo Controls */}
-            <div className="flex items-center gap-1">
-              <button
-                onClick={undo}
-                disabled={undoStack.length === 0}
-                title="Undo (Ctrl+Z)"
-                className="p-1.5 rounded border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed text-slate-500 hover:text-slate-700 transition-all cursor-pointer"
-              >
-                <Undo2 className="w-3.5 h-3.5" />
-              </button>
-              <button
-                onClick={redo}
-                disabled={redoStack.length === 0}
-                title="Redo (Ctrl+Shift+Z)"
-                className="p-1.5 rounded border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed text-slate-500 hover:text-slate-700 transition-all cursor-pointer"
-              >
-                <Redo2 className="w-3.5 h-3.5" />
-              </button>
-              {undoStack.length > 0 && (
-                <span className="text-[7px] font-mono text-slate-400 ml-0.5" title={`${undoStack.length} steps in history`}>
-                  {undoStack.length}
-                </span>
-              )}
-            </div>
-
-            {/* Lock Trigger */}
-            <button
-              onClick={triggerLogout}
-              className="flex items-center space-x-1.5 px-3 py-1.5 bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 rounded text-[9px] uppercase tracking-widest transition-all cursor-pointer font-mono font-medium"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              <span>Lock Console</span>
-            </button>
-          </div>
-        </div>
-      </header>
+      <AppHeader
+        systime={systime}
+        sessionTimeLeft={sessionTimeLeft}
+        mobileMenuOpen={mobileMenuOpen}
+        setMobileMenuOpen={setMobileMenuOpen}
+        undoStack={undoStack}
+        redoStack={redoStack}
+        undo={undo}
+        redo={redo}
+        triggerLogout={triggerLogout}
+      />
 
       {/* Premium Quiet Luxury Operational Export Control Panel */}
       <ExportToolbar
