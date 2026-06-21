@@ -270,7 +270,16 @@ const EventArchitect: React.FC<EventArchitectProps> = ({
             <select
               id="select_ev_recurrence"
               value={recurrence}
-              onChange={(e) => setRecurrence(e.target.value as 'none' | 'weekly' | 'biweekly' | 'monthly')}
+              onChange={(e) => {
+                const val = e.target.value as 'none' | 'weekly' | 'biweekly' | 'monthly';
+                setRecurrence(val);
+                if (val !== 'none' && !recurrenceEnd) {
+                  // Auto-set end date to 3 months from now
+                  const d = new Date();
+                  d.setMonth(d.getMonth() + 3);
+                  setRecurrenceEnd(d.toISOString().split('T')[0]);
+                }
+              }}
               className="flex-1 bg-white border border-slate-300 text-xs text-slate-900 px-2 py-2 rounded focus:border-gold-500 focus:outline-hidden cursor-pointer font-bold"
             >
               <option value="none" className="bg-white text-slate-900">No Recurrence</option>
@@ -288,9 +297,33 @@ const EventArchitect: React.FC<EventArchitectProps> = ({
               />
             )}
           </div>
-          {recurrence !== 'none' && (
+          {recurrence !== 'none' && recurrenceEnd && (() => {
+            const intervalDays = recurrence === 'weekly' ? 7 : recurrence === 'biweekly' ? 14 : 0;
+            const start = new Date(evDate + 'T00:00:00');
+            const end = new Date(recurrenceEnd + 'T00:00:00');
+            let count = 0;
+            if (intervalDays > 0) {
+              const diffMs = end.getTime() - start.getTime();
+              count = Math.floor(diffMs / (intervalDays * 86400000));
+            } else if (recurrence === 'monthly') {
+              count = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
+            }
+            if (count > 0) {
+              return (
+                <p className="text-[8px] text-violet-600 font-semibold">
+                  📅 Will create {count} additional instance{count !== 1 ? 's' : ''} (including original: {count + 1} total)
+                </p>
+              );
+            }
+            return (
+              <p className="text-[8px] text-amber-600 font-semibold">
+                ⚠ End date must be after start date
+              </p>
+            );
+          })()}
+          {recurrence !== 'none' && !recurrenceEnd && (
             <p className="text-[8px] text-slate-500 italic">
-              Repeats {recurrence} until {recurrenceEnd || 'no end date set'} — edit individual instances to break the pattern.
+              Set an end date to generate recurring instances.
             </p>
           )}
         </div>

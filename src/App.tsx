@@ -1288,7 +1288,8 @@ export default function App() {
       rsvps[id] = isDirectBookingChecked ? 'Available' : 'Pending';
     });
 
-    const mappedEvent: Event = {
+    // Build the base event object
+    const baseEvent: Event = {
       id: eventId,
       title: evTitle,
       clientId: evClient,
@@ -1301,18 +1302,90 @@ export default function App() {
       clientRequirements: evClientRequirements,
       status: evStatus,
       isDirectBooking: isDirectBookingChecked,
-      staffRSVPs: rsvps
+      staffRSVPs: rsvps,
+      recurrence: recurrence !== 'none' ? recurrence : undefined,
+      recurrenceEnd: recurrence !== 'none' ? recurrenceEnd || undefined : undefined,
     };
 
+    // Generate recurring event instances if recurrence is set
+    const allNewEvents: Event[] = [baseEvent];
+    let recurrenceCount = 0;
+
+    if (recurrence !== 'none' && recurrenceEnd) {
+      const maxInstances = 52; // Cap at 1 year of weekly events
+      const intervalDays = recurrence === 'weekly' ? 7 : recurrence === 'biweekly' ? 14 : 0;
+      let currentDate = new Date(evDate + 'T00:00:00');
+      const endDate = new Date(recurrenceEnd + 'T00:00:00');
+
+      if (intervalDays > 0) {
+        // Weekly / Biweekly: add fixed-interval instances
+        while (recurrenceCount < maxInstances) {
+          currentDate.setDate(currentDate.getDate() + intervalDays);
+          if (currentDate > endDate) break;
+          recurrenceCount++;
+          const instanceDate = currentDate.toISOString().split('T')[0];
+          const instanceRsvps: Record<string, 'Available' | 'Pending'> = {};
+          evSelectedStaffIds.forEach(id => {
+            instanceRsvps[id] = isDirectBookingChecked ? 'Available' : 'Pending';
+          });
+          allNewEvents.push({
+            ...baseEvent,
+            id: `event-${Date.now()}-${recurrenceCount}`,
+            date: instanceDate,
+            staffRSVPs: instanceRsvps,
+            isRecurrenceInstance: true,
+            originalEventId: eventId,
+            recurrence: undefined,
+            recurrenceEnd: undefined,
+          });
+        }
+      } else if (recurrence === 'monthly') {
+        // Monthly: same day of month
+        const startDay = currentDate.getDate();
+        let monthCounter = 1;
+        while (recurrenceCount < maxInstances) {
+          const nextMonth = new Date(currentDate);
+          nextMonth.setMonth(nextMonth.getMonth() + monthCounter);
+          // Handle month-end overflow (e.g. Jan 31 → Feb 28)
+          if (nextMonth.getDate() !== startDay) {
+            nextMonth.setDate(0); // Last day of previous month
+          }
+          if (nextMonth > endDate) break;
+          recurrenceCount++;
+          const instanceDate = nextMonth.toISOString().split('T')[0];
+          const instanceRsvps: Record<string, 'Available' | 'Pending'> = {};
+          evSelectedStaffIds.forEach(id => {
+            instanceRsvps[id] = isDirectBookingChecked ? 'Available' : 'Pending';
+          });
+          allNewEvents.push({
+            ...baseEvent,
+            id: `event-${Date.now()}-${recurrenceCount}`,
+            date: instanceDate,
+            staffRSVPs: instanceRsvps,
+            isRecurrenceInstance: true,
+            originalEventId: eventId,
+            recurrence: undefined,
+            recurrenceEnd: undefined,
+          });
+          monthCounter++;
+        }
+      }
+    }
+
     // Core validation: Update events state lists
-    const nextEvents = [mappedEvent, ...events];
+    const nextEvents = [...allNewEvents, ...events];
     setEvents(nextEvents);
     localStorage.setItem('fp_events', JSON.stringify(nextEvents));
 
-    if (isDirectBookingChecked) {
-      addActivityLog('direct_booking', `Manual Direct Booking Registered: "${mappedEvent.title}" on ${mappedEvent.date} (Staff pre-confirmed: ${mappedEvent.staffIds.length}).`);
+    if (recurrenceCount > 0) {
+      addActivityLog('event_create', `Architected Recurring Event: "${baseEvent.title}" on ${baseEvent.date} — ${recurrenceCount} additional ${recurrence} instances created (total: ${allNewEvents.length}).`);
+      showToast(`Created "${baseEvent.title}" + ${recurrenceCount} recurring instances (${allNewEvents.length} total).`, 'success');
+    } else if (isDirectBookingChecked) {
+      addActivityLog('direct_booking', `Manual Direct Booking Registered: "${baseEvent.title}" on ${baseEvent.date} (Staff pre-confirmed: ${baseEvent.staffIds.length}).`);
+      showToast(`Direct booking "${baseEvent.title}" registered.`, 'success');
     } else {
-      addActivityLog('event_create', `Architected Scheduled Event: "${mappedEvent.title}" on ${mappedEvent.date} (Staff count: ${mappedEvent.staffIds.length}).`);
+      addActivityLog('event_create', `Architected Scheduled Event: "${baseEvent.title}" on ${baseEvent.date} (Staff count: ${baseEvent.staffIds.length}).`);
+      showToast(`Event "${baseEvent.title}" created successfully.`, 'success');
     }
 
     // Bidirectional sync: If logged in to Google Calendar, push context immediately!
@@ -1325,7 +1398,7 @@ export default function App() {
         setSyncStatusMsg('Pushing event to Google Calendar automatically...');
         const googleEventId = await pushEventToGoogleCalendar(
           token,
-          mappedEvent,
+          baseEvent,
           clientObj?.name || 'Local client',
           venueObj?.name || 'Local venue',
           venueObj?.address || 'Local Address'
@@ -1367,6 +1440,8 @@ export default function App() {
     setEvVenue('');
     setEvTimeStart('18:00');
     setEvTimeEnd('22:00');
+    setRecurrence('none');
+    setRecurrenceEnd('');
     setSelectedDateStr(evDate);
   };
 
@@ -1463,6 +1538,10 @@ export default function App() {
       date: todayStr,
       status: 'Pending',
       staffRSVPs: {},
+      recurrence: undefined,
+      recurrenceEnd: undefined,
+      isRecurrenceInstance: undefined,
+      originalEventId: undefined,
     };
     const updatedEvents = [...events, newEvent];
     setEvents(updatedEvents);

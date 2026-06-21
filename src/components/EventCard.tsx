@@ -100,6 +100,16 @@ export function EventCard(props: EventCardProps & { key?: React.Key }) {
                   ⚠ Conflict
                 </span>
               )}
+              {ev.isRecurrenceInstance && (
+                <span className="flex items-center gap-1 text-[8px] font-mono bg-violet-50 text-violet-700 px-1.5 py-0.5 rounded border border-violet-200">
+                  🔁 Recurring
+                </span>
+              )}
+              {ev.recurrence && ev.recurrence !== 'none' && (
+                <span className="flex items-center gap-1 text-[8px] font-mono bg-violet-100 text-violet-800 px-1.5 py-0.5 rounded border border-violet-300">
+                  🔁 {ev.recurrence} series
+                </span>
+              )}
             </h4>
             <p className="text-[9.5px] text-slate-600 mt-1 font-medium">
               Partner: {clientObj?.name || (isGoogleImport ? 'Synced calendar meeting' : isAppleImport ? 'iCloud synchronized event' : 'Local Account')} &bull; Location: {venueObj?.name || 'Private Address'}
