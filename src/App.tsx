@@ -48,6 +48,7 @@ import AuthGateway from './components/AuthGateway';
 import AppHeader from './components/AppHeader';
 import ToastNotifications from './components/ToastNotifications';
 import StaffingAlertsPanel from './components/StaffingAlertsPanel';
+import StaffPerformancePanel from './components/StaffPerformancePanel';
 
 const RoleChart = lazy(() => import('./components/RoleChart'));
 const StaffShiftCalendar = lazy(() => import('./components/StaffShiftCalendar'));
@@ -2605,6 +2606,14 @@ export default function App() {
             freshPeopleGroupedData={freshPeopleGroupedData}
             payrollCycleBounds={payrollCycleBounds}
             ROLE_COLORS={ROLE_COLORS}
+          />
+
+          {/* Staff Performance Dashboard */}
+          <StaffPerformancePanel
+            staff={staff}
+            events={events}
+            clients={clients}
+            venues={venues}
           />
 
           {/* Scheduling & Core Event Architecture Planner Form */}
