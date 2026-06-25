@@ -49,6 +49,7 @@ import AppHeader from './components/AppHeader';
 import ToastNotifications from './components/ToastNotifications';
 import StaffingAlertsPanel from './components/StaffingAlertsPanel';
 import StaffPerformancePanel from './components/StaffPerformancePanel';
+import RecurringEventManager from './components/RecurringEventManager';
 
 const RoleChart = lazy(() => import('./components/RoleChart'));
 const StaffShiftCalendar = lazy(() => import('./components/StaffShiftCalendar'));
