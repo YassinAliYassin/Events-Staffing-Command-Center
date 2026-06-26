@@ -38,7 +38,7 @@ const StaffView = () => {
 
     try {
       if (editingId) {
-        // Optimistic update for edit
+        // Optimistic update for edit - sync to Firestore
         dataStore.updateStaff(editingId, {
           name: formData.name,
           phone: formData.phone,
@@ -48,7 +48,7 @@ const StaffView = () => {
         });
         setSuccessMsg('Staff updated!');
       } else {
-        // Optimistic update for add
+        // Optimistic update for add - sync to Firestore
         dataStore.addStaff({
           name: formData.name,
           phone: formData.phone,
@@ -84,15 +84,12 @@ const StaffView = () => {
   const handleDelete = async (id: number) => {
     if (!confirm('Delete this staff member?')) return;
     
-    try {
-      // Optimistic delete - just refetch for now
-      fetchStaff();
-    } catch (err: any) {
-      setError(err.message);
-    }
+    // Optimistic delete
+    setStaffList(staffList.filter(s => s.id !== id));
+    fetchStaff();
   };
 
-  // Quiet Luxury styling
+  // Mobile-responsive Quiet Luxury styles
   const styles = {
     container: {
       display: 'flex',
@@ -101,21 +98,21 @@ const StaffView = () => {
       width: '100%',
       maxWidth: '800px',
       margin: '0 auto',
-      padding: '24px',
-      gap: '24px'
+      padding: 'clamp(12px, 3vw, 24px)',
+      gap: 'clamp(16px, 3vw, 24px)'
     },
     card: {
       width: '100%',
       backgroundColor: '#161b22',
       border: '1px solid #30363d',
-      borderRadius: '12px',
-      padding: '32px',
+      borderRadius: 'clamp(8px, 2vw, 12px)',
+      padding: 'clamp(16px, 3vw, 32px)',
       display: 'flex',
       flexDirection: 'column',
-      gap: '20px'
+      gap: 'clamp(16px, 2.5vw, 20px)'
     },
     title: {
-      fontSize: '24px',
+      fontSize: 'clamp(18px, 3vw, 24px)',
       fontWeight: '600',
       color: '#e6edf3',
       letterSpacing: '-0.02em',
@@ -124,10 +121,10 @@ const StaffView = () => {
     formRow: {
       display: 'flex',
       flexDirection: 'column',
-      gap: '8px'
+      gap: '6px'
     },
     label: {
-      fontSize: '13px',
+      fontSize: 'clamp(10px, 2vw, 13px)',
       fontWeight: '500',
       color: '#8b949e',
       textTransform: 'uppercase',
@@ -135,33 +132,31 @@ const StaffView = () => {
     },
     input: {
       width: '100%',
-      padding: '12px 16px',
+      padding: 'clamp(8px, 2vw, 12px) clamp(12px, 3vw, 16px)',
       backgroundColor: '#0d1117',
       border: '1px solid #30363d',
-      borderRadius: '8px',
+      borderRadius: 'clamp(6px, 1.5vw, 8px)',
       color: '#e6edf3',
-      fontSize: '14px',
+      fontSize: 'clamp(14px, 2.5vw, 16px)',
       outline: 'none'
     },
     button: {
-      padding: '12px 24px',
+      padding: 'clamp(10px, 2.5vw, 12px) clamp(16px, 3vw, 24px)',
       border: 'none',
-      borderRadius: '8px',
-      fontSize: '14px',
+      borderRadius: 'clamp(6px, 1.5vw, 8px)',
+      fontSize: 'clamp(13px, 2.5vw, 14px)',
       fontWeight: '500',
       cursor: 'pointer',
-      transition: 'all 0.15s',
-      backgroundColor: '#00e5a0',
-      color: '#0d1117'
+      minHeight: '44px'
     },
     listItem: {
       display: 'flex',
       justifyContent: 'space-between',
       alignItems: 'center',
-      padding: '16px',
+      padding: 'clamp(12px, 2.5vw, 16px)',
       backgroundColor: '#0d1117',
       border: '1px solid #30363d',
-      borderRadius: '8px'
+      borderRadius: 'clamp(6px, 1.5vw, 8px)'
     }
   };
 
@@ -174,12 +169,12 @@ const StaffView = () => {
 
         {successMsg && (
           <div style={{
-            padding: '12px 16px',
+            padding: 'clamp(10px, 2.5vw, 12px) clamp(12px, 3vw, 16px)',
             backgroundColor: 'rgba(16, 185, 129, 0.1)',
             border: '1px solid #10B981',
-            borderRadius: '8px',
+            borderRadius: 'clamp(6px, 1.5vw, 8px)',
             color: '#10B981',
-            fontSize: '14px'
+            fontSize: 'clamp(12px, 2.5vw, 14px)'
           }}>
             {successMsg}
           </div>
@@ -187,18 +182,18 @@ const StaffView = () => {
 
         {error && (
           <div style={{
-            padding: '12px 16px',
+            padding: 'clamp(10px, 2.5vw, 12px) clamp(12px, 3vw, 16px)',
             backgroundColor: 'rgba(239, 68, 68, 0.1)',
             border: '1px solid #EF4444',
-            borderRadius: '8px',
+            borderRadius: 'clamp(6px, 1.5vw, 8px)',
             color: '#EF4444',
-            fontSize: '14px'
+            fontSize: 'clamp(12px, 2.5vw, 14px)'
           }}>
             {error}
           </div>
         )}
 
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(16px, 2.5vw, 20px)' }}>
           <div style={styles.formRow as React.CSSProperties}>
             <label style={styles.label as React.CSSProperties}>Full Name</label>
             <input
@@ -211,7 +206,8 @@ const StaffView = () => {
             />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+          {/* Mobile stack on small screens */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'clamp(12px, 2.5vw, 16px)' }} className="mobile-stack">
             <div style={styles.formRow as React.CSSProperties}>
               <label style={styles.label as React.CSSProperties}>Phone</label>
               <input
@@ -258,13 +254,15 @@ const StaffView = () => {
             />
           </div>
 
-          <div style={{ display: 'flex', gap: '12px' }}>
+          <div style={{ display: 'flex', gap: 'clamp(8px, 2vw, 12px)', flexDirection: 'column' }} className="mobile-full-width">
             <button
               type="submit"
               disabled={loading}
               style={{
                 ...styles.button as React.CSSProperties,
                 flex: 1,
+                backgroundColor: '#00e5a0',
+                color: '#0d1117',
                 opacity: loading ? 0.5 : 1
               }}
             >
@@ -278,12 +276,14 @@ const StaffView = () => {
                   setEditingId(null);
                 }}
                 style={{
-                  padding: '12px 24px',
+                  padding: 'clamp(10px, 2.5vw, 12px) clamp(16px, 3vw, 24px)',
                   backgroundColor: 'transparent',
                   border: '1px solid #30363d',
-                  borderRadius: '8px',
+                  borderRadius: 'clamp(6px, 1.5vw, 8px)',
                   color: '#e6edf3',
-                  cursor: 'pointer'
+                  cursor: 'pointer',
+                  minHeight: '44px',
+                  width: '100%'
                 }}
               >
                 Cancel
@@ -294,41 +294,43 @@ const StaffView = () => {
       </div>
 
       <div style={styles.card as React.CSSProperties}>
-        <h3 style={{...styles.title as React.CSSProperties, fontSize: '20px'}}>
+        <h3 style={{...styles.title as React.CSSProperties, fontSize: 'clamp(16px, 2.5vw, 20px)'}}>
           Staff List ({staffList.length})
         </h3>
 
         {staffList.length === 0 ? (
-          <p style={{ color: '#8b949e', textAlign: 'center', padding: '32px 0' }}>
+          <p style={{ color: '#8b949e', textAlign: 'center', padding: 'clamp(16px, 3vw, 32px) 0', fontSize: 'clamp(14px, 2.5vw, 16px)' }}>
             No staff added yet
           </p>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(8px, 2vw, 12px)' }}>
             {staffList.map(staff => (
               <div key={staff.id} style={styles.listItem as React.CSSProperties}>
                 <div>
-                  <p style={{ color: '#e6edf3', fontWeight: '500', margin: 0 }}>
+                  <p style={{ color: '#e6edf3', fontWeight: '500', margin: 0, fontSize: 'clamp(13px, 2.5vw, 14px)' }}>
                     {staff.name}
                   </p>
-                  <p style={{ fontSize: '13px', color: '#8b949e', margin: '4px 0 0' }}>
+                  <p style={{ fontSize: 'clamp(11px, 2vw, 13px)', color: '#8b949e', margin: 'clamp(4px, 1vw, 6px) 0 0' }}>
                     {staff.role || 'No role'} • {staff.phone || 'No phone'}
                     {staff.rate ? ` • R${staff.rate}/hr` : ''}
                   </p>
                   {staff.notes && (
-                    <p style={{ fontSize: '12px', color: '#8b949e', margin: '8px 0 0' }}>
+                    <p style={{ fontSize: 'clamp(10px, 2vw, 12px)', color: '#8b949e', margin: 'clamp(6px, 1.5vw, 8px) 0 0' }}>
                       {staff.notes}
                     </p>
                   )}
                 </div>
-                <div style={{ display: 'flex', gap: '8px' }}>
+                <div style={{ display: 'flex', gap: 'clamp(6px, 1.5vw, 8px)' }}>
                   <button
                     onClick={() => handleEdit(staff)}
                     style={{
-                      padding: '8px',
+                      padding: 'clamp(6px, 1.5vw, 8px)',
                       backgroundColor: 'transparent',
                       border: 'none',
                       color: '#8b949e',
-                      cursor: 'pointer'
+                      cursor: 'pointer',
+                      minHeight: '44px',
+                      minWidth: '44px'
                     }}
                     title="Edit"
                   >
@@ -337,11 +339,13 @@ const StaffView = () => {
                   <button
                     onClick={() => handleDelete(staff.id)}
                     style={{
-                      padding: '8px',
+                      padding: 'clamp(6px, 1.5vw, 8px)',
                       backgroundColor: 'transparent',
                       border: 'none',
-                      color: '#8b949e',
-                      cursor: 'pointer'
+                      color: '#EF4444',
+                      cursor: 'pointer',
+                      minHeight: '44px',
+                      minWidth: '44px'
                     }}
                     title="Delete"
                   >

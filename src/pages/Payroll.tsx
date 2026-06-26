@@ -45,7 +45,6 @@ const Payroll: React.FC = () => {
   // Real-time staff sync from Firestore
   useEffect(() => {
     if (!db) {
-      // Fallback to local data
       fetchPayroll();
       return;
     }
@@ -120,7 +119,6 @@ const Payroll: React.FC = () => {
     setLoading(false);
   }, []);
 
-  // Filtered staff
   const filteredStaff = useMemo(() => {
     if (!payroll) return [];
     const q = searchQuery.toLowerCase().trim();
@@ -138,6 +136,7 @@ const Payroll: React.FC = () => {
     }).format(amount);
   };
 
+  // Mobile-responsive styles
   const styles: Record<string, React.CSSProperties> = {
     container: {
       display: 'flex',
@@ -146,11 +145,11 @@ const Payroll: React.FC = () => {
       width: '100%',
       maxWidth: '1000px',
       margin: '0 auto',
-      padding: '24px',
-      gap: '24px'
+      padding: 'clamp(12px, 3vw, 24px)',
+      gap: 'clamp(16px, 3vw, 24px)'
     },
     title: {
-      fontSize: '28px',
+      fontSize: 'clamp(24px, 4vw, 28px)',
       fontWeight: '600',
       color: '#e6edf3',
       letterSpacing: '-0.02em',
@@ -158,19 +157,19 @@ const Payroll: React.FC = () => {
     },
     summaryGrid: {
       display: 'grid',
-      gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-      gap: '16px',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+      gap: 'clamp(12px, 2.5vw, 16px)',
       width: '100%'
     },
     statCard: {
       backgroundColor: '#161b22',
       border: '1px solid #30363d',
-      borderRadius: '12px',
-      padding: '24px',
+      borderRadius: 'clamp(8px, 2vw, 12px)',
+      padding: 'clamp(16px, 3vw, 24px)',
       textAlign: 'center'
     },
     statValue: {
-      fontSize: '24px',
+      fontSize: 'clamp(18px, 3vw, 24px)',
       fontWeight: '600',
       color: '#e6edf3'
     },
@@ -178,37 +177,55 @@ const Payroll: React.FC = () => {
       width: '100%',
       backgroundColor: '#161b22',
       border: '1px solid #30363d',
-      borderRadius: '12px',
+      borderRadius: 'clamp(8px, 2vw, 12px)',
       overflow: 'hidden'
     },
     tableHeader: {
       display: 'grid',
       gridTemplateColumns: '2fr 1fr 1fr 1fr',
-      padding: '16px 24px',
+      padding: 'clamp(12px, 2.5vw, 16px) clamp(16px, 3vw, 24px)',
       backgroundColor: '#0d1117',
       borderBottom: '1px solid #30363d',
       fontWeight: '500',
-      fontSize: '13px',
+      fontSize: 'clamp(10px, 2vw, 13px)',
       textTransform: 'uppercase',
       letterSpacing: '0.06em',
       color: '#8b949e'
+    },
+    filterRow: {
+      display: 'flex',
+      gap: 'clamp(8px, 2vw, 12px)',
+      marginBottom: 'clamp(12px, 2.5vw, 16px)',
+      width: '100%',
+      flexWrap: 'wrap'
+    },
+    searchInput: {
+      flex: 1,
+      minWidth: '200px',
+      padding: 'clamp(8px, 2vw, 10px) clamp(12px, 3vw, 12px) clamp(8px, 2vw, 10px) clamp(36px, 5vw, 36px)',
+      backgroundColor: '#0d1117',
+      border: '1px solid #30363d',
+      borderRadius: 'clamp(6px, 1.5vw, 8px)',
+      color: '#e6edf3',
+      fontSize: 'clamp(14px, 2.5vw, 16px)',
+      outline: 'none'
     }
   };
 
   if (loading) {
     return (
       <div style={styles.container}>
-        <p style={{ color: '#8b949e' }}>Loading payroll...</p>
+        <p style={{ color: '#8b949e', fontSize: 'clamp(14px, 2.5vw, 16px)' }}>Loading payroll...</p>
       </div>
     );
   }
 
   return (
     <div style={styles.container}>
-      <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
         <div>
           <h1 style={styles.title}>Payroll Summary</h1>
-          <p style={{ color: '#8b949e', fontSize: '14px', marginTop: '8px' }}>
+          <p style={{ color: '#8b949e', fontSize: 'clamp(12px, 2.5vw, 14px)', marginTop: 'clamp(4px, 1vw, 8px)' }}>
             {payroll?.cycleStart} to {payroll?.cycleEnd}
           </p>
         </div>
@@ -219,13 +236,13 @@ const Payroll: React.FC = () => {
           <div style={{ ...styles.statValue, color: '#10B981' }}>
             {formatCurrency(payroll?.summary.totalEarnings || 0)}
           </div>
-          <div style={{ color: '#8b949e', fontSize: '12px', marginTop: '8px' }}>
+          <div style={{ color: '#8b949e', fontSize: 'clamp(10px, 2vw, 12px)', marginTop: 'clamp(4px, 1vw, 8px)' }}>
             Total Earnings
           </div>
         </div>
         <div style={styles.statCard}>
           <div style={styles.statValue}>{payroll?.summary.totalHours.toFixed(1)} hrs</div>
-          <div style={{ color: '#8b949e', fontSize: '12px', marginTop: '8px' }}>
+          <div style={{ color: '#8b949e', fontSize: 'clamp(10px, 2vw, 12px)', marginTop: 'clamp(4px, 1vw, 8px)' }}>
             Total Hours
           </div>
         </div>
@@ -233,31 +250,21 @@ const Payroll: React.FC = () => {
           <div style={{ ...styles.statValue, color: '#F59E0B' }}>
             {formatCurrency(payroll?.summary.pendingAmount || 0)}
           </div>
-          <div style={{ color: '#8b949e', fontSize: '12px', marginTop: '8px' }}>
+          <div style={{ color: '#8b949e', fontSize: 'clamp(10px, 2vw, 12px)', marginTop: 'clamp(4px, 1vw, 8px)' }}>
             Pending Payments
           </div>
         </div>
       </div>
 
-      <div style={{ width: '100%', display: 'flex', gap: '12px', marginBottom: '16px' }}>
-        <div style={{ position: 'relative', flex: 1 }}>
-          <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#8b949e' }} />
+      <div style={styles.filterRow}>
+        <div style={{ position: 'relative', flex: 1, minWidth: '200px' }}>
+          <Search size={16} style={{ position: 'absolute', left: 'clamp(10px, 2vw, 12px)', top: '50%', transform: 'translateY(-50%)', color: '#8b949e' }} />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search staff..."
-            style={{
-              width: '100%',
-              paddingLeft: '36px',
-              padding: '10px 12px',
-              backgroundColor: '#0d1117',
-              border: '1px solid #30363d',
-              borderRadius: '6px',
-              color: '#e6edf3',
-              fontSize: '14px',
-              outline: 'none'
-            }}
+            style={styles.searchInput}
           />
         </div>
 
@@ -265,14 +272,15 @@ const Payroll: React.FC = () => {
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
           style={{
-            padding: '10px 16px',
+            padding: 'clamp(8px, 2vw, 10px) clamp(12px, 3vw, 16px)',
             backgroundColor: '#0d1117',
             border: '1px solid #30363d',
-            borderRadius: '6px',
+            borderRadius: 'clamp(6px, 1.5vw, 8px)',
             color: '#e6edf3',
-            fontSize: '14px',
+            fontSize: 'clamp(13px, 2.5vw, 16px)',
             outline: 'none',
-            cursor: 'pointer'
+            cursor: 'pointer',
+            minHeight: '44px'
           }}
         >
           <option value="ALL">All Status</option>
@@ -283,7 +291,7 @@ const Payroll: React.FC = () => {
         </select>
       </div>
 
-      <div style={styles.table}>
+      <div style={styles.table} className="scroll-x">
         <div style={styles.tableHeader as React.CSSProperties}>
           <span>Name</span>
           <span>Hours</span>
@@ -291,7 +299,7 @@ const Payroll: React.FC = () => {
           <span>Status</span>
         </div>
         {filteredStaff.length === 0 ? (
-          <p style={{ color: '#8b949e', textAlign: 'center', padding: '48px' }}>
+          <p style={{ color: '#8b949e', textAlign: 'center', padding: 'clamp(24px, 5vw, 48px)', fontSize: 'clamp(14px, 2.5vw, 16px)' }}>
             No staff match your filters
           </p>
         ) : (
@@ -299,13 +307,13 @@ const Payroll: React.FC = () => {
             <div key={staff.staffId} style={{
               display: 'grid',
               gridTemplateColumns: '2fr 1fr 1fr 1fr',
-              padding: '16px 24px',
+              padding: 'clamp(12px, 2.5vw, 16px) clamp(16px, 3vw, 24px)',
               borderBottom: '1px solid #30363d',
-              fontSize: '14px'
+              fontSize: 'clamp(13px, 2.5vw, 14px)'
             }}>
               <div>
                 <div style={{ color: '#e6edf3', fontWeight: '500' }}>{staff.fullName}</div>
-                <div style={{ color: '#8b949e', fontSize: '12px' }}>{staff.role}</div>
+                <div style={{ color: '#8b949e', fontSize: 'clamp(11px, 2vw, 12px)' }}>{staff.role}</div>
               </div>
               <div style={{ color: '#e6edf3', alignSelf: 'center' }}>
                 {staff.totalHours.toFixed(1)} hrs
@@ -315,9 +323,9 @@ const Payroll: React.FC = () => {
               </div>
               <div style={{ alignSelf: 'center' }}>
                 <span style={{
-                  padding: '4px 12px',
+                  padding: 'clamp(4px, 1.5vw, 6px) clamp(8px, 2.5vw, 12px)',
                   borderRadius: '999px',
-                  fontSize: '12px',
+                  fontSize: 'clamp(10px, 2vw, 12px)',
                   textTransform: 'uppercase',
                   backgroundColor: 'rgba(239, 68, 68, 0.1)',
                   color: '#EF4444',
