@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, doc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, query, where, orderBy, enableIndexedDbPersistence } from 'firebase/firestore';
+import { getFirestore, collection, doc, getDocs, setDoc, onSnapshot, query, where, orderBy, enableIndexedDbPersistence } from 'firebase/firestore';
 import { firebaseConfig } from './firebaseConfig';
 
 const app = initializeApp(firebaseConfig);

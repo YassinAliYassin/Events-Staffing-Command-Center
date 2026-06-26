@@ -1,2874 +1,1633 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
+import { useState, useEffect, useCallback } from "react";
+import ClientsView from './components/ClientsView';
+import Dashboard from './components/Dashboard';
+import Payroll from './pages/Payroll';
+import StaffCard from './components/StaffCard';
+import { FPCCCore } from './services/fpcc-core';
+import ModelPanel from './components/ModelPanel';
+import * as dataStore from './services/dataStore';
 
-import React, { useState, useEffect, useMemo, lazy, Suspense, useRef } from 'react';
-import {
-  Calendar,
-  CalendarDays,
-  Users,
-  ChevronLeft,
-  ChevronRight,
-  Radio,
-  PhoneForwarded,
-  CheckCircle,
-  AlertCircle,
-} from 'lucide-react';
-import { Client, Venue, Staff, Event, EventTemplate, ActivityLog } from './types';
-import {
-  initAuth,
-  googleSignIn,
-  logoutGoogle,
-  getAccessToken
-} from './lib/firebase';
-import {
-  fetchGoogleCalendarEvents,
-  pushEventToGoogleCalendar,
-  updateEventInGoogleCalendar,
-  deleteEventFromGoogleCalendar,
-  GoogleCalendarEvent
-} from './lib/googleCalendar';
-import { INITIAL_CLIENTS, INITIAL_VENUES, INITIAL_STAFF, INITIAL_EVENTS } from './data/seedData';
+// ─── Constants & Seed ────────────────────────────────────────────────────────
+const INITIAL_STAFF = [
+  { id:1, name:"Amara Diallo",   role:"Bar Staff",   rate:40, pin:"1111", uniform:true,  department:"Bar",        email:"amara@freshpeople.co.za",   phone:"+27 71 001 0001" },
+  { id:2, name:"Themba Nkosi",   role:"Floor Staff", rate:40, pin:"2222", uniform:true,  department:"Floor",      email:"themba@freshpeople.co.za",   phone:"+27 71 001 0002" },
+  { id:3, name:"Priya Moodley",  role:"Supervisor",  rate:55, pin:"3333", uniform:false, department:"Management", email:"priya@freshpeople.co.za",    phone:"+27 71 001 0003" },
+  { id:4, name:"Lerato Khumalo", role:"Bar Staff",   rate:40, pin:"4444", uniform:true,  department:"Bar",        email:"lerato@freshpeople.co.za",   phone:"+27 71 001 0004" },
+  { id:5, name:"Sipho Dlamini",  role:"Security",    rate:45, pin:"5555", uniform:true,  department:"Security",   email:"sipho@freshpeople.co.za",    phone:"+27 71 001 0005" },
+  { id:6, name:"Naledi Tau",     role:"Floor Staff", rate:40, pin:"6666", uniform:false, department:"Floor",      email:"naledi@freshpeople.co.za",   phone:"+27 71 001 0006" },
+];
 
-import { OperationsSnapshot } from './components/OperationsSnapshot';
-import { EventCard } from './components/EventCard';
-import StaffTimeline from './components/StaffTimeline';
-import MasterRegistry from './components/MasterRegistry';
-import ActivityLogPanel from './components/ActivityLogPanel';
-import EventArchitect from './components/EventArchitect';
-import DispatchPanel from './components/DispatchPanel';
-import PayrollCalendar from './components/PayrollCalendar';
-import RegistrationModals from './components/RegistrationModals';
-import RoleUtilizationChart from './components/RoleUtilizationChart';
-import DialogsModals from './components/DialogsModals';
-import StaffAvailabilityPanel from './components/StaffAvailabilityPanel';
-import ExportToolbar from './components/ExportToolbar';
-import AuthGateway from './components/AuthGateway';
-import AppHeader from './components/AppHeader';
-import ToastNotifications from './components/ToastNotifications';
-import StaffingAlertsPanel from './components/StaffingAlertsPanel';
-import StaffPerformancePanel from './components/StaffPerformancePanel';
-import RecurringEventManager from './components/RecurringEventManager';
+const today   = new Date();
+const ymd     = (d) => d.toISOString().slice(0,10);
+const addDays = (d,n) => { const x=new Date(d); x.setDate(x.getDate()+n); return x; };
 
-const RoleChart = lazy(() => import('./components/RoleChart'));
-const StaffShiftCalendar = lazy(() => import('./components/StaffShiftCalendar'));
+const INITIAL_EVENTS = [
+  { id:1, title:"Sandton Jazz Festival",    date:ymd(addDays(today,2)),  venue:"Sandton Convention Centre", staffIds:[1,2,5],   startTime:"17:00", endTime:"23:00", clientId:1, color:"#00e5a0", gcalId:null, notes:"Smart dress code. Parking in basement." },
+  { id:2, title:"Corporate Gala — MTN",     date:ymd(addDays(today,5)),  venue:"Hyatt Regency JHB",         staffIds:[3,4,6],   startTime:"18:00", endTime:"22:00", clientId:2, color:"#7c6af7", gcalId:null, notes:"Formal. Client contact: Busi Ndlovu 082 555 0011." },
+  { id:3, title:"Wedding: Khumalo/Singh",   date:ymd(addDays(today,8)),  venue:"Zimbali Estate",            staffIds:[1,2,3,4], startTime:"12:00", endTime:"20:00", clientId:3, color:"#f78c6c", gcalId:null, notes:"Outdoor. Bring own water." },
+  { id:4, title:"Year-End Drinks — Deloitte",date:ymd(addDays(today,-3)),venue:"Workshop17 Rosebank",       staffIds:[2,5,6],   startTime:"16:00", endTime:"21:00", clientId:2, color:"#7c6af7", gcalId:null, notes:"" },
+];
 
-// Safe self-healing global localStorage wrapper to prevent QuotaExceededError crashes
-try {
-  const originalSetItem = localStorage.setItem;
-  localStorage.setItem = function(key: string, value: string) {
-    try {
-      originalSetItem.call(localStorage, key, value);
-    } catch (e: any) {
-      console.warn(`Local storage quota warning for key "${key}":`, e);
-      if (
-        e.name === 'QuotaExceededError' ||
-        e.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
-        e.code === 22 ||
-        e.code === 1014
-      ) {
-        try {
-          // Dynamic self-cleaning: purge large log buffers & calendar cache feeds to free space
-          localStorage.removeItem('fp_logs');
-          localStorage.removeItem('fp_apple_events');
-          // Retry the target storage injection
-          originalSetItem.call(localStorage, key, value);
-        } catch (retryError) {
-          console.error('Local storage completely exhausted. Write safely bypassed:', retryError);
-        }
-      }
-    }
-  };
-} catch (globalErr) {
-  console.warn('Unable to globally secure local storage writes:', globalErr);
-}
+const INITIAL_CLIENTS = [
+  { id:1, name:"Sandton Events Co",  email:"ops@sandtonevents.co.za",  vatNo:"4130265178", address:"14 Maude St, Sandton, 2196",   phone:"+27 11 555 0100", hourlyRate:90 },
+  { id:2, name:"MTN Group Ltd",      email:"procurement@mtn.com",      vatNo:"4000109388", address:"216 14th Ave, Fairland, 2195", phone:"+27 11 912 3000", hourlyRate:120 },
+  { id:3, name:"Priya & Dev Khumalo",email:"priya.khumalo@gmail.com",  vatNo:"",           address:"Private, KwaZulu-Natal",       phone:"+27 82 333 0001", hourlyRate:95 },
+];
 
-// Hardcoded security credentials as specified
-const OPERATOR_CREDENTIALS = {
-  username: 'yassin',
-  password: 'FreshPeople2026!'
+const INITIAL_INVOICES = [
+  { id:1, docNo:"FP-INV-2025-001", type:"invoice", clientId:2, eventId:4, issueDate:ymd(addDays(today,-2)), dueDate:ymd(addDays(today,28)), status:"sent",
+    lines:[{desc:"Floor Staff × 3 (5h)",qty:15,rate:13.0},{desc:"Supervision fee",qty:1,rate:500}], notes:"Thank you for your business." },
+];
+
+const INITIAL_QUOTES = [
+  { id:1, docNo:"FP-QTE-2025-001", clientId:1, eventId:1, issueDate:ymd(today), validUntil:ymd(addDays(today,30)), status:"draft",
+    lines:[{desc:"Bar Staff × 3 (6h)",qty:18,rate:14.5},{desc:"Security × 2 (6h)",qty:12,rate:15.5},{desc:"Setup & breakdown fee",qty:1,rate:800}], notes:"Valid for 30 days from issue date." },
+];
+
+// ─── Design tokens ────────────────────────────────────────────────────────────
+const A="\#00e5a0",BG="\#0d1117",SF="\#161b22",SF2="\#1c2330",BD="\#30363d",
+      TX="\#e6edf3",MU="\#7d8590",RD="\#f85149",AM="\#e3b341",PU="\#7c6af7",CO="\#f78c6c";
+
+const ACCENT=A, SURFACE=SF, SURFACE2=SF2, BORDER=BD, TEXT=TX, MUTED=MU, RED=RD, AMBER=AM, PURPLE=PU, CORAL=CO;
+
+const STATUS_COLOR = {
+  draft:MUTED, sent:AMBER, paid:ACCENT, overdue:RED, accepted:ACCENT, declined:RED, expired:MUTED,
+  pending:AMBER, confirmed:ACCENT, cancelled:RED,
 };
 
-// Safe self-healing global localStorage wrapper to prevent QuotaExceededError crashes
-try {
-  const originalSetItem = localStorage.setItem;
-  localStorage.setItem = function(key: string, value: string) {
-    try {
-      originalSetItem.call(localStorage, key, value);
-    } catch (e: any) {
-      console.warn(`Local storage quota warning for key "${key}":`, e);
-      if (
-        e.name === 'QuotaExceededError' ||
-        e.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
-        e.code === 22 ||
-        e.code === 1014
-      ) {
-        try {
-          // Dynamic self-cleaning: purge large log buffers & calendar cache feeds to free space
-          localStorage.removeItem('fp_logs');
-          localStorage.removeItem('fp_apple_events');
-          // Retry the target storage injection
-          originalSetItem.call(localStorage, key, value);
-        } catch (retryError) {
-          console.error('Local storage completely exhausted. Write safely bypassed:', retryError);
-        }
-      }
-    }
-  };
-} catch (globalErr) {
-  console.warn('Unable to globally secure local storage writes:', globalErr);
-}
-
-const getDurationHours = (start: string, end: string): number => {
-  try {
-    const [sH, sM] = start.split(':').map(Number);
-    const [eH, eM] = end.split(':').map(Number);
-    let diffMin = (eH * 60 + eM) - (sH * 60 + sM);
-    if (diffMin < 0) diffMin += 24 * 60; // handle midnight rollover
-    return diffMin / 60;
-  } catch {
-    return 0;
+const css = `
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Outfit:wght@300;400;500;600;700&display=swap');
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:${BG};color:${TEXT};font-family:'Outfit',sans-serif;min-height:100vh}
+  ::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:${BORDER};border-radius:3px}
+  input,select,textarea{background:${SURFACE2};color:${TEXT};border:1px solid ${BORDER};border-radius:8px;padding:8px 12px;font-family:inherit;font-size:14px;outline:none;transition:border 0.15s}
+  input:focus,select:focus,textarea:focus{border-color:${ACCENT}}
+  textarea{resize:vertical}
+  button{cursor:pointer;font-family:inherit}
+  .mono{font-family:'DM Mono',monospace}
+  @media print{
+    .no-print{display:none!important}
+    body{background:#fff!important;color:#111!important}
+    .print-doc{background:#fff!important;color:#111!important;border:none!important}
   }
+`;
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+const pad2    = n => String(n).padStart(2,"0");
+const fmtTime = ts => { if(!ts) return "—"; const d=new Date(ts); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
+const fmtDur  = ms => { if(!ms||ms<0) return "—"; return `${Math.floor(ms/3600000)}h ${pad2(Math.floor((ms%3600000)/60000))}m`; };
+const calcPay = (ms,r) => (!ms||ms<0)?0:(ms/3600000)*r;
+const MONTHS  = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const WDAYS   = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+const fmtDate = s => { if(!s) return "—"; const d=new Date(s+"T00:00:00"); return `${d.getDate()} ${MONTHS[d.getMonth()].slice(0,3)} ${d.getFullYear()}`; };
+const eventHours = ev => { 
+  const [sh,sm]=ev.startTime.split(":").map(Number),
+        [eh,em]=ev.endTime.split(":").map(Number); 
+  let minutes = eh*60+em-sh*60-sm;
+  if(minutes < 0) minutes += 24*60; // Overnight event
+  return minutes/60; 
 };
 
-const getEventDates = (dateStr: string, startTime: string, endTime: string) => {
-  try {
-    const start = new Date(`${dateStr}T${startTime}:00`);
-    let end = new Date(`${dateStr}T${endTime}:00`);
-    if (end < start) {
-      end.setDate(end.getDate() + 1);
-    }
-    return { start, end };
-  } catch {
-    return { start: new Date(), end: new Date() };
-  }
-};
+function docSubtotal(lines) { return lines.reduce((a,l)=>a+Number(l.qty)*Number(l.rate),0); }
+function nextDocNo(arr, prefix) { return `${prefix}-${new Date().getFullYear()}-${String(arr.length+1).padStart(3,"0")}`; }
 
-const ensureUniqueLogIds = (logs: any[]): any[] => {
-  if (!Array.isArray(logs)) return [];
-  const seen = new Set<string>();
-  return logs.map((log, index) => {
-    let cleanId = log?.id;
-    if (!cleanId || seen.has(cleanId)) {
-      cleanId = `${cleanId || 'log'}-${index}-${Math.random().toString(36).substring(2, 7)}`;
-    }
-    seen.add(cleanId);
-    return { ...log, id: cleanId };
-  }).filter(Boolean);
-};
-
-export default function App() {
-  // Security Veil authentication states
-  const [operatorId, setOperatorId] = useState('');
-  const [securityPhrase, setSecurityPhrase] = useState('');
-  const [isUnlocked, setIsUnlocked] = useState(() => {
-    const unlocked = sessionStorage.getItem('fresh_people_unlocked') === 'true' || localStorage.getItem('fresh_people_unlocked') === 'true';
-    const loginTime = localStorage.getItem('fresh_people_login_time');
-    if (unlocked && loginTime) {
-      const elapsed = Date.now() - parseInt(loginTime, 10);
-      const SESSION_LIMIT = 4 * 60 * 60 * 1000; // 4 Hours Session Expiry
-      if (elapsed < SESSION_LIMIT) {
-        return true;
-      } else {
-        localStorage.removeItem('fresh_people_unlocked');
-        localStorage.removeItem('fresh_people_login_time');
-        sessionStorage.removeItem('fresh_people_unlocked');
-        return false;
-      }
-    }
-    return false;
-  });
-  const [authError, setAuthError] = useState(false);
-
-  // Advanced Password Recovery Toggle States
-  const [isForgotPasswordMode, setIsForgotPasswordMode] = useState(false);
-  const [forgotEmail, setForgotEmail] = useState('');
-  const [forgotOperatorId, setForgotOperatorId] = useState('');
-  const [resetSuccessMessage, setResetSuccessMessage] = useState<string | null>(null);
-
-  // Session timer countdown display string
-  const [sessionTimeLeft, setSessionTimeLeft] = useState('4h 00m 00s');
-
-  // Direct Booking manual section check
-  const [isDirectBookingChecked, setIsDirectBookingChecked] = useState(false);
-
-  // WhatsApp active tracking dispatch items
-  const [dispatchClientDate, setDispatchClientDate] = useState('');
-  const [dispatchAdjustedTime, setDispatchAdjustedTime] = useState('');
-  const [dispatchArrangements, setDispatchArrangements] = useState('');
-
-  // Entities states (Clients, Venues, Staff, Events)
-  const [clients, setClients] = useState<Client[]>([]);
-  const [venues, setVenues] = useState<Venue[]>([]);
-  const [staff, setStaff] = useState<Staff[]>([]);
-  const [events, setEventsState] = useState<Event[]>([]);
-  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
-
-  // Undo/Redo History System (must be declared before setEvents for tracking)
-  const [undoStack, setUndoStack] = useState<Event[][]>([]);
-  const [redoStack, setRedoStack] = useState<Event[][]>([]);
-  const [undoToast, setUndoToast] = useState<string | null>(null);
-  const isUndoRedoAction = useRef(false);
-  const MAX_UNDO_HISTORY = 50;
-
-  // Active Tab for Registry List Left Panel
-  const [activeTab, setActiveTab ] = useState<'clients' | 'venues' | 'staff'>('clients');
-  // roleViewTab moved to RoleUtilizationChart component
-  const [balanceFilter, setBalanceFilter] = useState<'all' | 'payroll'>('all');
-
-  // Operational Calendar display Month/Year
-  const [currentYear, setCurrentYear] = useState(2026);
-  const [currentMonth, setCurrentMonth] = useState(4); // May (0-indexed: May=4)
-  const [selectedDateStr, setSelectedDateStr] = useState<string>('2026-05-28');
-
-  // Google Calendar Integration states
-  const [googleUser, setGoogleUser] = useState<any | null>(null);
-  const [googleEvents, setGoogleEvents] = useState<GoogleCalendarEvent[]>([]);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [syncStatusMsg, setSyncStatusMsg] = useState('');
-  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
-  const [isSilentSyncing, setIsSilentSyncing] = useState(false);
-  const [autoSyncEnabled, setAutoSyncEnabled] = useState<boolean>(() => {
-    const raw = localStorage.getItem('fp_autosync_enabled');
-    return raw ? raw === 'true' : true;
-  });
-
-  // Apple Calendar & Apple ID state parameters
-  const [appleUser, setAppleUser] = useState<any | null>(() => {
-    const raw = localStorage.getItem('fp_apple_user');
-    if (raw) return JSON.parse(raw);
-    const defaultAppleUser = { email: 'realyassinali@gmail.com' };
-    localStorage.setItem('fp_apple_user', JSON.stringify(defaultAppleUser));
-    return defaultAppleUser;
-  });
-  const [isLinkingApple, setIsLinkingApple] = useState(false);
-
-  // Premium in-app alert toast to prevent native alert popup crashes in sandboxed iframes
-  const [toastAlert, setToastAlert] = useState<{ message: string; type: 'info' | 'success' | 'warn' | 'error' } | null>(null);
-
-  const showToast = (message: string, type: 'info' | 'success' | 'warn' | 'error' = 'info') => {
-    setToastAlert({ message, type });
-  };
-
-  useEffect(() => {
-    if (toastAlert) {
-      const timer = setTimeout(() => {
-        setToastAlert(null);
-      }, 7000);
-      return () => clearTimeout(timer);
-    }
-  }, [toastAlert]);
-  const [appleEmailInput, setAppleEmailInput] = useState('');
-  const [applePasswordInput, setApplePasswordInput] = useState('');
-  const [appleFeedUrl, setAppleFeedUrl] = useState<string>(() => {
-    const stored = localStorage.getItem('fp_apple_feed_url');
-    if (stored) return stored;
-    const defaultUrl = 'https://p56-caldav.icloud.com/published/2/MjA3NTMxODM0NzYyMDc1M_MJWBML9PYYcak11gdiRE00jIWbogtgWyD9NtdzTpGoU6oXGhtZYzSDjGnia66w7NxkexZbSwm_tUVl14qv7-g';
-    localStorage.setItem('fp_apple_feed_url', defaultUrl);
-    return defaultUrl;
-  });
-  const [isAppleAuthModalOpen, setIsAppleAuthModalOpen] = useState(false);
-  const [isAppleSimulatorVisible, setIsAppleSimulatorVisible] = useState(true);
-  const [simNewTitle, setSimNewTitle] = useState('');
-  const [simNewDate, setSimNewDate] = useState('2026-05-28');
-  const [simNewTimeStart, setSimNewTimeStart] = useState('12:00');
-  const [simNewTimeEnd, setSimNewTimeEnd] = useState('14:00');
-  const [simNewNotes, setSimNewNotes] = useState('');
-  const [appleEvents, setAppleEvents] = useState<Event[]>(() => {
-    const raw = localStorage.getItem('fp_apple_events');
-    if (raw && raw.includes('RMA Khw breakfast')) return JSON.parse(raw);
-    
-    // Seed real primary-world iCloud / Apple Calendar events customized for @realyassinali
-    const seed: Event[] = [
-      {
-        id: 'apple-live-1',
-        title: 'iCloud: RMA Khw breakfast',
-        clientId: 'client-rma',
-        venueId: 'venue-rma',
-        date: '2026-05-25',
-        startTime: '08:00',
-        endTime: '15:00',
-        staffIds: [],
-        notes: 'Synchronized from Apple Calendar feed at location: RMA.',
-        status: 'Confirmed'
-      },
-      {
-        id: 'apple-live-2',
-        title: 'iCloud: Motseng breakfast and lunch',
-        clientId: 'client-motseng',
-        venueId: 'venue-motseng',
-        date: '2026-05-25',
-        startTime: '08:00',
-        endTime: '14:30',
-        staffIds: [],
-        notes: 'Synchronized from Apple Calendar feed at location: Motseng.',
-        status: 'Confirmed'
-      },
-      {
-        id: 'apple-live-3',
-        title: 'iCloud: RMA Dolly/Mali',
-        clientId: 'client-rma',
-        venueId: 'venue-rma',
-        date: '2026-05-26',
-        startTime: '08:00',
-        endTime: '15:00',
-        staffIds: [],
-        notes: 'Synchronized from Apple Calendar feed at location: RMA.',
-        status: 'Confirmed'
-      },
-      {
-        id: 'apple-live-4',
-        title: 'iCloud: ETV',
-        clientId: 'client-etv',
-        venueId: 'venue-etv',
-        date: '2026-05-28',
-        startTime: '08:00',
-        endTime: '09:00',
-        staffIds: [],
-        notes: 'Synchronized from Apple Calendar feed.',
-        status: 'Confirmed'
-      },
-      {
-        id: 'apple-live-5',
-        title: 'iCloud: Sanofi ICDT & World Asthma Day',
-        clientId: 'client-sanofi',
-        venueId: 'venue-sanofi',
-        date: '2026-05-28',
-        startTime: '10:00',
-        endTime: '15:00',
-        staffIds: [],
-        notes: 'Synchronized from Apple Calendar feed at location: Sanofi.',
-        status: 'Confirmed'
-      },
-      {
-        id: 'apple-live-6',
-        title: 'iCloud: MAST Fre Minds eve',
-        clientId: 'client-mast',
-        venueId: 'venue-tbc',
-        date: '2026-05-29',
-        startTime: '08:00',
-        endTime: '16:00',
-        staffIds: [],
-        notes: 'Synchronized from Apple Calendar feed at location: TBC.',
-        status: 'Confirmed'
-      },
-      {
-        id: 'apple-live-7',
-        title: 'iCloud: ETV',
-        clientId: 'client-etv',
-        venueId: 'venue-etv',
-        date: '2026-05-29',
-        startTime: '08:00',
-        endTime: '09:00',
-        staffIds: [],
-        notes: 'Synchronized from Apple Calendar feed.',
-        status: 'Confirmed'
-      },
-      {
-        id: 'apple-live-8',
-        title: 'iCloud: Omphile Letshwiti Lunch',
-        clientId: 'client-omphile',
-        venueId: 'venue-tbc',
-        date: '2026-05-30',
-        startTime: '11:30',
-        endTime: '13:30',
-        staffIds: [],
-        notes: 'Synchronized from Apple Calendar feed.',
-        status: 'Confirmed'
-      }
-    ];
-    localStorage.setItem('fp_apple_events', JSON.stringify(seed));
-    return seed;
-  });
-
-  const syncToolToAppleCalendar = (updatedEvents: Event[]) => {
-    const rawApple = localStorage.getItem('fp_apple_events');
-    let currentApple: Event[] = rawApple ? JSON.parse(rawApple) : [];
-
-    updatedEvents.forEach(toolEv => {
-      const matchIdx = currentApple.findIndex(aEv => aEv.id === toolEv.appleEventId || aEv.appleEventId === toolEv.id || aEv.id === toolEv.id);
-      if (matchIdx !== -1) {
-        currentApple[matchIdx] = {
-          ...currentApple[matchIdx],
-          title: toolEv.title,
-          date: toolEv.date,
-          startTime: toolEv.startTime,
-          endTime: toolEv.endTime,
-          notes: toolEv.notes,
-          clientRequirements: toolEv.clientRequirements,
-          status: toolEv.status,
-          staffIds: toolEv.staffIds,
-          staffRSVPs: toolEv.staffRSVPs
-        };
-      } else {
-        const newAppleEv: Event = {
-          ...toolEv,
-          id: toolEv.appleEventId || `apple-sync-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-          appleEventId: toolEv.id
-        };
-        currentApple.push(newAppleEv);
-      }
-    });
-
-    currentApple = currentApple.filter(aEv => {
-      if (aEv.appleEventId) {
-        return updatedEvents.some(toolEv => toolEv.id === aEv.appleEventId);
-      }
-      return true;
-    });
-
-    setAppleEvents(currentApple);
-    localStorage.setItem('fp_apple_events', JSON.stringify(currentApple));
-  };
-
-  const getMatchedClientAndVenue = (title: string, currentClientId?: string, currentVenueId?: string) => {
-    if (currentClientId && clients.some(c => c.id === currentClientId)) {
-      const vId = currentVenueId && venues.some(v => v.id === currentVenueId) ? currentVenueId : 'venue-1';
-      return { clientId: currentClientId, venueId: vId };
-    }
-
-    const combined = title.toLowerCase();
-    let cId = 'client-1';
-    let vId = 'venue-1';
-
-    if (combined.includes('rma')) {
-      cId = 'client-rma';
-      vId = 'venue-rma';
-    } else if (combined.includes('motseng')) {
-      cId = 'client-motseng';
-      vId = 'venue-motseng';
-    } else if (combined.includes('etv')) {
-      cId = 'client-etv';
-      vId = 'venue-etv';
-    } else if (combined.includes('sanofi')) {
-      cId = 'client-sanofi';
-      vId = 'venue-sanofi';
-    } else if (combined.includes('mast')) {
-      cId = 'client-mast';
-      vId = 'venue-tbc';
-    } else if (combined.includes('omphile') || combined.includes('letshwiti')) {
-      cId = 'client-omphile';
-      vId = 'venue-tbc';
-    } else {
-      const matchedC = clients.find(c => combined.includes(c.name.toLowerCase()));
-      if (matchedC) {
-        cId = matchedC.id;
-        const matchedV = venues.find(v => combined.includes(v.name.toLowerCase()));
-        if (matchedV) vId = matchedV.id;
-      }
-    }
-
-    return { clientId: cId, venueId: vId };
-  };
-
-  const syncAppleToToolCalendar = (updatedAppleEvents: Event[]) => {
-    let toolEvents = [...events];
-    let changed = false;
-
-    updatedAppleEvents.forEach(appleEv => {
-      const matchIdx = toolEvents.findIndex(e => e.id === appleEv.appleEventId || e.appleEventId === appleEv.id || e.id === appleEv.id);
-      if (matchIdx !== -1) {
-        const toolEv = toolEvents[matchIdx];
-        const matched = getMatchedClientAndVenue(appleEv.title, appleEv.clientId, appleEv.venueId);
-        if (
-          toolEv.title !== appleEv.title ||
-          toolEv.date !== appleEv.date ||
-          toolEv.startTime !== appleEv.startTime ||
-          toolEv.endTime !== appleEv.endTime ||
-          toolEv.notes !== appleEv.notes ||
-          toolEv.clientRequirements !== appleEv.clientRequirements ||
-          toolEv.status !== appleEv.status ||
-          toolEv.clientId !== matched.clientId ||
-          toolEv.venueId !== matched.venueId
-        ) {
-          toolEvents[matchIdx] = {
-            ...toolEvents[matchIdx],
-            title: appleEv.title,
-            clientId: matched.clientId,
-            venueId: matched.venueId,
-            date: appleEv.date,
-            startTime: appleEv.startTime,
-            endTime: appleEv.endTime,
-            notes: appleEv.notes || toolEv.notes,
-            clientRequirements: appleEv.clientRequirements || toolEv.clientRequirements,
-            status: appleEv.status || toolEv.status,
-            appleEventId: appleEv.id
-          };
-          changed = true;
-          addActivityLog('sync', `iCloud Auto-Sync: Reflected updates from Apple Calendar for "${appleEv.title}".`);
-        }
-      } else {
-        const matched = getMatchedClientAndVenue(appleEv.title, appleEv.clientId, appleEv.venueId);
-        const importedLocal: Event = {
-          id: `event-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-          title: appleEv.title,
-          clientId: matched.clientId,
-          venueId: matched.venueId,
-          date: appleEv.date,
-          startTime: appleEv.startTime,
-          endTime: appleEv.endTime,
-          staffIds: appleEv.staffIds || [],
-          notes: appleEv.notes || 'Created directly via iCloud Linked Calendar App.',
-          clientRequirements: appleEv.clientRequirements || '',
-          status: appleEv.status || 'Confirmed',
-          appleEventId: appleEv.id,
-          staffRSVPs: appleEv.staffRSVPs || {}
-        };
-        toolEvents.unshift(importedLocal);
-        changed = true;
-        addActivityLog('sync', `iCloud Auto-Sync: Synchronized new event "${appleEv.title}" from Apple Calendar.`);
-      }
-    });
-
-    const initialLen = toolEvents.length;
-    toolEvents = toolEvents.filter(toolEv => {
-      if (toolEv.appleEventId) {
-        const stillInApple = updatedAppleEvents.some(aEv => aEv.id === toolEv.appleEventId);
-        if (!stillInApple) {
-          changed = true;
-          addActivityLog('sync', `iCloud Auto-Sync: Decoupled & removed event "${toolEv.title}" matching changes from Apple Calendar.`);
-          return false;
-        }
-      }
-      return true;
-    });
-
-    if (changed || toolEvents.length !== initialLen) {
-      setEvents(toolEvents);
-      localStorage.setItem('fp_events', JSON.stringify(toolEvents));
-    }
-  };
-
-  const setEvents = (val: Event[] | ((prev: Event[]) => Event[])) => {
-    setEventsState((prev) => {
-      const resolved = typeof val === 'function' ? val(prev) : val;
-
-      // Track undo history (skip during undo/redo to prevent loops)
-      if (!isUndoRedoAction.current && resolved !== prev) {
-        setUndoStack(u => {
-          const newStack = [...u, prev];
-          return newStack.length > MAX_UNDO_HISTORY ? newStack.slice(-MAX_UNDO_HISTORY) : newStack;
-        });
-        setRedoStack([]);
-      }
-
-      const rawApple = localStorage.getItem('fp_apple_events');
-      let currentApple: Event[] = rawApple ? JSON.parse(rawApple) : [];
-
-      resolved.forEach(toolEv => {
-        const matchIdx = currentApple.findIndex(aEv => aEv.id === toolEv.appleEventId || aEv.appleEventId === toolEv.id || aEv.id === toolEv.id);
-        if (matchIdx !== -1) {
-          currentApple[matchIdx] = {
-            ...currentApple[matchIdx],
-            title: toolEv.title,
-            date: toolEv.date,
-            startTime: toolEv.startTime,
-            endTime: toolEv.endTime,
-            notes: toolEv.notes,
-            clientRequirements: toolEv.clientRequirements,
-            status: toolEv.status,
-            staffIds: toolEv.staffIds,
-            staffRSVPs: toolEv.staffRSVPs
-          };
-        } else {
-          const newAppleEv: Event = {
-            ...toolEv,
-            id: toolEv.appleEventId || `apple-sync-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-            appleEventId: toolEv.id
-          };
-          currentApple.push(newAppleEv);
-        }
-      });
-
-      currentApple = currentApple.filter(aEv => {
-        if (aEv.appleEventId) {
-          return resolved.some(toolEv => toolEv.id === aEv.appleEventId);
-        }
-        return true;
-      });
-
-      localStorage.setItem('fp_apple_events', JSON.stringify(currentApple));
-
-      setTimeout(() => {
-        setAppleEvents(currentApple);
-      }, 0);
-
-      return resolved;
-    });
-  };
-
-  const undo = () => {
-    if (undoStack.length === 0) return;
-    const prev = undoStack[undoStack.length - 1];
-    setUndoStack(s => s.slice(0, -1));
-    setRedoStack(s => {
-      const current = events;
-      return [...s, current];
-    });
-    isUndoRedoAction.current = true;
-    setEventsState(prev);
-    setUndoToast('Action undone');
-    addActivityLog('event_create', `↪ Undone — events restored to previous state`);
-    setTimeout(() => setUndoToast(null), 2500);
-  };
-
-  const redo = () => {
-    if (redoStack.length === 0) return;
-    const next = redoStack[redoStack.length - 1];
-    setRedoStack(s => s.slice(0, -1));
-    setUndoStack(u => {
-      const current = events;
-      const newStack = [...u, current];
-      return newStack.length > MAX_UNDO_HISTORY ? newStack.slice(-MAX_UNDO_HISTORY) : newStack;
-    });
-    isUndoRedoAction.current = true;
-    setEventsState(next);
-    setUndoToast('Action redone');
-    addActivityLog('event_create', `↩ Redone — events restored`);
-    setTimeout(() => setUndoToast(null), 2500);
-  };
-
-  const handleAddAppleSimulatorEvent = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!simNewTitle) return;
-
-    const newAppleEvId = `apple-sim-${Date.now()}`;
-    const matched = getMatchedClientAndVenue(simNewTitle);
-    const newAppleEv: Event = {
-      id: newAppleEvId,
-      title: `iCloud: ${simNewTitle}`,
-      clientId: matched.clientId,
-      venueId: matched.venueId,
-      date: simNewDate,
-      startTime: simNewTimeStart,
-      endTime: simNewTimeEnd,
-      staffIds: [],
-      notes: simNewNotes || 'Entered via iPhone Simulator interface.',
-      status: 'Confirmed'
-    };
-
-    const updated = [newAppleEv, ...appleEvents];
-    setAppleEvents(updated);
-    localStorage.setItem('fp_apple_events', JSON.stringify(updated));
-
-    syncAppleToToolCalendar(updated);
-
-    setSimNewTitle('');
-    setSimNewNotes('');
-    addActivityLog('sync', `iCloud Simulator: Saved and synced new Apple Calendar event: "${newAppleEv.title}".`);
-  };
-
-  const handleDeleteAppleSimulatorEvent = (id: string, title: string) => {
-    const nextList = appleEvents.filter(ev => ev.id !== id);
-    setAppleEvents(nextList);
-    localStorage.setItem('fp_apple_events', JSON.stringify(nextList));
-
-    syncAppleToToolCalendar(nextList);
-    addActivityLog('sync', `iCloud Simulator: Cancelled and deleted Apple Calendar event: "${title}".`);
-  };
-
-  // Call Logger inputs
-  const [callCaller, setCallCaller] = useState('');
-  const [callType, setCallType] = useState<'call' | 'booking' | 'staff_confirm'>('call');
-  const [callSummary, setCallSummary] = useState('');
-  const [callUrgent, setCallUrgent] = useState(false);
-
-  // Ingestion Modal Trigger state
-  const [activeModal, setActiveModal] = useState<'client' | 'venue' | 'staff' | null>(null);
-
-  // Entity creation inputs
-  const [newClient, setNewClient] = useState({ name: '', contact: '', email: '', phone: '', notes: '' });
-  const [newVenue, setNewVenue] = useState({ name: '', address: '', capacity: 200, tier: 'Luxury Class', notes: '' });
-  const [newStaff, setNewStaff] = useState({ name: '', surname: '', role: 'Lead VIP Architect', rate: 45, phone: '', email: '', notes: '' });
-
-  // Event Scheduler inputs
-  const [evTitle, setEvTitle] = useState('');
-  const [evClient, setEvClient] = useState('');
-  const [evVenue, setEvVenue] = useState('');
-  const [evDate, setEvDate] = useState('2026-05-28');
-  const [evTimeStart, setEvTimeStart] = useState('18:00');
-  const [evTimeEnd, setEvTimeEnd] = useState('22:00');
-  const [evNotes, setEvNotes] = useState('');
-  const [evClientRequirements, setEvClientRequirements] = useState('');
-  const [evSelectedStaffIds, setEvSelectedStaffIds] = useState<string[]>([]);
-  const [evStatus, setEvStatus] = useState<'Pending' | 'Confirmed' | 'Canceled'>('Pending');
-  const [recurrence, setRecurrence] = useState<'none' | 'weekly' | 'biweekly' | 'monthly'>('none');
-  const [recurrenceEnd, setRecurrenceEnd] = useState('');
-
-  // Edit mode state
-  const [editingEventId, setEditingEventId] = useState<string | null>(null);
-
-  // Dispatch details
-  const [selectedDispatchEventId, setSelectedDispatchEventId] = useState('');
-  const [dispatchTemplate, setDispatchTemplate] = useState(
-    'Hi {StaffName} hope you are well. Are you available on {Date} from {In} to {Out} with Fresh People mapping? Click links to reply: Confirm: {ConfirmLink} | Reject: {RejectLink}'
+// ─── Shared UI ────────────────────────────────────────────────────────────────
+function Dot({on,color}){return <span style={{display:"inline-block",width:8,height:8,borderRadius:"50%",background:on?(color||ACCENT):MUTED,boxShadow:on?`0 0 6px ${color||ACCENT}`:"none",flexShrink:0}}/>;}
+function Badge({color,children}){return <span style={{display:"inline-block",padding:"2px 8px",borderRadius:4,fontSize:11,fontWeight:500,background:color+"22",color,border:`1px solid ${color}44`}}>{children}</span>;}
+function Stat({label,value,accent,sub}:{label:string;value:any;accent?:string;sub?:string}){
+  return(
+    <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:10,padding:"14px 18px"}}>
+      <div style={{fontSize:11,color:MUTED,marginBottom:6}}>{label}</div>
+      <div style={{fontSize:22,fontWeight:600,color:accent||TEXT,fontFamily:"'DM Mono',monospace"}}>{value}</div>
+      {sub && <div style={{fontSize:10,color:MUTED,marginTop:4}}>{sub}</div>}
+    </div>
   );
+}
+function Btn({children,onClick,variant="ghost",style={},disabled=false}){
+  const base={border:"none",borderRadius:8,padding:"8px 16px",fontSize:13,fontWeight:500,transition:"all 0.15s",opacity:disabled?0.45:1,...style};
+  const v={primary:{background:ACCENT,color:"#000"},danger:{background:RED+"22",color:RED,border:`1px solid ${RED}44`},
+           ghost:{background:SURFACE2,color:TEXT,border:`1px solid ${BORDER}`},accent:{background:ACCENT+"22",color:ACCENT,border:`1px solid ${ACCENT}44`},
+           amber:{background:AMBER+"22",color:AMBER,border:`1px solid ${AMBER}44`}};
+  return <button onClick={disabled?undefined:onClick} style={{...base,...v[variant]}}>{children}</button>;
+}
+function Lbl({children}){return <div style={{fontSize:12,color:MUTED,marginBottom:6}}>{children}</div>;}
+function Fld({label,children,style={}}){return <div style={{marginBottom:14,...style}}><Lbl>{label}</Lbl>{children}</div>;}
+function Modal({title,onClose,children,width=540}){
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,padding:16}}>
+      <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:14,padding:28,width,maxWidth:"95vw",maxHeight:"92vh",overflow:"auto"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+          <div style={{fontSize:16,fontWeight:600}}>{title}</div>
+          <button onClick={onClose} style={{background:"none",border:"none",color:MUTED,fontSize:22,lineHeight:1,cursor:"pointer"}}>×</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+function Toast({msg,type="success",onDone}){
+  useEffect(()=>{const t=setTimeout(onDone,3500);return()=>clearTimeout(t);},[onDone]);
+  const color=type==="error"?RED:type==="warn"?AMBER:ACCENT;
+  return(
+    <div style={{position:"fixed",bottom:24,right:24,zIndex:999,background:SURFACE,border:`1px solid ${color}55`,borderLeft:`4px solid ${color}`,
+      borderRadius:10,padding:"14px 20px",fontSize:13,color:TEXT,maxWidth:340,boxShadow:"0 8px 32px rgba(0,0,0,0.5)"}}>
+      {msg}
+    </div>
+  );
+}
 
-  // Mobile menu state
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
-
-  // Staff Shift Calendar states
-  const [selectedShiftStaffId, setSelectedShiftStaffId] = useState<string>('');
-  const [shiftCalendarMonth, setShiftCalendarMonth] = useState(new Date().getMonth());
-  const [shiftCalendarYear, setShiftCalendarYear] = useState(new Date().getFullYear());
-  const [showRSVPPanel, setShowRSVPPanel] = useState<string | null>(null);
-
-  const [showShortcutsModal, setShowShortcutsModal] = useState(false);
-
-  // Force-create conflict confirmation state
-  const [pendingConflict, setPendingConflict] = useState<{
-    doubleBookedStaffDetails: string[];
-    onConfirm: () => void;
-  } | null>(null);
-
-  // Event Templates
-  const [eventTemplates, setEventTemplates] = useState<EventTemplate[]>(() => {
-    try {
-      const saved = localStorage.getItem('fp_event_templates');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
+// ─── OpenRouter API call helper (used inside artifact) ──────────────────────
+async function callClaude(systemPrompt, userPrompt, modelOverride = null) {
+  try {
+    const model = modelOverride || "deepseek/deepseek-chat-v3-0324:free";
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions",{
+      method:"POST",
+      headers:{
+        "Content-Type":"application/json",
+        "Authorization": `Bearer ${import.meta.env.VITE_OPENROUTER_API_KEY || ''}`
+      },
+      body:JSON.stringify({
+        model: model,
+        max_tokens:1000,
+        messages:[
+          {role:"system",content:systemPrompt},
+          {role:"user",content:userPrompt}
+        ]
+      })
+    });
+    
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error('OpenRouter API error:', res.status, errorText);
+      return "[Error: API call failed]";
     }
+    
+    const data = await res.json();
+    
+    if (data.error) {
+      console.error('OpenRouter API error:', data.error);
+      return "[Error: " + (data.error.message || "Unknown error") + "]";
+    }
+    
+    return data.choices?.[0]?.message?.content || "";
+  } catch (e) {
+    console.error('callClaude error:', e);
+    return "[Error: " + e.message + "]";
+  }
+}
+
+// ─── Document Print View (Invoice / Quote / Statement) ───────────────────────
+function DocPrint({doc, docType, client, event: evt, allDocs, onClose}){
+  const sub  = docSubtotal(doc.lines);
+  const includeTax = doc.includeTax !== false; // default true for legacy data
+  const taxRate = Number(doc.taxRate ?? 15);
+  const vat  = includeTax ? sub * (taxRate / 100) : 0;
+  const total= sub+vat;
+  const isPaid = docType==="statement";
+  const paidAmt = isPaid ? allDocs.filter(d=>d.clientId===doc.clientId&&d.status==="paid").reduce((a,d)=>{
+    const s = docSubtotal(d.lines);
+    const tx = (d.includeTax !== false) ? s * (Number(d.taxRate ?? 15) / 100) : 0;
+    return a + s + tx;
+  }, 0) : 0;
+  const outstanding = isPaid ? allDocs.filter(d=>d.clientId===doc.clientId&&d.status!=="paid").reduce((a,d)=>{
+    const s = docSubtotal(d.lines);
+    const tx = (d.includeTax !== false) ? s * (Number(d.taxRate ?? 15) / 100) : 0;
+    return a + s + tx;
+  }, 0) : 0;
+
+  const titles = {invoice:"TAX INVOICE", quote:"QUOTATION", statement:"ACCOUNT STATEMENT"};
+  const statusC = STATUS_COLOR[doc.status]||MUTED;
+
+  return(
+    <Modal title={titles[docType]||"Document"} onClose={onClose} width={680}>
+      <div className="print-doc" style={{background:"#fff",color:"#111",borderRadius:10,padding:40}}>
+        {/* Header */}
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:36}}>
+          <div>
+            <div style={{fontSize:26,fontWeight:800,color:"#111",letterSpacing:"-0.03em"}}>FRESHPEOPLE</div>
+            <div style={{fontSize:12,color:"#666",marginTop:2}}>Events Staffing Solutions</div>
+            <div style={{fontSize:12,color:"#666"}}>VAT Reg No: 4200000001</div>
+            <div style={{fontSize:12,color:"#666"}}>4th Floor, 9 Fredman Drive, Sandton</div>
+            <div style={{fontSize:12,color:"#666"}}>admin@freshpeople.co.za · +27 11 234 5678</div>
+          </div>
+          <div style={{textAlign:"right"}}>
+            <div style={{fontSize:13,fontWeight:700,color:"#888",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:4}}>{titles[docType]}</div>
+            <div style={{fontSize:20,fontWeight:700,color:"#111"}}>{doc.docNo}</div>
+            <div style={{fontSize:12,color:"#666",marginTop:6}}>Issue: {fmtDate(doc.issueDate)}</div>
+            {doc.dueDate&&<div style={{fontSize:12,color:"#666"}}>Due: {fmtDate(doc.dueDate)}</div>}
+            {doc.validUntil&&<div style={{fontSize:12,color:"#666"}}>Valid until: {fmtDate(doc.validUntil)}</div>}
+            {doc.status&&<div style={{marginTop:10}}>
+              <span style={{background:statusC,color:"#000",fontSize:11,padding:"3px 10px",borderRadius:4,fontWeight:700}}>{doc.status.toUpperCase()}</span>
+            </div>}
+          </div>
+        </div>
+
+        {/* Bill To */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:24,marginBottom:28,padding:"16px 0",borderTop:"1px solid #e5e7eb",borderBottom:"1px solid #e5e7eb"}}>
+          <div>
+            <div style={{fontSize:10,color:"#888",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Bill To</div>
+            <div style={{fontWeight:700,color:"#111",fontSize:14}}>{client?.name||"—"}</div>
+            <div style={{fontSize:12,color:"#555"}}>{client?.email}</div>
+            <div style={{fontSize:12,color:"#555"}}>{client?.phone}</div>
+            <div style={{fontSize:12,color:"#555"}}>{client?.address}</div>
+            {client?.vatNo&&<div style={{fontSize:12,color:"#555"}}>VAT: {client.vatNo}</div>}
+          </div>
+          {evt&&<div>
+            <div style={{fontSize:10,color:"#888",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Event Reference</div>
+            <div style={{fontWeight:600,color:"#111",fontSize:13}}>{evt.title}</div>
+            <div style={{fontSize:12,color:"#555"}}>{fmtDate(evt.date)}</div>
+            <div style={{fontSize:12,color:"#555"}}>{evt.venue}</div>
+            <div style={{fontSize:12,color:"#555"}}>{evt.startTime} – {evt.endTime}</div>
+          </div>}
+        </div>
+
+        {/* Statement summary */}
+        {docType==="statement"?(
+          <div>
+            <table style={{width:"100%",borderCollapse:"collapse",marginBottom:24}}>
+              <thead><tr style={{borderBottom:"2px solid #e5e7eb"}}>
+                {["Doc No","Type","Date","Due","Amount","Status"].map(h=>(
+                  <th key={h} style={{padding:"8px 10px",textAlign:"left",fontSize:11,color:"#888",textTransform:"uppercase",letterSpacing:"0.05em"}}>{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>{allDocs.filter(d=>d.clientId===doc.clientId).map((d,i)=>{
+                const amt=(docSubtotal(d.lines)*1.15).toFixed(2);
+                return(
+                  <tr key={i} style={{borderBottom:"1px solid #f3f4f6"}}>
+                    <td style={{padding:"9px 10px",fontSize:12,fontWeight:500}}>{d.docNo}</td>
+                    <td style={{padding:"9px 10px",fontSize:12,color:"#888",textTransform:"capitalize"}}>{d.type||"invoice"}</td>
+                    <td style={{padding:"9px 10px",fontSize:12}}>{fmtDate(d.issueDate)}</td>
+                    <td style={{padding:"9px 10px",fontSize:12,color:d.status==="overdue"?"#dc2626":"#555"}}>{fmtDate(d.dueDate)}</td>
+                    <td style={{padding:"9px 10px",fontSize:12,fontFamily:"'DM Mono',monospace"}}>R {amt}</td>
+                    <td style={{padding:"9px 10px"}}><span style={{background:STATUS_COLOR[d.status]||"#888",color:"#000",fontSize:10,padding:"2px 7px",borderRadius:3,fontWeight:700}}>{d.status?.toUpperCase()}</span></td>
+                  </tr>
+                );
+              })}</tbody>
+            </table>
+            <div style={{display:"flex",justifyContent:"flex-end"}}>
+              <table style={{fontSize:13,borderCollapse:"collapse"}}>
+                {[["Total Invoiced",`R ${(paidAmt+outstanding).toFixed(2)}`],["Paid",`R ${paidAmt.toFixed(2)}`]].map(([l,v])=>(
+                  <tr key={l}><td style={{padding:"4px 16px 4px 0",color:"#555"}}>{l}</td><td style={{padding:"4px 0",textAlign:"right",fontFamily:"'DM Mono',monospace"}}>{v}</td></tr>
+                ))}
+                <tr style={{borderTop:"2px solid #111"}}>
+                  <td style={{padding:"8px 16px 4px 0",fontWeight:700,fontSize:15}}>Balance Due</td>
+                  <td style={{padding:"8px 0 4px 0",textAlign:"right",fontWeight:700,fontSize:15,fontFamily:"'DM Mono',monospace",color:"#dc2626"}}>R {outstanding.toFixed(2)}</td>
+                </tr>
+              </table>
+            </div>
+          </div>
+        ):(
+          <>
+            <table style={{width:"100%",borderCollapse:"collapse",marginBottom:24}}>
+              <thead><tr style={{borderBottom:"2px solid #e5e7eb"}}>
+                {["Description","Qty","Unit Rate","Amount"].map(h=>(
+                  <th key={h} style={{padding:"8px 10px",textAlign:h==="Description"?"left":"right",fontSize:11,color:"#888",textTransform:"uppercase",letterSpacing:"0.06em"}}>{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>{doc.lines.map((l,i)=>(
+                <tr key={i} style={{borderBottom:"1px solid #f3f4f6"}}>
+                  <td style={{padding:"10px 10px",fontSize:13}}>{l.desc}</td>
+                  <td style={{padding:"10px 10px",textAlign:"right",fontSize:13}}>{l.qty}</td>
+                  <td style={{padding:"10px 10px",textAlign:"right",fontSize:13,fontFamily:"'DM Mono',monospace"}}>R {Number(l.rate).toFixed(2)}</td>
+                  <td style={{padding:"10px 10px",textAlign:"right",fontSize:13,fontFamily:"'DM Mono',monospace",fontWeight:500}}>R {(l.qty*l.rate).toFixed(2)}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+            <div style={{display:"flex",justifyContent:"flex-end",marginBottom:24}}>
+              <table style={{fontSize:13,borderCollapse:"collapse"}}>
+                <tr><td style={{padding:"4px 16px 4px 0",color:"#666"}}>Subtotal</td><td style={{padding:"4px 0",textAlign:"right",fontFamily:"'DM Mono',monospace"}}>R {sub.toFixed(2)}</td></tr>
+                {includeTax && (
+                  <tr><td style={{padding:"4px 16px 4px 0",color:"#666"}}>VAT ({taxRate}%)</td><td style={{padding:"4px 0",textAlign:"right",fontFamily:"'DM Mono',monospace"}}>R {vat.toFixed(2)}</td></tr>
+                )}
+                <tr style={{borderTop:"2px solid #111"}}>
+                  <td style={{padding:"8px 16px 4px 0",fontWeight:700,fontSize:15}}>Total</td>
+                  <td style={{padding:"8px 0 4px 0",textAlign:"right",fontWeight:700,fontSize:15,fontFamily:"'DM Mono',monospace"}}>R {total.toFixed(2)}</td>
+                </tr>
+              </table>
+            </div>
+          </>
+        )}
+
+        {/* Footer */}
+        {doc.notes&&<div style={{marginTop:16,fontSize:12,color:"#555",fontStyle:"italic"}}>{doc.notes}</div>}
+        <div style={{marginTop:24,padding:"14px 16px",background:"#f9fafb",borderRadius:8,fontSize:12,color:"#555"}}>
+          <div style={{fontWeight:700,marginBottom:6,color:"#111"}}>Banking Details</div>
+          <div>Bank: FNB · Account: 6254 0001 0034 · Branch: 250655 · Acc Type: Business Current</div>
+          <div>Reference: {doc.docNo}</div>
+        </div>
+      </div>
+      <div style={{display:"flex",gap:10,marginTop:20}} className="no-print">
+        <Btn variant="accent" onClick={()=>window.print()} style={{flex:1,padding:"11px"}}>🖨 Print / Save PDF</Btn>
+        <Btn variant="ghost" onClick={onClose} style={{flex:1,padding:"11px"}}>Close</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+// ─── Document Form (Invoice or Quote) ────────────────────────────────────────
+function DocForm({docType, clients, events, staff = [], existingDocs, onSave, onClose}){
+  const prefix = docType==="invoice" ? "FP-INV" : "FP-QTE";
+  const [form,setForm] = useState({
+    docNo: nextDocNo(existingDocs, prefix),
+    clientId:"", eventId:"",
+    issueDate:ymd(today),
+    dueDate: docType==="invoice" ? ymd(addDays(today,30)) : "",
+    validUntil: docType==="quote" ? ymd(addDays(today,30)) : "",
+    lines:[{desc:"",qty:1,rate:0}],
+    notes: docType==="invoice"?"Thank you for your business.":"This quotation is valid for 30 days.",
+    type: docType,
+    includeTax: true,
+    taxRate: 15,
   });
-  const [showTemplatePanel, setShowTemplatePanel] = useState(false);
-  const [templateName, setTemplateName] = useState('');
-  const [templateToApply, setTemplateToApply] = useState<EventTemplate | null>(null);
 
-  // Load and apply local data and parameter hooks
-  useEffect(() => {
-    // Check local storage or seed, force-migrating to South Africa Johannesburg setup
-    const isMigrated = localStorage.getItem('fp_migrated_sa_2026_v5') === 'true';
-
-    if (!isMigrated) {
-      localStorage.setItem('fp_clients', JSON.stringify(INITIAL_CLIENTS));
-      localStorage.setItem('fp_venues', JSON.stringify(INITIAL_VENUES));
-      localStorage.setItem('fp_staff', JSON.stringify(INITIAL_STAFF));
-      localStorage.setItem('fp_events', JSON.stringify(INITIAL_EVENTS));
-      localStorage.setItem('fp_migrated_sa_2026_v5', 'true');
-
-      setClients(INITIAL_CLIENTS);
-      setVenues(INITIAL_VENUES);
-      setStaff(INITIAL_STAFF);
-      setEvents(INITIAL_EVENTS);
-
-      // Synchronize default iCloud events immediately on first setup
-      setTimeout(() => {
-        const rawApple = localStorage.getItem('fp_apple_events');
-        if (rawApple) {
-          syncAppleToToolCalendar(JSON.parse(rawApple));
-        }
-      }, 100);
-
-      const initLog: ActivityLog = {
-        id: 'log-1',
-        timestamp: new Date().toISOString(),
-        operator: 'System Sentinel',
-        type: 'auth',
-        message: 'Fresh People Operations Center unlocked inside South Africa (Johannesburg HQ).'
-      };
-      setActivityLogs([initLog]);
-      localStorage.setItem('fp_logs', JSON.stringify([initLog]));
-    } else {
-      const storedClients = localStorage.getItem('fp_clients');
-      const storedVenues = localStorage.getItem('fp_venues');
-      const storedStaff = localStorage.getItem('fp_staff');
-      const storedEvents = localStorage.getItem('fp_events');
-      const storedLogs = localStorage.getItem('fp_logs');
-
-      if (storedClients) setClients(JSON.parse(storedClients));
-      if (storedVenues) setVenues(JSON.parse(storedVenues));
-      if (storedStaff) setStaff(JSON.parse(storedStaff));
-      if (storedEvents) {
-        const parsed = JSON.parse(storedEvents);
-        setEvents(parsed);
-        // Ensure Apple events are fully merged/sync-triggered immediately on subsequent visits
-        setTimeout(() => {
-          const rawApple = localStorage.getItem('fp_apple_events');
-          if (rawApple) {
-            syncAppleToToolCalendar(JSON.parse(rawApple));
-          }
-        }, 120);
-      }
-      if (storedLogs) {
-        const parsedLogs = JSON.parse(storedLogs);
-        const uniqueLogs = ensureUniqueLogIds(parsedLogs).slice(0, 100);
-        setActivityLogs(uniqueLogs);
-        localStorage.setItem('fp_logs', JSON.stringify(uniqueLogs));
-      }
-    }
-  }, []);
-
-  // Listen for Google authentication state changes via Firebase
-  useEffect(() => {
-    const unsub = initAuth(
-      (user, token) => {
-        setGoogleUser(user);
-        addActivityLog('sync', `Google Account synchronisation verified for ${user.email}.`);
-        triggerGoogleSync(token);
-      },
-      () => {
-        setGoogleUser(null);
-      }
-    );
-    return () => unsub();
-  }, []);
-
-  // Automatic background auto-sync polling loop
-  useEffect(() => {
-    if (!autoSyncEnabled) return;
-
-    const interval = setInterval(() => {
-      if (googleUser) {
-        console.log('Continuous Background Auto-Sync: Fetching updates from Google Calendar...');
-        triggerGoogleSync(undefined, true);
-      }
-      
-      if (appleUser) {
-        console.log('Continuous Background Auto-Sync: Fetching updates from live iCloud Apple Calendar feed...');
-        triggerAppleFeedFetch(true);
-      }
-    }, 10000);
-
-    return () => clearInterval(interval);
-  }, [googleUser, appleUser, autoSyncEnabled, currentMonth, currentYear, events, appleFeedUrl]);
-
-  // Parse URI Parameters for automatic Dispatch Return responses
-  useEffect(() => {
-    const searchParams = new URLSearchParams(window.location.search);
-    const action = searchParams.get('action');
-    const eventId = searchParams.get('eventId');
-    const staffId = searchParams.get('staffId');
-
-    if (action && eventId && staffId) {
-      // Find staff and event
-      const storedEvents = localStorage.getItem('fp_events') ? JSON.parse(localStorage.getItem('fp_events')!) : INITIAL_EVENTS;
-      const storedStaff = localStorage.getItem('fp_staff') ? JSON.parse(localStorage.getItem('fp_staff')!) : INITIAL_STAFF;
-
-      const targetEv = storedEvents.find((e: Event) => e.id === eventId);
-      const targetS = storedStaff.find((s: Staff) => s.id === staffId);
-
-      if (targetEv && targetS) {
-        const staffFullName = `${targetS.name} ${targetS.surname}`;
-        let statusUpdate: Event['status'] = 'Pending';
-        let logMsg = '';
-
-        if (action === 'confirm') {
-          statusUpdate = 'Confirmed';
-          logMsg = `Staff member ${staffFullName} approved scheduled slot for "${targetEv.title}". Roster state updated to CONFIRMED.`;
-        } else if (action === 'reject') {
-          statusUpdate = 'Canceled';
-          logMsg = `Staff member ${staffFullName} declined scheduled slot for "${targetEv.title}". Status state updated to ATTENTION.`;
-        }
-
-        // Update local events state list with both overall event status and individual staff RSVP states
-        const updatedEvents = storedEvents.map((e: Event) => {
-          if (e.id === eventId) {
-            const currentRSVPs = e.staffRSVPs || {};
-            const nextRSVPs = { ...currentRSVPs, [staffId]: action === 'confirm' ? 'Available' as const : 'Unavailable' as const };
-            return {
-              ...e,
-              status: statusUpdate,
-              staffRSVPs: nextRSVPs
-            };
-          }
-          return e;
-        });
-
-        localStorage.setItem('fp_events', JSON.stringify(updatedEvents));
-        setEvents(updatedEvents);
-
-        // Add to logs
-        const newLog: ActivityLog = {
-          id: `log-reply-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-          timestamp: new Date().toISOString(),
-          operator: 'WhatsApp Hook',
-          type: 'staff_reply',
-          message: logMsg,
-          isUrgent: action === 'reject'
-        };
-
-        const currentLogs = localStorage.getItem('fp_logs') ? JSON.parse(localStorage.getItem('fp_logs')!) : [];
-        const logsCombined = ensureUniqueLogIds([newLog, ...currentLogs]).slice(0, 100);
-        localStorage.setItem('fp_logs', JSON.stringify(logsCombined));
-        setActivityLogs(logsCombined);
-
-        // Notify client
-        showToast(`Core Operational Callback Handled: ${staffFullName} replied: ${action.toUpperCase()}`, 'success');
-
-        // Clean query parameters to avoid looping triggers
-        window.history.replaceState({}, document.title, window.location.pathname);
-      }
-    }
-  }, []);
-
-  // Session details timer checking
-  useEffect(() => {
-    if (!isUnlocked) return;
-    
-    // Check session every second to update remaining hours
-    const interval = setInterval(() => {
-      const loginTime = localStorage.getItem('fresh_people_login_time');
-      if (loginTime) {
-        const elapsed = Date.now() - parseInt(loginTime, 10);
-        const SESSION_LIMIT = 4 * 60 * 60 * 1000; // 4 Hours Session Expiry
-        const remaining = SESSION_LIMIT - elapsed;
-        
-        if (remaining <= 0) {
-          triggerLogout();
-          showToast('Secure Session Expiry: Your Operator key has expired due to quiet period bounds.', 'error');
-        } else {
-          const secs = Math.floor((remaining / 1000) % 60);
-          const mins = Math.floor((remaining / (1000 * 60)) % 60);
-          const hrs = Math.floor((remaining / (1000 * 60 * 60)) % 24);
-          
-          let formatted = '';
-          if (hrs > 0) formatted += `${hrs}h `;
-          formatted += `${mins}m ${secs}s`;
-          setSessionTimeLeft(formatted);
-        }
-      }
-    }, 1000);
-    
-    return () => clearInterval(interval);
-  }, [isUnlocked]);
-
-  // Keyboard shortcuts handler
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't trigger shortcuts when typing in inputs
-      const target = e.target as HTMLElement;
-      const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable;
-
-      // Esc always works — close modals/panels
-      if (e.key === 'Escape') {
-        if (showShortcutsModal) { setShowShortcutsModal(false); return; }
-        if (activeModal) { setActiveModal(null); return; }
-        if (showDeleteConfirm) { setShowDeleteConfirm(null); return; }
-        if (showRSVPPanel) { setShowRSVPPanel(null); return; }
-        if (editingEventId) { handleCancelEdit(); return; }
-        return;
-      }
-
-      // '?' — show keyboard shortcuts help (Shift+/)
-      if (e.key === '?' && !isInput) {
-        e.preventDefault();
-        setShowShortcutsModal(prev => !prev);
-        return;
-      }
-
-      // Ctrl+N — New event (scroll to event form)
-      if (e.key === 'n' && e.ctrlKey && !isInput) {
-        e.preventDefault();
-        const formEl = document.getElementById('directory_section');
-        if (formEl) formEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        return;
-      }
-
-      // Alt+C — Switch to Clients tab
-      if (e.key === 'c' && e.altKey && !isInput) {
-        e.preventDefault();
-        switchTab('clients');
-        return;
-      }
-
-      // Alt+V — Switch to Venues tab
-      if (e.key === 'v' && e.altKey && !isInput) {
-        e.preventDefault();
-        switchTab('venues');
-        return;
-      }
-
-      // Alt+S — Switch to Staff tab
-      if (e.key === 's' && e.altKey && !isInput) {
-        e.preventDefault();
-        switchTab('staff');
-        return;
-      }
-
-      // Alt+E — Open event creation modal (same as clicking New Event)
-      if (e.key === 'e' && e.altKey && !isInput) {
-        e.preventDefault();
-        const formEl = document.getElementById('directory_section');
-        if (formEl) formEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        return;
-      }
-
-      // Ctrl+B — Export JSON backup
-      if (e.key === 'b' && e.ctrlKey && !isInput) {
-        e.preventDefault();
-        handleExportJSON();
-        return;
-      }
-
-      // Ctrl+Z — Undo (with Shift for Redo, or Ctrl+Y)
-      if (e.key === 'z' && (e.ctrlKey || e.metaKey) && !isInput) {
-        e.preventDefault();
-        if (e.shiftKey) {
-          redo();
-        } else {
-          undo();
-        }
-        return;
-      }
-
-      // Ctrl+Y — Redo (alternative)
-      if (e.key === 'y' && (e.ctrlKey || e.metaKey) && !isInput) {
-        e.preventDefault();
-        redo();
-        return;
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeModal, showDeleteConfirm, showRSVPPanel, editingEventId, showShortcutsModal, undo, redo]);
-
-  // Sync state functions
-  const addActivityLog = (type: ActivityLog['type'], message: string, isUrgent = false) => {
-    const newLog: ActivityLog = {
-      id: `log-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      timestamp: new Date().toISOString(),
-      operator: 'yassin',
-      type,
-      message,
-      isUrgent
-    };
-    setActivityLogs((prev) => {
-      // Keep only the 100 latest entries to prevent storage bloat and QuotaExceededError
-      const next = [newLog, ...prev].slice(0, 100);
-      localStorage.setItem('fp_logs', JSON.stringify(next));
-      return next;
-    });
-  };
-
-  // Clock Update
-  const [systime, setSystime] = useState('19:52:35');
-  useEffect(() => {
-    const timer = setInterval(() => {
-      const now = new Date();
-      setSystime(now.toISOString().split('T')[1].slice(0, 8));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  // Authentication Submission
-  const handleAuthSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (
-      operatorId.toLowerCase() === OPERATOR_CREDENTIALS.username &&
-      securityPhrase === OPERATOR_CREDENTIALS.password
-    ) {
-      setIsUnlocked(true);
-      sessionStorage.setItem('fresh_people_unlocked', 'true');
-      localStorage.setItem('fresh_people_unlocked', 'true');
-      localStorage.setItem('fresh_people_login_time', Date.now().toString());
-      setAuthError(false);
-      // Log authentication success
-      addActivityLog('auth', `Operator 'yassin' successfully decrypted gateway. 4-hour session timer loaded.`);
-    } else {
-      setAuthError(true);
-    }
-  };
-
-  // Advanced Password Recovery via Placeholder Email Dispatch Service
-  const handleResetPasswordRequest = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!forgotOperatorId || !forgotEmail) return;
-
-    // Simulate link dispatch
-    setResetSuccessMessage(`Security recovery link successfully generated & dispatched to ${forgotEmail}. [Simulated System Service Active] - The decryption key remains 'FreshPeople2026!'`);
-    addActivityLog('auth', `Emergency recovery protocol initialized for ID: ${forgotOperatorId} matching email ${forgotEmail}.`, true);
-    
-    setForgotOperatorId('');
-    setForgotEmail('');
-  };
-
-  // Logout Handlers
-  const triggerLogout = () => {
-    setIsUnlocked(false);
-    sessionStorage.removeItem('fresh_people_unlocked');
-    localStorage.removeItem('fresh_people_unlocked');
-    localStorage.removeItem('fresh_people_login_time');
-    addActivityLog('auth', `Operator logged out. Gate controls locked secure.`);
-  };
-
-  // Tab switcher helper
-  const switchTab = (tab: typeof activeTab) => {
-    setActiveTab(tab);
-  };
-
-  // Ingestion Sub-Forms submission
-  const registerClient = (e: React.FormEvent) => {
-    e.preventDefault();
-    const newId = `client-${Date.now()}`;
-    const clientData: Client = { id: newId, ...newClient };
-    const list = [...clients, clientData];
-    setClients(list);
-    localStorage.setItem('fp_clients', JSON.stringify(list));
-    addActivityLog('event_create', `Ingested Premium Client: "${clientData.name}" managed via ${clientData.contact}.`);
-    setNewClient({ name: '', contact: '', email: '', phone: '', notes: '' });
-    setActiveModal(null);
-  };
-
-  const registerVenue = (e: React.FormEvent) => {
-    e.preventDefault();
-    const newId = `venue-${Date.now()}`;
-    const venueData: Venue = { id: newId, ...newVenue };
-    const list = [...venues, venueData];
-    setVenues(list);
-    localStorage.setItem('fp_venues', JSON.stringify(list));
-    addActivityLog('event_create', `Indexed Premium Venue: "${venueData.name}" (${venueData.tier}) fully buffered.`);
-    setNewVenue({ name: '', address: '', capacity: 200, tier: 'Luxury Class', notes: '' });
-    setActiveModal(null);
-  };
-
-  const registerStaff = (e: React.FormEvent) => {
-    e.preventDefault();
-    const newId = `staff-${Date.now()}`;
-    const staffData: Staff = { id: newId, ...newStaff };
-    const list = [...staff, staffData];
-    setStaff(list);
-    localStorage.setItem('fp_staff', JSON.stringify(list));
-    addActivityLog('event_create', `Registered Staff Member: ${staffData.name} ${staffData.surname} (${staffData.role}) logged.`);
-    setNewStaff({ name: '', surname: '', role: 'Lead VIP Architect', rate: 45, phone: '', email: '', notes: '' });
-    setActiveModal(null);
-  };
-
-  // Create scheduled Local Event & Sync to Google Calendar automatically
-  const createEvent = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    // Edit mode: update existing event
-    if (editingEventId) {
-      if (!evClient || !evVenue) {
-        showToast('Please select Client and Venue partners before proceeding.', 'warn');
-        return;
-      }
-
-      const existingEvent = events.find(ev => ev.id === editingEventId);
-      if (!existingEvent) {
-        showToast('Event not found. It may have been deleted.', 'error');
-        setEditingEventId(null);
-        return;
-      }
-
-      // Double-booking validation (exclude the event being edited)
-      const { start: newStart, end: newEnd } = getEventDates(evDate, evTimeStart, evTimeEnd);
-      const doubleBookedStaffDetails: string[] = [];
-
-      evSelectedStaffIds.forEach(staffId => {
-        const conflictingEvents = events.filter(existingEv => {
-          if (existingEv.id === editingEventId) return false;
-          if (!existingEv.staffIds.includes(staffId)) return false;
-          const { start: existStart, end: existEnd } = getEventDates(
-            existingEv.date, existingEv.startTime, existingEv.endTime
-          );
-          return newStart < existEnd && existStart < newEnd;
-        });
-        if (conflictingEvents.length > 0) {
-          const staffObj = staff.find(s => s.id === staffId);
-          const name = staffObj ? `${staffObj.name} ${staffObj.surname} (${staffObj.role})` : `Staff ID: ${staffId}`;
-          const eventTitles = conflictingEvents.map(ev => `"${ev.title}" on ${ev.date} at ${ev.startTime}-${ev.endTime}`).join(', ');
-          doubleBookedStaffDetails.push(`• ${name} is busy with: ${eventTitles}`);
-        }
-      });
-
-      if (doubleBookedStaffDetails.length > 0) {
-        const warningMessage = `Staff Double-Booking overlap detected!\n\n${doubleBookedStaffDetails.join('\n')}\n\nProceed anyway?`;
-        if (!window.confirm(warningMessage)) {
-          return;
-        }
-        addActivityLog('event_create', `⚠ Operator overrode double-booking conflict for edit of "${evTitle}".`);
-      }
-
-      const rsvps: Record<string, 'Available' | 'Pending'> = {};
-      evSelectedStaffIds.forEach(id => {
-        // Preserve existing RSVP for staff that were already allocated, default new ones
-        rsvps[id] = existingEvent.staffRSVPs?.[id] || (isDirectBookingChecked ? 'Available' : 'Pending');
-      });
-
-      const updatedEvent: Event = {
-        ...existingEvent,
-        title: evTitle,
-        clientId: evClient,
-        venueId: evVenue,
-        date: evDate,
-        startTime: evTimeStart,
-        endTime: evTimeEnd,
-        staffIds: evSelectedStaffIds,
-        notes: evNotes,
-        clientRequirements: evClientRequirements,
-        status: evStatus,
-        isDirectBooking: isDirectBookingChecked,
-        staffRSVPs: rsvps,
-      };
-
-      const updatedEvents = events.map(ev => ev.id === editingEventId ? updatedEvent : ev);
-      setEvents(updatedEvents);
-      localStorage.setItem('fp_events', JSON.stringify(updatedEvents));
-      addActivityLog('event_create', `Updated event: "${updatedEvent.title}" on ${updatedEvent.date}.`);
-
-      // Update Google Calendar if synced
-      const token = await getAccessToken();
-      if (googleUser && token && existingEvent.googleEventId) {
-        try {
-          setSyncStatusMsg('Updating Google Calendar event...');
-          const clientObj = clients.find(c => c.id === evClient);
-          const venueObj = venues.find(v => v.id === evVenue);
-          await updateEventInGoogleCalendar(
-            token,
-            existingEvent.googleEventId,
-            updatedEvent,
-            clientObj?.name || 'Local client',
-            venueObj?.name || 'Local venue',
-            venueObj?.address || 'Local Address'
-          );
-          addActivityLog('sync', `Google Calendar event updated for "${updatedEvent.title}".`);
-          triggerGoogleSync(token);
-        } catch (err: any) {
-          console.error('Google update failed:', err);
-          addActivityLog('sync', `Failed to update Google Calendar: ${err.message}`, true);
-        } finally {
-          setSyncStatusMsg('');
-        }
-      }
-
-      // Reset form and exit edit mode
-      resetEventForm();
-      setEditingEventId(null);
-      showToast(`Event "${updatedEvent.title}" updated successfully.`, 'success');
-      return;
-    }
-    if (!evClient || !evVenue) {
-      showToast('Please select Client and Venue partners before proceeding.', 'warn');
-      return;
-    }
-
-    // Double-booking validation check for selected staff
-    const { start: newStart, end: newEnd } = getEventDates(evDate, evTimeStart, evTimeEnd);
-    const doubleBookedStaffDetails: string[] = [];
-
-    evSelectedStaffIds.forEach(staffId => {
-      const conflictingEvents = events.filter(existingEvent => {
-        if (!existingEvent.staffIds.includes(staffId)) return false;
-
-        const { start: existStart, end: existEnd } = getEventDates(
-          existingEvent.date,
-          existingEvent.startTime,
-          existingEvent.endTime
-        );
-
-        // Standard overlapping interval check
-        return newStart < existEnd && existStart < newEnd;
-      });
-
-      if (conflictingEvents.length > 0) {
-        const staffObj = staff.find(s => s.id === staffId);
-        const name = staffObj ? `${staffObj.name} ${staffObj.surname} (${staffObj.role})` : `Staff ID: ${staffId}`;
-        const eventTitles = conflictingEvents
-          .map(ev => `"${ev.title}" on ${ev.date} at ${ev.startTime}-${ev.endTime}`)
-          .join(', ');
-        doubleBookedStaffDetails.push(`• ${name} is busy with: ${eventTitles}`);
-      }
-    });
-
-    if (doubleBookedStaffDetails.length > 0) {
-      const warningMessage = `Staff Double-Booking overlap detected!\n\n${doubleBookedStaffDetails.join('\n')}\n\nProceed anyway?`;
-      if (!window.confirm(warningMessage)) {
-        return;
-      }
-      addActivityLog('event_create', `⚠ Operator overrode double-booking conflict for "${evTitle}".`);
-    }
-
-    const eventId = `event-${Date.now()}`;
-    const rsvps: Record<string, 'Available' | 'Pending'> = {};
-    evSelectedStaffIds.forEach(id => {
-      rsvps[id] = isDirectBookingChecked ? 'Available' : 'Pending';
-    });
-
-    // Build the base event object
-    const baseEvent: Event = {
-      id: eventId,
-      title: evTitle,
-      clientId: evClient,
-      venueId: evVenue,
-      date: evDate,
-      startTime: evTimeStart,
-      endTime: evTimeEnd,
-      staffIds: evSelectedStaffIds,
-      notes: evNotes,
-      clientRequirements: evClientRequirements,
-      status: evStatus,
-      isDirectBooking: isDirectBookingChecked,
-      staffRSVPs: rsvps,
-      recurrence: recurrence !== 'none' ? recurrence : undefined,
-      recurrenceEnd: recurrence !== 'none' ? recurrenceEnd || undefined : undefined,
-    };
-
-    // Generate recurring event instances if recurrence is set
-    const allNewEvents: Event[] = [baseEvent];
-    let recurrenceCount = 0;
-
-    if (recurrence !== 'none' && recurrenceEnd) {
-      const maxInstances = 52; // Cap at 1 year of weekly events
-      const intervalDays = recurrence === 'weekly' ? 7 : recurrence === 'biweekly' ? 14 : 0;
-      let currentDate = new Date(evDate + 'T00:00:00');
-      const endDate = new Date(recurrenceEnd + 'T00:00:00');
-
-      if (intervalDays > 0) {
-        // Weekly / Biweekly: add fixed-interval instances
-        while (recurrenceCount < maxInstances) {
-          currentDate.setDate(currentDate.getDate() + intervalDays);
-          if (currentDate > endDate) break;
-          recurrenceCount++;
-          const instanceDate = currentDate.toISOString().split('T')[0];
-          const instanceRsvps: Record<string, 'Available' | 'Pending'> = {};
-          evSelectedStaffIds.forEach(id => {
-            instanceRsvps[id] = isDirectBookingChecked ? 'Available' : 'Pending';
-          });
-          allNewEvents.push({
-            ...baseEvent,
-            id: `event-${Date.now()}-${recurrenceCount}`,
-            date: instanceDate,
-            staffRSVPs: instanceRsvps,
-            isRecurrenceInstance: true,
-            originalEventId: eventId,
-            recurrence: undefined,
-            recurrenceEnd: undefined,
-          });
-        }
-      } else if (recurrence === 'monthly') {
-        // Monthly: same day of month
-        const startDay = currentDate.getDate();
-        let monthCounter = 1;
-        while (recurrenceCount < maxInstances) {
-          const nextMonth = new Date(currentDate);
-          nextMonth.setMonth(nextMonth.getMonth() + monthCounter);
-          // Handle month-end overflow (e.g. Jan 31 → Feb 28)
-          if (nextMonth.getDate() !== startDay) {
-            nextMonth.setDate(0); // Last day of previous month
-          }
-          if (nextMonth > endDate) break;
-          recurrenceCount++;
-          const instanceDate = nextMonth.toISOString().split('T')[0];
-          const instanceRsvps: Record<string, 'Available' | 'Pending'> = {};
-          evSelectedStaffIds.forEach(id => {
-            instanceRsvps[id] = isDirectBookingChecked ? 'Available' : 'Pending';
-          });
-          allNewEvents.push({
-            ...baseEvent,
-            id: `event-${Date.now()}-${recurrenceCount}`,
-            date: instanceDate,
-            staffRSVPs: instanceRsvps,
-            isRecurrenceInstance: true,
-            originalEventId: eventId,
-            recurrence: undefined,
-            recurrenceEnd: undefined,
-          });
-          monthCounter++;
-        }
-      }
-    }
-
-    // Core validation: Update events state lists
-    const nextEvents = [...allNewEvents, ...events];
-    setEvents(nextEvents);
-    localStorage.setItem('fp_events', JSON.stringify(nextEvents));
-
-    if (recurrenceCount > 0) {
-      addActivityLog('event_create', `Architected Recurring Event: "${baseEvent.title}" on ${baseEvent.date} — ${recurrenceCount} additional ${recurrence} instances created (total: ${allNewEvents.length}).`);
-      showToast(`Created "${baseEvent.title}" + ${recurrenceCount} recurring instances (${allNewEvents.length} total).`, 'success');
-    } else if (isDirectBookingChecked) {
-      addActivityLog('direct_booking', `Manual Direct Booking Registered: "${baseEvent.title}" on ${baseEvent.date} (Staff pre-confirmed: ${baseEvent.staffIds.length}).`);
-      showToast(`Direct booking "${baseEvent.title}" registered.`, 'success');
-    } else {
-      addActivityLog('event_create', `Architected Scheduled Event: "${baseEvent.title}" on ${baseEvent.date} (Staff count: ${baseEvent.staffIds.length}).`);
-      showToast(`Event "${baseEvent.title}" created successfully.`, 'success');
-    }
-
-    // Bidirectional sync: If logged in to Google Calendar, push context immediately!
-    const token = await getAccessToken();
-    if (googleUser && token) {
-      try {
-        const clientObj = clients.find((c) => c.id === evClient);
-        const venueObj = venues.find((v) => v.id === evVenue);
-
-        setSyncStatusMsg('Pushing event to Google Calendar automatically...');
-        const googleEventId = await pushEventToGoogleCalendar(
-          token,
-          baseEvent,
-          clientObj?.name || 'Local client',
-          venueObj?.name || 'Local venue',
-          venueObj?.address || 'Local Address'
-        );
-
-        // Cache Google Event Id locally
-        const updatedEvents = nextEvents.map((ev) => {
-          if (ev.id === eventId) {
-            return { ...ev, googleEventId };
-          }
-          return ev;
-        });
-
-        setEvents(updatedEvents);
-        localStorage.setItem('fp_events', JSON.stringify(updatedEvents));
-        addActivityLog('sync', `Google Calendar synchronization successful. Event exported as (ID: ${googleEventId.slice(0,8)}).`);
-        triggerGoogleSync(token);
-      } catch (err: any) {
-        console.error('Core auto sync failed:', err);
-        addActivityLog('sync', `Failed to auto-export event to Google Calendar: ${err.message}`, true);
-      } finally {
-        setSyncStatusMsg('');
-      }
-    }
-
-    // Reset fields
-    resetEventForm();
-  };
-
-  // Reset event form fields
-  const resetEventForm = () => {
-    setEvTitle('');
-    setEvNotes('');
-    setEvClientRequirements('');
-    setEvSelectedStaffIds([]);
-    setEvStatus('Pending');
-    setIsDirectBookingChecked(false);
-    setEvClient('');
-    setEvVenue('');
-    setEvTimeStart('18:00');
-    setEvTimeEnd('22:00');
-    setRecurrence('none');
-    setRecurrenceEnd('');
-    setSelectedDateStr(evDate);
-  };
-
-  // --- Event Templates ---
-  const saveEventTemplate = () => {
-    if (!templateName.trim()) {
-      showToast('Please enter a template name.', 'warn');
-      return;
-    }
-    if (!evClient || !evVenue) {
-      showToast('Select Client and Venue before saving as template.', 'warn');
-      return;
-    }
-    const newTemplate: EventTemplate = {
-      id: `tmpl-${Date.now()}`,
-      name: templateName.trim(),
-      title: evTitle,
-      clientId: evClient,
-      venueId: evVenue,
-      startTime: evTimeStart,
-      endTime: evTimeEnd,
-      staffIds: evSelectedStaffIds,
-      notes: evNotes,
-      clientRequirements: evClientRequirements,
-      isDirectBooking: isDirectBookingChecked,
-      createdAt: new Date().toISOString(),
-    };
-    const updated = [...eventTemplates, newTemplate];
-    setEventTemplates(updated);
-    localStorage.setItem('fp_event_templates', JSON.stringify(updated));
-    setTemplateName('');
-    showToast(`Template "${newTemplate.name}" saved.`, 'success');
-    addActivityLog('event_create', `Saved event template: "${newTemplate.name}".`);
-  };
-
-  const applyEventTemplate = (tmpl: EventTemplate) => {
-    setEvTitle(tmpl.title);
-    setEvClient(tmpl.clientId);
-    setEvVenue(tmpl.venueId);
-    setEvTimeStart(tmpl.startTime);
-    setEvTimeEnd(tmpl.endTime);
-    setEvNotes(tmpl.notes);
-    setEvClientRequirements(tmpl.clientRequirements);
-    setEvSelectedStaffIds(tmpl.staffIds);
-    setIsDirectBookingChecked(tmpl.isDirectBooking);
-    setShowTemplatePanel(false);
-    showToast(`Template "${tmpl.name}" applied. Set date and create event.`, 'info');
-  };
-
-  const deleteEventTemplate = (id: string) => {
-    const tmpl = eventTemplates.find(t => t.id === id);
-    const updated = eventTemplates.filter(t => t.id !== id);
-    setEventTemplates(updated);
-    localStorage.setItem('fp_event_templates', JSON.stringify(updated));
-    if (tmpl) addActivityLog('event_delete', `Deleted event template: "${tmpl.name}".`);
-  };
-
-  // Populate form for editing an existing event
-  const handleEditEvent = (event: Event) => {
-    setEditingEventId(event.id);
-    setEvTitle(event.title);
-    setEvClient(event.clientId);
-    setEvVenue(event.venueId);
-    setEvDate(event.date);
-    setEvTimeStart(event.startTime);
-    setEvTimeEnd(event.endTime);
-    setEvNotes(event.notes || '');
-    setEvClientRequirements(event.clientRequirements || '');
-    setEvSelectedStaffIds(event.staffIds || []);
-    setEvStatus(event.status || 'Pending');
-    setIsDirectBookingChecked(event.isDirectBooking || false);
-    setSelectedDateStr(event.date);
-    // Scroll to the Event Architect form
-    setTimeout(() => {
-      document.querySelector('#input_ev_title')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      document.getElementById('input_ev_title')?.focus();
-    }, 100);
-  };
-
-  // Cancel edit mode and reset form
-  const handleCancelEdit = () => {
-    setEditingEventId(null);
-    resetEventForm();
-  };
-
-  // Duplicate an existing event — creates a copy with new ID and today's date
-  const handleDuplicateEvent = (event: Event) => {
-    const today = new Date();
-    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-    const newEvent: Event = {
-      ...event,
-      id: `event-clone-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      title: `${event.title} (Copy)`,
-      date: todayStr,
-      status: 'Pending',
-      staffRSVPs: {},
-      recurrence: undefined,
-      recurrenceEnd: undefined,
-      isRecurrenceInstance: undefined,
-      originalEventId: undefined,
-    };
-    const updatedEvents = [...events, newEvent];
-    setEvents(updatedEvents);
-    localStorage.setItem('fp_events', JSON.stringify(updatedEvents));
-    addActivityLog('event_create', `Duplicated event "${event.title}" → "${newEvent.title}" (new date: ${todayStr}).`);
-    showToast(`Event duplicated: "${newEvent.title}"`, 'success');
-  };
-
-  // Quick status cycle: Pending → Confirmed → Canceled → Pending
-  const STATUS_CYCLE: ('Pending' | 'Confirmed' | 'Canceled')[] = ['Pending', 'Confirmed', 'Canceled'];
-  const handleQuickStatusChange = (eventId: string) => {
-    const updatedEvents = events.map((e) => {
-      if (e.id === eventId) {
-        const currentIdx = STATUS_CYCLE.indexOf(e.status || 'Pending');
-        const nextStatus = STATUS_CYCLE[(currentIdx + 1) % STATUS_CYCLE.length];
-        return { ...e, status: nextStatus };
-      }
-      return e;
-    });
-    setEvents(updatedEvents);
-    localStorage.setItem('fp_events', JSON.stringify(updatedEvents));
-    const ev = updatedEvents.find(e => e.id === eventId);
-    if (ev) {
-      addActivityLog('event_create', `Status changed: "${ev.title}" → ${ev.status}`);
-    }
-  };
-
-  // Toggle/Override individual RSVP status manually from the audit engine
-  const toggleStaffRSVP = (eventId: string, staffId: string) => {
-    const updatedEvents = events.map((e) => {
-      if (e.id === eventId) {
-        const currentRSVPs = e.staffRSVPs || {};
-        const currentVal = currentRSVPs[staffId] || (e.isDirectBooking ? 'Available' : 'Pending');
-        const nextVal = currentVal === 'Available' ? 'Pending' : 'Available';
-        const nextRSVPs = { ...currentRSVPs, [staffId]: nextVal };
-        return {
-          ...e,
-          staffRSVPs: nextRSVPs
-        };
-      }
-      return e;
-    });
-    setEvents(updatedEvents);
-    localStorage.setItem('fp_events', JSON.stringify(updatedEvents));
-    addActivityLog('staff_reply', `Operator overridden RSVP status to ${updatedEvents.find(e => e.id === eventId)?.staffRSVPs?.[staffId]} for staffId ${staffId} on eventId ${eventId}.`);
-  };
-
-  // Bulk RSVP update: mark all staff for an event as Available or Unavailable
-  const bulkUpdateRSVP = (eventId: string, state: 'Available' | 'Unavailable') => {
-    const updatedEvents = events.map((e) => {
-      if (e.id !== eventId) return e;
-      const currentRSVPs = e.staffRSVPs || {};
-      const nextRSVPs: Record<string, 'Available' | 'Pending' | 'Unavailable'> = {};
-      for (const sId of e.staffIds) {
-        nextRSVPs[sId] = state;
-      }
-      return { ...e, staffRSVPs: { ...currentRSVPs, ...nextRSVPs } };
-    });
-    setEvents(updatedEvents);
-    localStorage.setItem('fp_events', JSON.stringify(updatedEvents));
-    const updatedEvent = updatedEvents.find(ev => ev.id === eventId);
-    const staffCount = updatedEvent?.staffIds?.length || 0;
-    addActivityLog('staff_reply', `Bulk RSVP: marked ${staffCount} staff as ${state} for "${updatedEvent?.title}".`);
-  };
-
-  // Delete scheduled event + remove from Google Calendar sync ID references
-  const deleteEvent = async (id: string) => {
-    const target = events.find((ev) => ev.id === id);
-    if (!target) return;
-
-    // Filter list
-    const filtered = events.filter((ev) => ev.id !== id);
-    setEvents(filtered);
-    localStorage.setItem('fp_events', JSON.stringify(filtered));
-    addActivityLog('event_delete', `Deleted event record for "${target.title}" on date ${target.date}.`);
-
-    // Close delete confirm modal
-    setShowDeleteConfirm(null);
-
-    // Remove from Google Calendar if matched
-    const token = await getAccessToken();
-    if (googleUser && token && target.googleEventId) {
-      try {
-        setSyncStatusMsg('Removing scheduled slot from Google Calendar...');
-        await deleteEventFromGoogleCalendar(token, target.googleEventId);
-        addActivityLog('sync', `Removed Google Calendar synced instance for "${target.title}".`);
-        triggerGoogleSync(token);
-      } catch (err: any) {
-        console.error('Google removal failed:', err);
-        addActivityLog('sync', `Failed to delete from Google Calendar: ${err.message}`, true);
-      } finally {
-        setSyncStatusMsg('');
-      }
-    }
-  };
-
-  // Fetch Google Calendar in bidirectional manner
-  const triggerGoogleSync = async (providedToken?: string, silent = false) => {
-    const token = providedToken || (await getAccessToken());
-    if (!token) {
-      if (!silent) {
-        addActivityLog('sync', 'Cannot synchronise. Sign in to Google required.', true);
-      }
-      return;
-    }
-
-    if (!silent) {
-      setIsSyncing(true);
-      setSyncStatusMsg('Synchronising command center with Google Calendar...');
-    } else {
-      setIsSilentSyncing(true);
-    }
-
-    try {
-      // Fetch calendar bounds around current selected month
-      const startOfWindow = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-01T00:00:00Z`;
-      const endOfWindow = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-31T23:59:59Z`;
-
-      const gEvents = await fetchGoogleCalendarEvents(token, startOfWindow, endOfWindow);
-      setGoogleEvents(gEvents);
-      setLastSyncTime(new Date());
-
-      if (!silent) {
-        addActivityLog(
-          'sync',
-          `Bidirectional Sync completed. Resolved ${gEvents.length} active instances from Google Calendar.`
-        );
-      }
-    } catch (err: any) {
-      console.error('Google sync fetch error:', err);
-      if (!silent) {
-        addActivityLog('sync', `Failed to complete bidirectional mapping: ${err.message}`, true);
-      }
-    } finally {
-      if (!silent) {
-        setIsSyncing(false);
-        setSyncStatusMsg('');
-      } else {
-        setIsSilentSyncing(false);
-      }
-    }
-  };
-
-  // Handle Google Auth via popup
-  const handleGoogleLogin = async () => {
-    try {
-      setSyncStatusMsg('Establishing secure Google connection...');
-      const response = await googleSignIn();
-      if (response) {
-        setGoogleUser(response.user);
-        addActivityLog('sync', `Google Calendar connection authenticated under ${response.user.email}`);
-        await triggerGoogleSync(response.accessToken);
-      }
-    } catch (e: any) {
-      console.error(e);
-      showToast(`Google Auth Failed: ${e.message}`, 'error');
-    } finally {
-      setSyncStatusMsg('');
-    }
-  };
-
-  const handleGoogleLogout = async () => {
-    await logoutGoogle();
-    setGoogleUser(null);
-    setGoogleEvents([]);
-    addActivityLog('sync', 'Google Calendar connection decoupled.');
-  };
-
-  // Handle Sign in with Apple and Apple Calendar sync
-  const handleAppleLoginSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!appleEmailInput) return;
-    setIsLinkingApple(true);
-    setSyncStatusMsg('Verifying Apple Credentials and iCloud Calendar slot synchronization...');
-
-    setTimeout(async () => {
-      const userObj = { email: appleEmailInput };
-      setAppleUser(userObj);
-      localStorage.setItem('fp_apple_user', JSON.stringify(userObj));
-      localStorage.setItem('fp_apple_feed_url', appleFeedUrl);
-      addActivityLog('sync', `iCloud Calendar and Sign in with Apple linked successfully under ID ${appleEmailInput}.`);
-      setIsLinkingApple(false);
-      setSyncStatusMsg('');
-      setIsAppleAuthModalOpen(false);
-      setAppleEmailInput('');
-      setApplePasswordInput('');
-
-      // Perform initial fetch from Apple iCal URL stream
-      await triggerAppleFeedFetch(false);
-    }, 1200);
-  };
-
-  const handleAppleLogout = () => {
-    setAppleUser(null);
-    localStorage.removeItem('fp_apple_user');
-    addActivityLog('sync', 'Apple ID and iCloud Calendar synchronization unlinked.');
-  };
-
-  // Safe iCal datetime format parser
-  const parseIcalTime = (val: string): { date: string; time: string } => {
-    const clean = val.replace(/[^0-9T]/g, '');
-    if (clean.length >= 8) {
-      const y = clean.substring(0, 4);
-      const m = clean.substring(4, 6);
-      const d = clean.substring(6, 8);
-      const dateStr = `${y}-${m}-${d}`;
-
-      let timeStr = '12:00';
-      const tIdx = clean.indexOf('T');
-      if (tIdx !== -1 && clean.length >= tIdx + 5) {
-        const hh = clean.substring(tIdx + 1, tIdx + 3);
-        const mm = clean.substring(tIdx + 3, tIdx + 5);
-        timeStr = `${hh}:${mm}`;
-      }
-      return { date: dateStr, time: timeStr };
-    }
-    return { date: '2026-05-28', time: '12:00' };
-  };
-
-  const triggerAppleFeedFetch = async (silent = false) => {
-    if (!appleFeedUrl) return;
-
-    if (!silent) {
-      setSyncStatusMsg('Fetching latest live Apple Calendar stream...');
-      setIsSyncing(true);
-    } else {
-      setIsSilentSyncing(true);
-    }
-
-    try {
-      let targetUrl = appleFeedUrl.trim();
-      if (targetUrl.startsWith('webcal://')) {
-        targetUrl = 'https://' + targetUrl.slice(9);
-      }
-
-      let txt = '';
-      const proxies = [
-        `https://corsproxy.io/?url=${encodeURIComponent(targetUrl)}`,
-        `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
-        targetUrl
-      ];
-
-      let success = false;
-      for (const proxyUrl of proxies) {
-        try {
-          console.log(`iCloud Sync Engine: Fetching from ${proxyUrl}`);
-          const res = await fetch(proxyUrl);
-          if (res.ok) {
-            txt = await res.text();
-            if (txt && txt.includes('BEGIN:VCALENDAR')) {
-              success = true;
-              break;
-            }
-          }
-        } catch (fetchErr) {
-          console.warn(`Proxy failed: ${proxyUrl}`, fetchErr);
-        }
-      }
-
-      if (!success) {
-        if (appleEvents && appleEvents.length > 0) {
-          syncAppleToToolCalendar(appleEvents);
-          if (!silent) {
-            addActivityLog(
-              'sync',
-              `⚠️ Live iCloud feed unreachable. Restored ${appleEvents.length} cached/simulated events from local backup store.`
-            );
-          }
-          return;
-        }
-        throw new Error('iCloud stream response was empty or blocked by cross-origin security.');
-      }
-
-      const lines = txt.split(/\r?\n/);
-      const parsedAppleEvents: Event[] = [];
-      let currentEvent: any = null;
-      let insideEvent = false;
-
-      for (let i = 0; i < lines.length; i++) {
-        let line = lines[i];
-        while (i + 1 < lines.length && (lines[i + 1].startsWith(' ') || lines[i + 1].startsWith('\t'))) {
-          line += lines[i + 1].substring(1);
-          i++;
-        }
-
-        if (line.startsWith('BEGIN:VEVENT')) {
-          currentEvent = {};
-          insideEvent = true;
-        } else if (line.startsWith('END:VEVENT')) {
-          if (currentEvent && currentEvent.uid) {
-            const id = currentEvent.uid;
-            const title = currentEvent.summary || 'iCloud Calendar Event';
-            const notes = currentEvent.description || 'Imported from linked Apple Calendar.';
-            
-            let startVal = currentEvent.dtstart || '';
-            let endVal = currentEvent.dtend || '';
-            
-            const parsedStart = parseIcalTime(startVal);
-            const parsedEnd = parseIcalTime(endVal);
-
-            const matched = getMatchedClientAndVenue(title);
-            parsedAppleEvents.push({
-              id: `apple-live-${id}`,
-              title,
-              clientId: matched.clientId,
-              venueId: matched.venueId,
-              date: parsedStart.date,
-              startTime: parsedStart.time,
-              endTime: parsedEnd.time,
-              staffIds: [],
-              notes,
-              status: 'Confirmed'
-            });
-          }
-          currentEvent = null;
-          insideEvent = false;
-        } else if (insideEvent && currentEvent) {
-          const colonIdx = line.indexOf(':');
-          if (colonIdx !== -1) {
-            const keyPart = line.substring(0, colonIdx);
-            const val = line.substring(colonIdx + 1).trim();
-
-            if (keyPart.startsWith('SUMMARY')) {
-              currentEvent.summary = val;
-            } else if (keyPart.startsWith('DESCRIPTION')) {
-              currentEvent.description = val;
-            } else if (keyPart.startsWith('DTSTART')) {
-              currentEvent.dtstart = val;
-            } else if (keyPart.startsWith('DTEND')) {
-              currentEvent.dtend = val;
-            } else if (keyPart.startsWith('UID')) {
-              currentEvent.uid = val;
-            } else if (keyPart.startsWith('LOCATION')) {
-              currentEvent.location = val;
-            }
-          }
-        }
-      }
-
-      if (parsedAppleEvents.length > 0) {
-        setAppleEvents(parsedAppleEvents);
-        localStorage.setItem('fp_apple_events', JSON.stringify(parsedAppleEvents));
-        syncAppleToToolCalendar(parsedAppleEvents);
-        setLastSyncTime(new Date());
-
-        if (!silent) {
-          addActivityLog(
-            'sync',
-            `iCloud stream successfully fetched! Restored ${parsedAppleEvents.length} active event bookings from your live Apple Calendar.`
-          );
-        }
-      } else {
-        if (!silent) {
-          addActivityLog('sync', 'Successfully fetched iCloud feed, but found no valid scheduled events.');
-        }
-      }
-
-    } catch (err: any) {
-      console.error('Apple iCloud fetch error:', err);
-      if (!silent) {
-        addActivityLog('sync', `iCloud Sync failed: ${err.message}`, true);
-      }
-    } finally {
-      if (!silent) {
-        setIsSyncing(false);
-        setSyncStatusMsg('');
-      } else {
-        setIsSilentSyncing(false);
-      }
-    }
-  };
-
-  const handlePushToAppleCalendar = () => {
-    setIsSyncing(true);
-    setSyncStatusMsg('Syncing all active Johannesburg roster slots to iCloud Calendar space...');
-    setTimeout(() => {
-      setIsSyncing(false);
-      setSyncStatusMsg('');
-      const now = new Date();
-      const startOfCurrentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-      const syncedEvents = events.filter((ev) => ev.date >= startOfCurrentMonthStr);
-      addActivityLog('sync', `Successfully synchronized ${syncedEvents.length} event slots (including ${staff.length} registered staff) starting from ${startOfCurrentMonthStr} with high priority to linked iCloud Calendar.`);
-      showToast(`iCloud Roster Sync Complete: ${syncedEvents.length} event slots starting this month (${startOfCurrentMonthStr}) successfully synced to Apple Calendar.`, 'success');
-    }, 1100);
-  };
-
-  // Manual logs & calls record
-  const logPhoneCall = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!callCaller || !callSummary) return;
-
-    addActivityLog(callType, `[Caller: ${callCaller}] ${callSummary}`, callUrgent);
-    setCallCaller('');
-    setCallSummary('');
-    setCallUrgent(false);
-  };
-
-  // Clear log logs
-  const clearLogs = () => {
-    const freshLog: ActivityLog = {
-      id: `log-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      timestamp: new Date().toISOString(),
-      operator: 'yassin',
-      type: 'auth',
-      message: 'Office Activity Stream buffer cleared.'
-    };
-    setActivityLogs([freshLog]);
-    localStorage.setItem('fp_logs', JSON.stringify([freshLog]));
-  };
-
-  // -------------------------------------------------------------------------
-  // HIGH END PAYROLL CALENDAR SYSTEM MATH & HIGHLIGHTS
-  // -------------------------------------------------------------------------
-  // Rules: opens on 26th of current month and closes/cuts off on 25th of current cycle.
-  // Wait, the specification says:
-  // "Cycle opens on the 26th of the current month, and closes/cuts off on the 25th of the following month. Highlighted days indicate the schedule span."
-  // Let's create a visual mapping for our calendar day rendering.
-  // When displaying May 2026:
-  // Month is 0-indexed: May is Month 4.
-  // Days of May 2026 are highlighted.
-  // Let us check if a given day falls in the current active payroll duration.
-  // In our dropdown or panel config, we can allow selecting which Cycle is focus-locked:
-  // e.g., "Current Cycle: May 26 - Jun 25" (or "Previous Cycle: Apr 26 - May 25")
-  const [focusedPayrollCycle, setFocusedPayrollCycle] = useState<'current' | 'next'>('current');
-
-  const payrollCycleBounds = useMemo(() => {
-    // Current cycle default values: "April 26 to May 25" for cycle ending in May
-    // Next cycle default values: "May 26 to June 25"
-    if (focusedPayrollCycle === 'current') {
+  function prefill(eventId){
+    const ev=events.find(e=>e.id===Number(eventId));
+    if(!ev){ setForm(f=>({...f,eventId})); return; }
+    const hrs=eventHours(ev);
+    const client = clients.find(c=>c.id===ev.clientId);
+    const clientRate = client?.hourlyRate || 0;
+    // Build line items from the staff assigned to this event
+    const lines = ev.staffIds.map(id=>{
+      const s=staff.find(x=>x.id===id);
+      const rate = s?.rate || 0;
+      const total = (hrs * rate).toFixed(2);
       return {
-        label: 'Apr 26 - May 25',
-        startDateStr: `${currentYear}-04-26`,
-        endDateStr: `${currentYear}-05-25`,
-        openMonth: 3, // April
-        closeMonth: 4, // May
+        desc: `${s?.name||"Staff"} — ${s?.role||""} (${hrs}h @ R${rate}/h)`,
+        qty: hrs,
+        rate,
+        total: Number(total),
+        kind: 'staff',
+        staffId: s?.id,
       };
-    } else {
-      return {
-        label: 'May 26 - Jun 25',
-        startDateStr: `${currentYear}-05-26`,
-        endDateStr: `${currentYear}-06-25`,
-        openMonth: 4, // May
-        closeMonth: 5, // June
-      };
-    }
-  }, [focusedPayrollCycle, currentYear, currentMonth]);
-
-  const ROLE_COLORS: Record<string, string> = {
-    'Lead VIP Architect': '#4F46E5',
-    'Corporate Hostess': '#DB2777',
-    'Elite Mixologist': '#B45309',
-    'Service Supervisor': '#10B981',
-    'Private Sommelier': '#1E3A8A',
-    'Safety Concierge': '#0D9488',
-    'Tactical Concierge': '#0D9488',
-    // Backwards compatibility matching names
-    'Sommelier': '#1E3A8A',
-    'Mixologist': '#B45309',
-    'Concierge': '#0D9488',
-    'VIP Hostess': '#DB2777',
-    'Coordinator': '#4F46E5',
-    'Partner': '#8B5CF6',
-    'Manager': '#10B981'
-  };
-
-  const roleUtilizationData = useMemo(() => {
-    const startStr = payrollCycleBounds.startDateStr;
-    const endStr = payrollCycleBounds.endDateStr;
-    const cycleEvents = events.filter(ev => ev.date >= startStr && ev.date <= endStr);
-
-    const breakdown: Record<string, number> = {};
-
-    staff.forEach(s => {
-      if (s.role) {
-        breakdown[s.role] = 0;
-      }
     });
-
-    cycleEvents.forEach(ev => {
-      const hrs = getDurationHours(ev.startTime, ev.endTime);
-      ev.staffIds.forEach(sId => {
-        const sObj = staff.find(s => s.id === sId);
-        if (sObj && sObj.role) {
-          breakdown[sObj.role] = (breakdown[sObj.role] || 0) + hrs;
-        }
+    if (lines.length === 0 && clientRate) {
+      // No staff assigned: charge a flat hourly rate
+      lines.push({
+        desc: `${ev.title} — Service (${hrs}h @ R${clientRate}/h)`,
+        qty: hrs,
+        rate: clientRate,
+        total: Number((hrs * clientRate).toFixed(2)),
+        kind: 'service',
       });
-    });
+    }
+    setForm(f=>({...f,eventId,clientId:String(ev.clientId||f.clientId),lines}));
+  }
+  function addLine(kind='manual'){ setForm(f=>({...f,lines:[...f.lines,{desc:"",qty:1,rate:0,kind,total:0}]})); }
+  function updLine(i,k,v){ setForm(f=>({...f,lines:f.lines.map((l,j)=>{
+    const updated = j===i ? {...l, [k]: v} : l;
+    if (j===i) {
+      const qty = Number(updated.qty) || 0;
+      const rate = Number(updated.rate) || 0;
+      updated.total = Number((qty * rate).toFixed(2));
+    }
+    return updated;
+  })})); }
+  function rmLine(i){ setForm(f=>({...f,lines:f.lines.filter((_,j)=>j!==i)})); }
 
-    return Object.entries(breakdown).map(([name, hours]) => ({
-      name,
-      Hours: parseFloat(hours.toFixed(1))
-    })).sort((a, b) => b.Hours - a.Hours);
-  }, [events, staff, payrollCycleBounds]);
+  const sub=docSubtotal(form.lines);
+  const tax = form.includeTax ? sub * (Number(form.taxRate) || 0) / 100 : 0;
+  const total = sub + tax;
 
-  const freshPeopleGroupedData = useMemo(() => {
-    // Premium event specialist role types as per fresh-people.co.za South Africa standard listings
-    const groups = [
-      {
-        name: 'Brand Ambassadors & Promoters',
-        roles: ['Lead VIP Architect'],
-        description: 'Bespoke marketing ambassadors, elite brand representatives, and activation model hosts.',
-        Hours: 0,
-        color: '#4F46E5'
-      },
-      {
-        name: 'Event Hosts & Hostesses (FOH)',
-        roles: ['Corporate Hostess'],
-        description: 'FOH hospitality guides, receptionists, RSVP desk captains, and luxury greeting hosts.',
-        Hours: 0,
-        color: '#DB2777'
-      },
-      {
-        name: 'Mixologists & Specialist Bar Barons',
-        roles: ['Elite Mixologist'],
-        description: 'Elite cocktail designers, flair service experts, custom bars, and high-end bar staff.',
-        Hours: 0,
-        color: '#B45309'
-      },
-      {
-        name: 'Sommeliers & Professional Curators',
-        roles: ['Private Sommelier'],
-        description: 'Cape Wine Masters, premium food-wine pairing professionals, and fine-dining cellar stewardship.',
-        Hours: 0,
-        color: '#1E3A8A'
-      },
-      {
-        name: 'Event Supervisors & Floor Managers',
-        roles: ['Service Supervisor'],
-        description: 'Team leaders, clock compliance controllers, on-site floor coordinators, and protocol guides.',
-        Hours: 0,
-        color: '#10B981'
-      },
-      {
-        name: 'Elite Safety & Logistics Concierge',
-        roles: ['Safety Concierge', 'Tactical Concierge'],
-        description: 'Transit logs, VVIP secure escorts, flow logistics coordinators, and safety concierge personnel.',
-        Hours: 0,
-        color: '#0D9488'
-      }
-    ];
-
-    roleUtilizationData.forEach(item => {
-      const match = groups.find(g => g.roles.includes(item.name));
-      if (match) {
-        match.Hours += item.Hours;
-      } else {
-        const lowerName = item.name.toLowerCase();
-        if (lowerName.includes('sommelier') || lowerName.includes('wine')) {
-          groups[3].Hours += item.Hours;
-        } else if (lowerName.includes('mixologist') || lowerName.includes('bar') || lowerName.includes('drink')) {
-          groups[2].Hours += item.Hours;
-        } else if (lowerName.includes('host') || lowerName.includes('welcome') || lowerName.includes('reception')) {
-          groups[1].Hours += item.Hours;
-        } else if (lowerName.includes('supervisor') || lowerName.includes('manager') || lowerName.includes('lead')) {
-          groups[4].Hours += item.Hours;
-        } else if (lowerName.includes('concierge') || lowerName.includes('safety') || lowerName.includes('security')) {
-          groups[5].Hours += item.Hours;
-        } else {
-          groups[0].Hours += item.Hours;
+  return(
+    <Modal title={docType==="invoice"?"New Invoice":"New Quotation"} onClose={onClose} width={720}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
+        <Fld label="Doc Number"><input value={form.docNo} onChange={e=>setForm(f=>({...f,docNo:e.target.value}))} style={{width:"100%"}}/></Fld>
+        <Fld label="Client *">
+          <select value={form.clientId} onChange={e=>setForm(f=>({...f,clientId:e.target.value}))} style={{width:"100%"}}>
+            <option value="">— Select client —</option>
+            {clients.map(c=><option key={c.id} value={c.id}>{c.name} (R{c.hourlyRate||90}/h)</option>)}
+          </select>
+        </Fld>
+        <Fld label="Link Event (auto-fills from staff & hours)">
+          <select value={form.eventId} onChange={e=>prefill(e.target.value)} style={{width:"100%"}}>
+            <option value="">— None —</option>
+            {events.map(ev=><option key={ev.id} value={ev.id}>{ev.title} ({fmtDate(ev.date)})</option>)}
+          </select>
+        </Fld>
+        <Fld label="Issue Date"><input type="date" value={form.issueDate} onChange={e=>setForm(f=>({...f,issueDate:e.target.value}))} style={{width:"100%"}}/></Fld>
+        {docType==="invoice"
+          ?<Fld label="Due Date"><input type="date" value={form.dueDate} onChange={e=>setForm(f=>({...f,dueDate:e.target.value}))} style={{width:"100%"}}/></Fld>
+          :<Fld label="Valid Until"><input type="date" value={form.validUntil} onChange={e=>setForm(f=>({...f,validUntil:e.target.value}))} style={{width:"100%"}}/></Fld>
         }
-      }
-    });
+      </div>
 
-    return groups.map(g => ({
-      ...g,
-      Hours: parseFloat(g.Hours.toFixed(1))
-    })).sort((a, b) => b.Hours - a.Hours);
-  }, [roleUtilizationData]);
+      <Fld label="Line Items (staff auto-filled from event; you can add extras)">
+        {form.lines.map((l,i)=>(
+          <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 70px 90px 90px 28px",gap:8,marginBottom:8,alignItems:"center"}}>
+            <input value={l.desc} onChange={e=>updLine(i,"desc",e.target.value)} placeholder={l.kind==='staff'?"Staff line auto-filled":(l.kind==='service'?"Service line":"Description e.g. Equipment, transport, catering")} style={{width:"100%"}}/>
+            <input type="number" value={l.qty} onChange={e=>updLine(i,"qty",e.target.value)} placeholder="Qty/Hrs" style={{width:"100%",textAlign:"right"}}/>
+            <input type="number" value={l.rate} onChange={e=>updLine(i,"rate",e.target.value)} placeholder="Rate" style={{width:"100%",textAlign:"right"}}/>
+            <div className="mono" style={{textAlign:"right",fontSize:12,color:ACCENT,padding:"0 8px"}}>
+              {((Number(l.qty)||0)*(Number(l.rate)||0)).toFixed(2)}
+            </div>
+            <button onClick={()=>rmLine(i)} style={{background:"none",border:"none",color:MUTED,fontSize:18,cursor:"pointer"}}>×</button>
+          </div>
+        ))}
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:6}}>
+          <Btn onClick={()=>addLine('manual')} style={{fontSize:12,padding:"5px 12px"}}>+ Add manual item</Btn>
+          <Btn onClick={()=>addLine('service')} style={{fontSize:12,padding:"5px 12px"}}>+ Add service</Btn>
+          <Btn onClick={()=>addLine('staff')} style={{fontSize:12,padding:"5px 12px"}}>+ Add staff line</Btn>
+        </div>
+      </Fld>
 
-  const staffBalancingData = useMemo(() => {
-    return events.map(ev => {
-      const venueObj = venues.find(v => v.id === ev.venueId);
-      const capacity = venueObj ? venueObj.capacity : 100;
-      const staffCount = ev.staffIds ? ev.staffIds.length : 0;
-      
-      // Calculate staff-to-capacity ratio (staff per guest)
-      const ratio = capacity > 0 ? (staffCount / capacity) : 0;
-      
-      // Calculate guests per staff member
-      const guestsPerStaff = staffCount > 0 ? Math.round(capacity / staffCount) : capacity;
-      
-      // Determine urgency state
-      // Ideal target is 1 staff per 50 guests or better.
-      let level: 'critical' | 'warning' | 'balanced' = 'balanced';
-      if (staffCount === 0 && capacity > 0) {
-        level = 'critical';
-      } else if (guestsPerStaff > 120) {
-        level = 'critical';
-      } else if (guestsPerStaff > 70) {
-        level = 'warning';
-      } else {
-        level = 'balanced';
-      }
-      
-      return {
-        event: ev,
-        venue: venueObj,
-        capacity,
-        staffCount,
-        ratio,
-        guestsPerStaff,
-        level
-      };
-    }).sort((a, b) => {
-      // Sort critical items first, then lowest ratio (higher guest-to-staff counts)
-      if (a.level === 'critical' && b.level !== 'critical') return -1;
-      if (b.level === 'critical' && a.level !== 'critical') return 1;
-      if (a.level === 'warning' && b.level === 'balanced') return -1;
-      if (b.level === 'warning' && a.level === 'balanced') return 1;
-      return a.ratio - b.ratio; // lowest ratio (understaffed) first
-    });
-  }, [events, venues]);
+      <div style={{background:SURFACE2,borderRadius:8,padding:"12px 16px",marginBottom:14,fontSize:13}}>
+        <div style={{display:"flex",justifyContent:"space-between",color:MUTED}}><span>Subtotal</span><span className="mono">R {sub.toFixed(2)}</span></div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",color:MUTED,marginTop:4}}>
+          <span style={{display:"flex",alignItems:"center",gap:6}}>
+            <input type="checkbox" checked={form.includeTax} onChange={e=>setForm(f=>({...f,includeTax:e.target.checked}))} id="incTax"/>
+            <label htmlFor="incTax" style={{cursor:"pointer"}}>VAT</label>
+            {form.includeTax && (
+              <input
+                type="number"
+                value={form.taxRate}
+                onChange={e=>setForm(f=>({...f,taxRate:Number(e.target.value)}))}
+                style={{width:60,padding:"2px 6px",fontSize:12}}
+                min={0}
+                max={100}
+              />
+            )}
+            {form.includeTax && <span>%</span>}
+          </span>
+          <span className="mono">R {tax.toFixed(2)}</span>
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between",fontWeight:600,marginTop:8,paddingTop:8,borderTop:`1px solid ${BORDER}`}}>
+          <span>Total</span><span className="mono" style={{color:ACCENT}}>R {total.toFixed(2)}</span>
+        </div>
+      </div>
 
-  const filteredBalancingData = useMemo(() => {
-    let list = staffBalancingData;
-    if (balanceFilter === 'payroll') {
-      const start = payrollCycleBounds.startDateStr;
-      const end = payrollCycleBounds.endDateStr;
-      list = list.filter(item => item.event.date >= start && item.event.date <= end);
-    }
-    return list;
-  }, [staffBalancingData, balanceFilter, payrollCycleBounds]);
+      <Fld label="Notes / Terms">
+        <textarea value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} rows={2} style={{width:"100%"}}/>
+      </Fld>
+      <div style={{display:"flex",gap:10}}>
+        <Btn variant="primary" onClick={()=>onSave({...form,id:Date.now(),status:"draft",lines:form.lines.map(l=>({...l,qty:Number(l.qty)||0,rate:Number(l.rate)||0,total:Number((Number(l.qty)||0)*(Number(l.rate)||0))}))})} style={{flex:1,padding:"11px"}}>
+          Create {docType==="invoice"?"Invoice":"Quote"}
+        </Btn>
+        <Btn variant="ghost" onClick={onClose} style={{flex:1,padding:"11px"}}>Cancel</Btn>
+      </div>
+    </Modal>
+  );
+}
 
-  // Shift staff calendar month independently
-  const shiftStaffCalendarMonth = (direction: number) => {
-    let nextM = shiftCalendarMonth + direction;
-    let nextY = shiftCalendarYear;
-    if (nextM < 0) {
-      nextM = 11;
-      nextY -= 1;
-    } else if (nextM > 11) {
-      nextM = 0;
-      nextY += 1;
-    }
-    setShiftCalendarMonth(nextM);
-    setShiftCalendarYear(nextY);
-  };
+// ─── Documents Tab (Invoices + Quotes + Statements) ──────────────────────────
+function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,events}){
+  const [view,setView]         = useState("invoices"); // invoices | quotes | statements
+  const [showForm,setShowForm] = useState(null);       // "invoice" | "quote" | null
+  const [printDoc,setPrintDoc] = useState(null);
+  const [stmtClient,setStmtClient] = useState("");
+  const [toast,setToast]       = useState(null);
 
-  const getMonthName = (monthIdx: number) => {
-    const months = [
-      'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December'
-    ];
-    return months[monthIdx];
-  };
+  const allDocs = [...invoices,...quotes];
 
-  // Conflict detection: find all staff-time overlaps across ALL events (not just same-day)
-  // Used by DispatchPanel for OperationsSnapshot conflict count
-  const selectedDayConflicts = useMemo(() => {
-    const conflicts: Array<{
-      staffId: string;
-      staffName: string;
-      staffRole: string;
-      eventA: { id: string; title: string; date: string; startTime: string; endTime: string };
-      eventB: { id: string; title: string; date: string; startTime: string; endTime: string };
-    }> = [];
+  const invTotal  = invoices.reduce((a,i)=>a + docSubtotal(i.lines) * (i.includeTax !== false ? (1 + (Number(i.taxRate) || 15) / 100) : 1), 0);
+  const invPaid   = invoices.filter(i=>i.status==="paid").reduce((a,i)=>a + docSubtotal(i.lines) * (i.includeTax !== false ? (1 + (Number(i.taxRate) || 15) / 100) : 1), 0);
+  const invOverdue= invoices.filter(i=>i.status==="overdue").length;
+  const quoteConv = quotes.length ? Math.round(quotes.filter(q=>q.status==="accepted").length/quotes.length*100) : 0;
 
-    const localEvents = events.filter(e => !e.id.startsWith('gcal-import') && !e.id.startsWith('apple-import') && !e.id.startsWith('apple-live'));
+  function setStatus(id, status, collection, setter){
+    setter(prev=>prev.map(d=>d.id===id?{...d,status}:d));
+    setToast({msg:`Status updated to ${status}`,type:"success"});
+  }
+  function deleteDoc(id, setter){ setter(prev=>prev.filter(d=>d.id!==id)); }
 
-    for (let i = 0; i < localEvents.length; i++) {
-      for (let j = i + 1; j < localEvents.length; j++) {
-        const evA = localEvents[i];
-        const evB = localEvents[j];
-        const sharedStaff = evA.staffIds.filter(id => evB.staffIds.includes(id));
-        if (sharedStaff.length === 0) continue;
-        const { start: startA, end: endA } = getEventDates(evA.date, evA.startTime, evA.endTime);
-        const { start: startB, end: endB } = getEventDates(evB.date, evB.startTime, evB.endTime);
-        const overlaps = startA < endB && startB < endA;
-        if (overlaps) {
-          sharedStaff.forEach(sId => {
-            const sObj = staff.find(s => s.id === sId);
-            conflicts.push({
-              staffId: sId,
-              staffName: sObj ? `${sObj.name} ${sObj.surname}` : sId,
-              staffRole: sObj?.role || '',
-              eventA: { id: evA.id, title: evA.title, date: evA.date, startTime: evA.startTime, endTime: evA.endTime },
-              eventB: { id: evB.id, title: evB.title, date: evB.date, startTime: evB.startTime, endTime: evB.endTime },
-            });
-          });
-        }
-      }
-    }
-    return conflicts;
-  }, [events, staff]);
-
-  // Handle click on staff checkboxes in scheduler
-  const toggleStaffAllocation = (staffId: string) => {
-    setEvSelectedStaffIds((prev) =>
-      prev.includes(staffId) ? prev.filter((id) => id !== staffId) : [...prev, staffId]
-    );
-  };
-
-  // Multi-allocate helper count
-  const mappedRosterCount = evSelectedStaffIds.length;
-
-  // -------------------------------------------------------------------------
-  // WHATSAPP OPERATIONS & MESSAGING UTILS
-  // -------------------------------------------------------------------------
-  const currentSelectedDispatchEvent = useMemo(() => {
-    return events.find((ev) => ev.id === selectedDispatchEventId);
-  }, [events, selectedDispatchEventId]);
-
-  // Returns URL variables targeting this applet URL to trigger callback on mount
-  const generateDispatchConfirmationLinks = (ev: Event, staffMember: Staff) => {
-    const baseAppUrl = window.location.origin + window.location.pathname;
-    const confirmLink = `${baseAppUrl}?action=confirm&eventId=${ev.id}&staffId=${staffMember.id}`;
-    const rejectLink = `${baseAppUrl}?action=reject&eventId=${ev.id}&staffId=${staffMember.id}`;
-    return { confirmLink, rejectLink };
-  };
-
-  const constructWhatsAppMessage = (ev: Event, staffMember: Staff) => {
-    const { confirmLink, rejectLink } = generateDispatchConfirmationLinks(ev, staffMember);
-
-    // Dynamic travel / meeting point helper note based on location capacity metrics
-    const venueObj = venues.find((v) => v.id === ev.venueId);
-    const meetingPointNotes = venueObj?.notes ? `Meeting point context: ${venueObj.notes}` : "Meeting point: Main dispatch gate.";
-
-    // Rule: WhatsApp template must exactly start with matching wording constraints
-    return `Hi ${staffMember.name} ${staffMember.surname} hope you are well. Are you available on ${ev.date} from ${ev.startTime} to ${ev.endTime} (with travel adjustment bounds / ${meetingPointNotes})?\n\nEvent details: "${ev.title}"\nLocation Address: ${venueObj?.name || 'Assigned venue'} (${venueObj?.address || 'Private location'})\n\nClick below to immediately confirm your active allocation status:\nYes: ${confirmLink}\n\nNo: ${rejectLink}`;
-  };
-
-  const dispatchToWhatsApp = (ev: Event, staffMember: Staff) => {
-    const rawMessage = constructWhatsAppMessage(ev, staffMember);
-    try {
-      navigator.clipboard.writeText(rawMessage);
-      showToast(`Roster Message details copied to clipboard! Paste it to message ${staffMember.name} manually.`, 'success');
-      addActivityLog('call', `Copied dispatch message details for ${staffMember.name} ${staffMember.surname} to clipboard for manual delivery.`);
-    } catch {
-      showToast(`Copy failed. Please manually select the message preview text below.`, 'warn');
-    }
-  };
-
-  // iCal ICS Exporter for Apple Calendar integration sync
-  const handleExportICS = () => {
-    const now = new Date();
-    const startOfCurrentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-    const syncedEvents = events.filter((ev) => ev.date >= startOfCurrentMonthStr);
-
-    if (syncedEvents.length === 0) {
-      showToast(`Operational warning: No scheduled events in roster starting from this month (${startOfCurrentMonthStr}) to export.`, 'warn');
-      return;
-    }
-
-    let icsContent = 'BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//Fresh People Agency//Command Center//EN\n';
-
-    syncedEvents.forEach((ev) => {
-      const clientName = clients.find((c) => c.id === ev.clientId)?.name || 'Local Client';
-      const venueName = venues.find((v) => v.id === ev.venueId)?.name || 'Local Venue';
-
-      const dClean = ev.date.replace(/-/g, '');
-      const sClean = ev.startTime.replace(/:/g, '') + '00';
-      const eClean = ev.endTime.replace(/:/g, '') + '00';
-
-      icsContent += 'BEGIN:VEVENT\n';
-      icsContent += `DTSTART;TZID=Africa/Johannesburg:${dClean}T${sClean}\n`;
-      icsContent += `DTEND;TZID=Africa/Johannesburg:${dClean}T${eClean}\n`;
-      icsContent += `SUMMARY:${ev.title}\n`;
-      icsContent += `LOCATION:${venueName}\n`;
-      icsContent += `DESCRIPTION:Fresh People Event scheduling Client: ${clientName}. Notes: ${ev.notes || 'None'}\n`;
-      icsContent += `UID:${ev.id}@freshpeople.agency\n`;
-      icsContent += 'END:VEVENT\n';
-    });
-
-    icsContent += 'END:VCALENDAR';
-
-    const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `fresh_people_events_roster_starting_${startOfCurrentMonthStr}.ics`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-
-    addActivityLog('sync', `Successfully exported scheduled iCal registry feed (.ics) starting from ${startOfCurrentMonthStr} for Apple Calendar linkage.`);
-  };
-
-  // Synchronous effect to automatically pre-fill details on change of chosen dispatch target
-  useEffect(() => {
-    if (selectedDispatchEventId) {
-      const ev = events.find(e => e.id === selectedDispatchEventId);
-      if (ev) {
-        setDispatchClientDate(ev.date);
-        setDispatchAdjustedTime(`${ev.startTime} - ${ev.endTime} (Includes traveling period management)`);
-        const venueObj = venues.find(v => v.id === ev.venueId);
-        setDispatchArrangements(`Meeting point: ${venueObj?.notes || "Service desk entrance. Please wear uniform corporate codes."}`);
-      }
-    } else {
-      setDispatchClientDate('');
-      setDispatchAdjustedTime('');
-      setDispatchArrangements('');
-    }
-  }, [selectedDispatchEventId, events, venues]);
-
-  // CSV Events List Exporter
-  const handleExportEventsCSV = () => {
-    if (events.length === 0) {
-      showToast('Operational Warning: No scheduled events in roster to export.', 'warn');
-      return;
-    }
-    
-    const headers = [
-      'Event ID',
-      'Event Title',
-      'Client Sponsor',
-      'Venue Name',
-      'Physical Address',
-      'Calendar Date',
-      'Start Time',
-      'End Time',
-      'Billing Status',
-      'Direct Booking',
-      'Allocated Staff List',
-      'Core Brand Directives'
-    ];
-    
-    const rows = events.map(ev => {
-      const clientName = clients.find(c => c.id === ev.clientId)?.name || 'Local Client';
-      const venueObj = venues.find(v => v.id === ev.venueId);
-      const venueName = venueObj?.name || 'Local Venue';
-      const venueAddress = venueObj?.address || 'Private Location';
-      
-      const staffList = ev.staffIds.map(sId => {
-        const s = staff.find(st => st.id === sId);
-        const rsvp = ev.staffRSVPs?.[sId] || 'Pending';
-        return s ? `${s.name} ${s.surname} (${s.role}) [${rsvp}]` : sId;
-      }).join('; ');
-      
-      return [
-        ev.id,
-        ev.title,
-        clientName,
-        venueName,
-        venueAddress,
-        ev.date,
-        ev.startTime,
-        ev.endTime,
-        ev.status || 'Pending',
-        ev.isDirectBooking ? 'Yes' : 'No',
-        staffList,
-        ev.notes || ''
-      ];
-    });
-    
-    downloadCSV('fresh_people_events_schedule.csv', headers, rows);
-    addActivityLog('sync', 'Successfully exported scheduled event logs (.CSV) for operational analysis.');
-  };
-
-  // CSV Payroll Exporter for Focused Month's Cycle
-  const handleExportPayrollCSV = () => {
-    const startStr = payrollCycleBounds.startDateStr;
-    const endStr = payrollCycleBounds.endDateStr;
-    
-    // Filter events inside this cycle index
-    const cycleEvents = events.filter(ev => ev.date >= startStr && ev.date <= endStr);
-    
-    const headers = [
-      'Staff ID',
-      'Given Name',
-      'Family Name',
-      'Specialist Role',
-      'Contract Rate (R/h)',
-      'Total Scheduled Hours',
-      'Calculated Cycle Pay (R)',
-      'Associated Event Schedule'
-    ];
-    
-    const rows = staff.map(s => {
-      const staffEvents = cycleEvents.filter(ev => ev.staffIds.includes(s.id));
-      let totalHrs = 0;
-      let totalEarn = 0;
-      const descList: string[] = [];
-      
-      staffEvents.forEach(ev => {
-        const hrs = getDurationHours(ev.startTime, ev.endTime);
-        const earn = hrs * s.rate;
-        totalHrs += hrs;
-        totalEarn += earn;
-        const rsvp = ev.staffRSVPs?.[s.id] || 'Pending';
-        descList.push(`${ev.title} (${ev.date}) [${hrs.toFixed(1)}h - RSVP: ${rsvp}]`);
-      });
-      
-      return [
-        s.id,
-        s.name,
-        s.surname,
-        s.role,
-        `R${s.rate}`,
-        totalHrs.toFixed(2),
-        `R${totalEarn.toFixed(2)}`,
-        descList.join('; ')
-      ];
-    });
-    
-    const cycleLabel = payrollCycleBounds.label.replace(/\s+/g, '_');
-    downloadCSV(`fresh_people_payroll_summary_${cycleLabel}.csv`, headers, rows);
-    addActivityLog('sync', `Successfully generated complete payroll spreadsheet for cycle bounds ${payrollCycleBounds.label}.`);
-  };
-
-  const escapeCSVValue = (val: any) => {
-    const str = val === undefined || val === null ? '' : String(val);
-    if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
-      return `"${str.replace(/"/g, '""')}"`;
-    }
-    return str;
-  };
-
-  const downloadCSV = (filename: string, headers: string[], rows: string[][]) => {
-    const csvContent = [
-      headers.map(escapeCSVValue).join(','),
-      ...rows.map(row => row.map(escapeCSVValue).join(','))
-    ].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  // JSON Data Backup Exporter
-  const handleExportJSON = () => {
-    const backupData = {
-      exportDate: new Date().toISOString(),
-      version: '1.0',
-      events,
-      clients,
-      venues,
-      staff,
-      activityLogs,
+  function convertToInvoice(quote){
+    const inv={
+      ...quote,
+      id:Date.now(),
+      docNo:nextDocNo(invoices,"FP-INV"),
+      type:"invoice",
+      dueDate:ymd(addDays(today,30)),
+      validUntil:undefined,
+      status:"draft",
     };
-    const jsonStr = JSON.stringify(backupData, null, 2);
-    const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8;' });
-    const link = document.createElement('a');
-    const timestamp = new Date().toISOString().split('T')[0];
-    link.href = URL.createObjectURL(blob);
-    link.download = `fresh-people-backup-${timestamp}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    addActivityLog('sync', `Full data backup exported (${events.length} events, ${clients.length} clients, ${staff.length} staff).`);
-    showToast(`Backup exported: ${events.length} events, ${clients.length} clients, ${staff.length} staff, ${venues.length} venues.`, 'success');
-  };
-
-  // JSON Data Backup Importer
-  const handleImportBackup = (data: any, mode: 'replace' | 'merge') => {
-    const importDate = new Date(data.exportDate).toLocaleString();
-    let importedEvents = 0;
-    let importedClients = 0;
-    let importedVenues = 0;
-    let importedStaff = 0;
-
-    if (mode === 'replace') {
-      // Replace all data
-      setEvents(data.events || []);
-      setClients(data.clients || []);
-      setVenues(data.venues || []);
-      setStaff(data.staff || []);
-      if (data.activityLogs) setActivityLogs(data.activityLogs);
-
-      localStorage.setItem('fp_events', JSON.stringify(data.events || []));
-      localStorage.setItem('fp_clients', JSON.stringify(data.clients || []));
-      localStorage.setItem('fp_venues', JSON.stringify(data.venues || []));
-      localStorage.setItem('fp_staff', JSON.stringify(data.staff || []));
-      if (data.activityLogs) localStorage.setItem('fp_logs', JSON.stringify(data.activityLogs));
-
-      importedEvents = (data.events || []).length;
-      importedClients = (data.clients || []).length;
-      importedVenues = (data.venues || []).length;
-      importedStaff = (data.staff || []).length;
-
-      addActivityLog('sync', `Full data REPLACE import from backup (${importDate}): ${importedEvents} events, ${importedClients} clients, ${importedVenues} venues, ${importedStaff} staff.`);
-      showToast(`Import complete: ${importedEvents} events, ${importedClients} clients, ${importedVenues} venues, ${importedStaff} staff replaced.`, 'success');
-    } else {
-      // Merge mode: add only new records (by ID)
-      const existingEventIds = new Set(events.map(e => e.id));
-      const existingClientIds = new Set(clients.map(c => c.id));
-      const existingVenueIds = new Set(venues.map(v => v.id));
-      const existingStaffIds = new Set(staff.map(s => s.id));
-
-      const newEvents = (data.events || []).filter((e: any) => !existingEventIds.has(e.id));
-      const newClients = (data.clients || []).filter((c: any) => !existingClientIds.has(c.id));
-      const newVenues = (data.venues || []).filter((v: any) => !existingVenueIds.has(v.id));
-      const newStaff = (data.staff || []).filter((s: any) => !existingStaffIds.has(s.id));
-
-      const mergedEvents = [...events, ...newEvents];
-      const mergedClients = [...clients, ...newClients];
-      const mergedVenues = [...venues, ...newVenues];
-      const mergedStaff = [...staff, ...newStaff];
-
-      setEvents(mergedEvents);
-      setClients(mergedClients);
-      setVenues(mergedVenues);
-      setStaff(mergedStaff);
-
-      localStorage.setItem('fp_events', JSON.stringify(mergedEvents));
-      localStorage.setItem('fp_clients', JSON.stringify(mergedClients));
-      localStorage.setItem('fp_venues', JSON.stringify(mergedVenues));
-      localStorage.setItem('fp_staff', JSON.stringify(mergedStaff));
-
-      importedEvents = newEvents.length;
-      importedClients = newClients.length;
-      importedVenues = newVenues.length;
-      importedStaff = newStaff.length;
-
-      addActivityLog('sync', `Merged data from backup (${importDate}): +${importedEvents} events, +${importedClients} clients, +${importedVenues} venues, +${importedStaff} staff added.`);
-      showToast(`Merge complete: +${importedEvents} events, +${importedClients} clients, +${importedVenues} venues, +${importedStaff} staff added.`, 'success');
-
-      if (importedEvents === 0 && importedClients === 0 && importedVenues === 0 && importedStaff === 0) {
-        showToast('No new records found in backup — all IDs already exist.', 'info');
-      }
-    }
-  };
-
-  // Authenticated Gateway form render
-  if (!isUnlocked) {
-    return (
-      <AuthGateway
-        operatorId={operatorId}
-        setOperatorId={setOperatorId}
-        securityPhrase={securityPhrase}
-        setSecurityPhrase={setSecurityPhrase}
-        authError={authError}
-        isForgotPasswordMode={isForgotPasswordMode}
-        setIsForgotPasswordMode={setIsForgotPasswordMode}
-        forgotOperatorId={forgotOperatorId}
-        setForgotOperatorId={setForgotOperatorId}
-        forgotEmail={forgotEmail}
-        setForgotEmail={setForgotEmail}
-        resetSuccessMessage={resetSuccessMessage}
-        setResetSuccessMessage={setResetSuccessMessage}
-        handleAuthSubmit={handleAuthSubmit}
-        handleResetPasswordRequest={handleResetPasswordRequest}
-      />
-    );
+    setInvoices(prev=>[inv,...prev]);
+    setQuotes(prev=>prev.map(q=>q.id===quote.id?{...q,status:"accepted"}:q));
+    setToast({msg:`Quote converted to Invoice ${inv.docNo}`,type:"success"});
+    setView("invoices");
   }
 
-  return (
-    <div className="min-h-screen flex flex-col relative z-20">
-      <ToastNotifications
-        toastAlert={toastAlert}
-        setToastAlert={setToastAlert}
-        undoToast={undoToast}
-        syncStatusMsg={syncStatusMsg}
-      />
+  const renderDocs = (docs, setter, isInvoice) => {
+    if(!docs.length) return <div style={{textAlign:"center",padding:48,color:MUTED,fontSize:14}}>No documents found</div>;
+    return(
+      <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,overflow:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+          <thead style={{background:SURFACE2}}><tr>
+            {["Doc No","Client","Event","Date",isInvoice?"Due":"Valid Until","Total","Status",""].map(h=>(
+              <th key={h} style={{padding:"12px 14px",textAlign:"left",color:MUTED,fontWeight:500,fontSize:11,textTransform:"uppercase",letterSpacing:"0.05em"}}>{h}</th>
+            ))}
+          </tr></thead>
+          <tbody>{docs.map(doc=>{
+            const client=clients.find(c=>c.id===doc.clientId);
+            const event=events.find(e=>e.id===doc.eventId);
+            const sub=docSubtotal(doc.lines);
+            const tax = doc.includeTax !== false ? sub * (Number(doc.taxRate) || 15) / 100 : 0;
+            const total=(sub+tax).toFixed(2);
+            const sc=STATUS_COLOR[doc.status]||MUTED;
+            return(
+              <tr key={doc.id} style={{borderTop:`1px solid ${BORDER}33`}}>
+                <td style={{padding:"12px 14px",fontFamily:"'DM Mono',monospace",color:ACCENT}}>{doc.docNo}</td>
+                <td style={{padding:"12px 14px",fontWeight:500}}>{client?.name||"—"}</td>
+                <td style={{padding:"12px 14px",color:MUTED,fontSize:12,maxWidth:140,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{event?.title||"—"}</td>
+                <td style={{padding:"12px 14px",color:MUTED}}>{fmtDate(doc.issueDate)}</td>
+                <td style={{padding:"12px 14px",color:doc.status==="overdue"?RED:MUTED}}>{fmtDate(isInvoice?doc.dueDate:doc.validUntil)}</td>
+                <td style={{padding:"12px 14px",fontFamily:"'DM Mono',monospace"}}>R {total}</td>
+                <td style={{padding:"12px 14px"}}>
+                  <select value={doc.status} onChange={e=>setStatus(doc.id,e.target.value,docs,setter)}
+                    style={{background:sc+"22",color:sc,border:`1px solid ${sc}44`,borderRadius:6,padding:"3px 8px",fontSize:11,fontWeight:600,textTransform:"uppercase"}}>
+                    {(isInvoice?["draft","sent","paid","overdue"]:["draft","sent","accepted","declined","expired"]).map(s=><option key={s} value={s}>{s}</option>)}
+                  </select>
+                </td>
+                <td style={{padding:"12px 14px"}}>
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                    <Btn onClick={()=>setPrintDoc({doc,docType:isInvoice?"invoice":"quote"})} style={{fontSize:11,padding:"4px 10px"}}>View</Btn>
+                    {!isInvoice&&doc.status!=="accepted"&&<Btn variant="accent" onClick={()=>convertToInvoice(doc)} style={{fontSize:11,padding:"4px 10px"}}>→ Invoice</Btn>}
+                    <Btn variant="danger" onClick={()=>deleteDoc(doc.id,setter)} style={{fontSize:11,padding:"4px 10px"}}>×</Btn>
+                  </div>
+                </td>
+              </tr>
+            );
+          })}</tbody>
+        </table>
+      </div>
+    );
+  };
 
-      {/* Decorative Blur Background Circles */}
-      <div className="ambient-glow-1"></div>
-      <div className="ambient-glow-2"></div>
+  return(
+    <div>
+      {/* Stats */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:24}}>
+        <Stat label="Invoiced (incl VAT)"  value={`R ${invTotal.toFixed(0)}`}    accent={ACCENT} />
+        <Stat label="Collected"            value={`R ${invPaid.toFixed(0)}`}      accent={ACCENT} />
+        <Stat label="Overdue invoices"     value={invOverdue}                     accent={invOverdue?RED:MUTED} />
+        <Stat label="Quote conversion"     value={`${quoteConv}%`}               accent={AMBER} sub={`${quotes.length} quotes total`}/>
+      </div>
 
-      <AppHeader
-        systime={systime}
-        sessionTimeLeft={sessionTimeLeft}
-        mobileMenuOpen={mobileMenuOpen}
-        setMobileMenuOpen={setMobileMenuOpen}
-        undoStack={undoStack}
-        redoStack={redoStack}
-        undo={undo}
-        redo={redo}
-        triggerLogout={triggerLogout}
-      />
+      {/* Sub-tabs */}
+      <div style={{display:"flex",gap:0,background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:10,padding:4,width:"fit-content",marginBottom:20}}>
+        {[["invoices","Invoices"],["quotes","Quotations"],["statements","Statements"]].map(([k,l])=>(
+          <button key={k} onClick={()=>setView(k)} style={{
+            padding:"8px 20px",borderRadius:7,border:"none",fontSize:13,fontWeight:500,
+            background:view===k?ACCENT+"22":"transparent",
+            color:view===k?ACCENT:MUTED,
+            borderBottom:view===k?`2px solid ${ACCENT}`:"2px solid transparent",
+          }}>{l}</button>
+        ))}
+      </div>
 
-      {/* Premium Quiet Luxury Operational Export Control Panel */}
-      <ExportToolbar
-        payrollCycleBounds={payrollCycleBounds}
-        handleExportEventsCSV={handleExportEventsCSV}
-        handleExportPayrollCSV={handleExportPayrollCSV}
-        handleExportJSON={handleExportJSON}
-        onImportBackup={handleImportBackup}
-      />
-
-      {/* Mobile menu overlay backdrop */}
-      {mobileMenuOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 z-30 lg:hidden"
-          onClick={() => setMobileMenuOpen(false)}
-        />
+      {/* Controls - simplified */}
+      {view!=="statements"&&(
+        <div style={{display:"flex",justifyContent:"flex-end",marginBottom:16}}>
+          <Btn variant="primary" onClick={()=>setShowForm(view==="invoices"?"invoice":"quote")}>
+            + New {view==="invoices"?"Invoice":"Quote"}
+          </Btn>
+        </div>
       )}
 
-      {/* Global Command Column Grid */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full grid grid-cols-1 lg:grid-cols-12 gap-6 relative z-10">
-
-        {/* ========================================================================= */}
-        {/* LEFT COMPASS: Directories, Registries & Onboarding */}
-        {/* ========================================================================= */}
-        <section
-          id="directory_section"
-          className={`lg:col-span-4 flex flex-col space-y-6 ${
-            mobileMenuOpen
-              ? 'fixed inset-y-0 left-0 z-40 w-80 max-w-[85vw] overflow-y-auto bg-[#FAF9F6] p-4 pt-20 shadow-2xl lg:relative lg:inset-auto lg:z-auto lg:w-auto lg:max-w-none lg:overflow-visible lg:bg-transparent lg:p-0 lg:shadow-none'
-              : 'hidden lg:flex'
-          } transition-all duration-300`}
-        >
-
-          {/* Master Directories Selection Box */}
-          <MasterRegistry
-            activeTab={activeTab}
-            switchTab={switchTab}
-            clients={clients}
-            venues={venues}
-            staff={staff}
-            onAddClient={() => setActiveModal('client')}
-            onAddVenue={() => setActiveModal('venue')}
-            onAddStaff={() => setActiveModal('staff')}
-          />
-
-          {/* Staffing Alerts Panel */}
-          <StaffingAlertsPanel
-            events={events}
-            staff={staff}
-            clients={clients}
-            venues={venues}
-          />
-
-          {/* Staff Availability Dashboard */}
-          <StaffAvailabilityPanel
-            staff={staff}
-            events={events}
-            clients={clients}
-            venues={venues}
-            bulkUpdateRSVP={bulkUpdateRSVP}
-          />
-
-          {/* Staff Shift Calendar */}
-          <Suspense fallback={<div className="glass-panel rounded-lg p-5 shadow-luxury-glow"><div className="text-[10px] text-slate-400 text-center py-4">Loading shift calendar...</div></div>}>
-            <StaffShiftCalendar
-              staff={staff}
-              events={events}
-              clients={clients}
-              venues={venues}
-              selectedStaffId={selectedShiftStaffId}
-              onSelectStaff={setSelectedShiftStaffId}
-              month={shiftCalendarMonth}
-              year={shiftCalendarYear}
-              onShiftMonth={shiftStaffCalendarMonth}
-              getMonthName={getMonthName}
-            />
-          </Suspense>
-
-          {/* Role Utilization Dashboard widget */}
-          <RoleUtilizationChart
-            roleUtilizationData={roleUtilizationData}
-            freshPeopleGroupedData={freshPeopleGroupedData}
-            payrollCycleBounds={payrollCycleBounds}
-            ROLE_COLORS={ROLE_COLORS}
-          />
-
-          {/* Staff Performance Dashboard */}
-          <StaffPerformancePanel
-            staff={staff}
-            events={events}
-            clients={clients}
-            venues={venues}
-          />
-
-          {/* Scheduling & Core Event Architecture Planner Form */}
-          <EventArchitect
-            evTitle={evTitle}
-            setEvTitle={setEvTitle}
-            evClient={evClient}
-            setEvClient={setEvClient}
-            evVenue={evVenue}
-            setEvVenue={setEvVenue}
-            evDate={evDate}
-            setEvDate={setEvDate}
-            evTimeStart={evTimeStart}
-            setEvTimeStart={setEvTimeStart}
-            evTimeEnd={evTimeEnd}
-            setEvTimeEnd={setEvTimeEnd}
-            evNotes={evNotes}
-            setEvNotes={setEvNotes}
-            evClientRequirements={evClientRequirements}
-            setEvClientRequirements={setEvClientRequirements}
-            evSelectedStaffIds={evSelectedStaffIds}
-            evStatus={evStatus}
-            setEvStatus={setEvStatus}
-            isDirectBookingChecked={isDirectBookingChecked}
-            setIsDirectBookingChecked={setIsDirectBookingChecked}
-            editingEventId={editingEventId}
-            handleCancelEdit={handleCancelEdit}
-            showTemplatePanel={showTemplatePanel}
-            setShowTemplatePanel={setShowTemplatePanel}
-            templateName={templateName}
-            setTemplateName={setTemplateName}
-            eventTemplates={eventTemplates}
-            clients={clients}
-            venues={venues}
-            staff={staff}
-            recurrence={recurrence}
-            setRecurrence={setRecurrence}
-            recurrenceEnd={recurrenceEnd}
-            setRecurrenceEnd={setRecurrenceEnd}
-            createEvent={createEvent}
-            toggleStaffAllocation={toggleStaffAllocation}
-            saveEventTemplate={saveEventTemplate}
-            applyEventTemplate={applyEventTemplate}
-            deleteEventTemplate={deleteEventTemplate}
-          />
-
-        </section>
-
-        {/* ========================================================================= */}
-        {/* CENTER COLUMN: Interactive Payroll Grid Schedule                         */}
-        {/* ========================================================================= */}
-        <PayrollCalendar
-          events={events}
-          googleEvents={googleEvents}
-          appleEvents={appleEvents}
-          appleUser={appleUser}
-          clients={clients}
-          venues={venues}
-          staff={staff}
-          currentMonth={currentMonth}
-          currentYear={currentYear}
-          setCurrentMonth={setCurrentMonth}
-          setCurrentYear={setCurrentYear}
-          selectedDateStr={selectedDateStr}
-          setSelectedDateStr={setSelectedDateStr}
-          focusedPayrollCycle={focusedPayrollCycle}
-          setFocusedPayrollCycle={setFocusedPayrollCycle}
-          setEvDate={setEvDate}
-          showRSVPPanel={showRSVPPanel}
-          setShowRSVPPanel={setShowRSVPPanel}
-          toggleStaffRSVP={toggleStaffRSVP}
-          handleQuickStatusChange={handleQuickStatusChange}
-          handleEditEvent={handleEditEvent}
-          setShowDeleteConfirm={setShowDeleteConfirm}
-          setEvents={setEvents}
-          addActivityLog={addActivityLog}
-          bulkUpdateRSVP={bulkUpdateRSVP}
-          getMatchedClientAndVenue={getMatchedClientAndVenue}
-          handleDuplicateEvent={handleDuplicateEvent}
-        />
-
-        {/* ========================================================================= */}
-        {/* RIGHT COLUMN: WhatsApp Dispatcher Console, Apple Sync & Call Log       */}
-        {/* ========================================================================= */}
-        <DispatchPanel
-          events={events}
-          staff={staff}
-          clients={clients}
-          venues={venues}
-          activityLogs={activityLogs}
-          selectedDayConflicts={selectedDayConflicts}
-          selectedDispatchEventId={selectedDispatchEventId}
-          setSelectedDispatchEventId={setSelectedDispatchEventId}
-          googleUser={googleUser}
-          appleUser={appleUser}
-          autoSyncEnabled={autoSyncEnabled}
-          setAutoSyncEnabled={setAutoSyncEnabled}
-          isSilentSyncing={isSilentSyncing}
-          lastSyncTime={lastSyncTime}
-          appleFeedUrl={appleFeedUrl}
-          setAppleFeedUrl={setAppleFeedUrl}
-          isAppleAuthModalOpen={isAppleAuthModalOpen}
-          setIsAppleAuthModalOpen={setIsAppleAuthModalOpen}
-          isAppleSimulatorVisible={isAppleSimulatorVisible}
-          setIsAppleSimulatorVisible={setIsAppleSimulatorVisible}
-          appleEvents={appleEvents}
-          balanceFilter={balanceFilter}
-          setBalanceFilter={setBalanceFilter}
-          payrollCycleBounds={payrollCycleBounds}
-          addActivityLog={addActivityLog}
-          showToast={showToast}
-          handleGoogleLogin={handleGoogleLogin}
-          handleGoogleLogout={handleGoogleLogout}
-          triggerGoogleSync={triggerGoogleSync}
-          handleExportICS={handleExportICS}
-          handleAppleLogout={handleAppleLogout}
-          handlePushToAppleCalendar={handlePushToAppleCalendar}
-          triggerAppleFeedFetch={triggerAppleFeedFetch}
-          handleDeleteAppleSimulatorEvent={handleDeleteAppleSimulatorEvent}
-          handleAddAppleSimulatorEvent={handleAddAppleSimulatorEvent}
-          clearLogs={clearLogs}
-          getMatchedClientAndVenue={getMatchedClientAndVenue}
-          getDurationHours={getDurationHours}
-        />
-
-
-      </main>
-
-      {/* Primary central system footer bar */}
-      <footer className="border-t border-slate-205 py-4 bg-slate-50 relative z-10 select-none">
-        <div className="max-w-7xl mx-auto px-4 text-center">
-          <p className="text-[8px] text-slate-500 tracking-[0.3em] uppercase font-bold">
-            SECURE CRYPTOGRAPHIC PROTOCOLS &bull; FRESH PEOPLE AGENCY FRAMEWORK &bull; REGISTERED INTERNAL USE ONLY
-          </p>
+      {/* Content */}
+      {view==="invoices" && renderDocs(invoices, setInvoices, true)}
+      {view==="quotes"   && renderDocs(quotes, setQuotes, false)}
+      {view==="statements"&&(
+        <div>
+          <div style={{marginBottom:20,maxWidth:320}}>
+            <Lbl>Select Client to generate statement</Lbl>
+            <select value={stmtClient} onChange={e=>setStmtClient(e.target.value)} style={{width:"100%"}}>
+              <option value="">— Choose client —</option>
+              {clients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+          {stmtClient&&(()=>{
+            const c=clients.find(x=>x.id===Number(stmtClient));
+            const cDocs=allDocs.filter(d=>d.clientId===Number(stmtClient));
+            const outstanding=cDocs.filter(d=>d.status!=="paid").reduce((a,d)=>a+docSubtotal(d.lines)*1.15,0);
+            const paid=cDocs.filter(d=>d.status==="paid").reduce((a,d)=>a+docSubtotal(d.lines)*1.15,0);
+            return(
+              <div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:20}}>
+                  <Stat label="Total invoiced" value={`R ${(outstanding+paid).toFixed(0)}`}/>
+                  <Stat label="Paid" value={`R ${paid.toFixed(0)}`} accent={ACCENT}/>
+                  <Stat label="Balance due" value={`R ${outstanding.toFixed(0)}`} accent={outstanding>0?RED:MUTED}/>
+                </div>
+                <Btn variant="accent" onClick={()=>setPrintDoc({
+                  doc:{...c,docNo:`FP-STMT-${Date.now()}`,clientId:Number(stmtClient),issueDate:ymd(today),lines:[],notes:"",status:"statement"},
+                  docType:"statement"
+                })}>View / Print Statement</Btn>
+              </div>
+            );
+          })()}
         </div>
-      </footer>
+      )}
 
-      {/* ========================================================================= */}
-      {/* ONBOARDING DIALOG WINDOW MODULES (CLIENTS, VENUES, STAFF REGISTRATION)  */}
-      {/* ========================================================================= */}
-      <RegistrationModals
-        activeModal={activeModal}
-        setActiveModal={setActiveModal}
-        newClient={newClient}
-        setNewClient={setNewClient}
-        newVenue={newVenue}
-        setNewVenue={setNewVenue}
-        newStaff={newStaff}
-        setNewStaff={setNewStaff}
-        registerClient={registerClient}
-        registerVenue={registerVenue}
-        registerStaff={registerStaff}
-      />
-
-      {/* Dialogs & Modals — Apple Auth, Delete Confirm, Shortcuts Help */}
-      <DialogsModals
-        isAppleAuthModalOpen={isAppleAuthModalOpen}
-        setIsAppleAuthModalOpen={setIsAppleAuthModalOpen}
-        appleEmailInput={appleEmailInput}
-        setAppleEmailInput={setAppleEmailInput}
-        applePasswordInput={applePasswordInput}
-        setApplePasswordInput={setApplePasswordInput}
-        appleFeedUrl={appleFeedUrl}
-        setAppleFeedUrl={setAppleFeedUrl}
-        isLinkingApple={isLinkingApple}
-        setIsLinkingApple={setIsLinkingApple}
-        handleAppleLoginSubmit={handleAppleLoginSubmit}
-        showDeleteConfirm={showDeleteConfirm}
-        setShowDeleteConfirm={setShowDeleteConfirm}
-        deleteEvent={deleteEvent}
-        showShortcutsModal={showShortcutsModal}
-        setShowShortcutsModal={setShowShortcutsModal}
-      />
+      {/* Modals */}
+      {showForm&&(
+        <DocForm
+          docType={showForm}
+          clients={clients}
+          events={events}
+          staff={staff}
+          existingDocs={showForm==="invoice"?invoices:quotes}
+          onSave={doc=>{
+            if(showForm==="invoice") {
+              const created = dataStore.addInvoice(doc);
+              setInvoices(p=>[created,...p]);
+            } else {
+              const created = dataStore.addQuote(doc);
+              setQuotes(p=>[created,...p]);
+            }
+            setShowForm(null);
+            const t = showForm==="invoice" ? "Invoice" : "Quote";
+            setToast({msg: t + " " + doc.docNo + " created", type: "success"});
+          }}
+          onClose={()=>setShowForm(null)}
+        />
+      )}
+      {printDoc&&(
+        <DocPrint
+          doc={printDoc.doc}
+          docType={printDoc.docType}
+          client={clients.find(c=>c.id===printDoc.doc.clientId)}
+          event={events.find(e=>e.id===printDoc.doc.eventId)}
+          allDocs={allDocs}
+          onClose={()=>setPrintDoc(null)}
+        />
+      )}
+      {toast&&<Toast msg={toast.msg} type={toast.type} onDone={()=>setToast(null)}/>}
     </div>
+  );
+}
+
+// ─── Calendar Tab (with Google Calendar sync) ─────────────────────────────────
+function CalendarTab({events,setEvents,staff,clients,addToast}){
+  const [viewDate,setViewDate] = useState(new Date(today.getFullYear(),today.getMonth(),1));
+  const [selected,setSelected] = useState(null);
+  const [showForm,setShowForm] = useState(false);
+  const [editEvt,setEditEvt]   = useState(null);
+  const [gcalEvents,setGcalEvents] = useState([]);
+  const [syncing,setSyncing]   = useState(false);
+  const [appleEvents,setAppleEvents] = useState([]);
+  const [syncingApple,setSyncingApple] = useState(false);
+  const [bookingModal,setBookingModal] = useState(null); // event to send notifications for
+  const [sendingNotifs,setSendingNotifs] = useState(false);
+  const [form,setForm] = useState({title:"",date:"",venue:"",startTime:"09:00",endTime:"17:00",staffIds:[],clientId:"",color:ACCENT,notes:""});
+
+  const yr=viewDate.getFullYear(), mo=viewDate.getMonth();
+  const firstDay=new Date(yr,mo,1).getDay();
+  const daysInMonth=new Date(yr,mo+1,0).getDate();
+  const cells=Array.from({length:firstDay+daysInMonth},(_,i)=>i<firstDay?null:i-firstDay+1);
+  const todayStr=ymd(today);
+
+  // Fetch GCal events for the visible month
+  // Fetch Google Calendar events (client-side, no API route needed)
+  async function fetchGcal() {
+    setSyncing(true);
+    try{
+      // Use local API endpoint instead of direct iCal fetch
+      const resp = await fetch('/api/calendar/google');
+      if (!resp.ok) {
+        const errorData = await resp.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to fetch Google Calendar');
+      }
+      
+      const data = await resp.json();
+      
+      if (data.success && Array.isArray(data.events)) {
+        setGcalEvents(data.events.map(e => ({
+          ...e,
+          isGcal: true,
+          color: "#5ca4ea",
+          date: e.start.split('T')[0] // Extract date part
+        })));
+        addToast(`Google Calendar synced ✓ (${data.events.length} events)`, "success");
+      } else {
+        throw new Error('Invalid response format');
+      }
+    } catch(e){ 
+      console.error('GCal sync error:', e);
+      addToast(`Google Calendar sync failed: ${e.message}`, "error"); 
+    }
+    setSyncing(false);
+  }
+
+  // Fetch Apple Calendar events via the new /api/calendar/apple endpoint
+  // (uses lib/ical.js with node-ical for robust RFC 5545 parsing)
+  async function fetchApple() {
+    setSyncingApple(true);
+    try {
+      const response = await fetch('/api/calendar/apple');
+      const data = await response.json();
+
+      if (data.success && Array.isArray(data.events)) {
+        setAppleEvents(data.events.map(e => ({
+          ...e,
+          isApple: true,
+          color: "#FF9500",
+          date: e.start?.split('T')[0]
+        })));
+        addToast(`Apple Calendar synced ✓ (${data.events.length} events)`, 'success');
+      } else {
+        throw new Error(data.error || 'Invalid response');
+      }
+    } catch (e) {
+      console.error('Apple sync error:', e);
+      addToast(`Apple Calendar sync failed: ${e.message}`, "error");
+    }
+    setSyncingApple(false);
+  }
+
+  // Push event to Apple Calendar (via Nylas) → syncs to Google Calendar
+  async function pushToGcal(ev){
+    if(!ev?.id) return;
+    try{
+      const [sh,sm]=ev.startTime.split(":").map(Number);
+      const [eh,em]=ev.endTime.split(":").map(Number);
+      const base=ev.date+"T";
+      const start=`${base}${pad2(sh)}:${pad2(sm)}:00`;
+      const end=`${base}${pad2(eh)}:${pad2(em)}:00`;
+      const staffNames=ev.staffIds.map(id=>staff.find(s=>s.id===id)?.name||"Staff").join(", ");
+      const description=`Freshpeople Event\nVenue: ${ev.venue||""}\nStaff: ${staffNames}\n${ev.notes||""}`;
+
+      // Push to Apple Calendar via Nylas (already configured in Vercel)
+      const resp=await fetch('/api/calendar/nylas',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          title:ev.title,
+          start:start,
+          end:end,
+          description:description,
+          location:ev.venue||''
+        })
+      });
+      
+      const data=await resp.json();
+      
+      if(data.success){
+        setEvents(prev=>prev.map(e=>e.id===ev.id?{...e,gcalId:data.eventId}:e));
+        addToast(`"${ev.title}" pushed to Apple Calendar ✓ (synced to Google)`,"success");
+      } else {
+        addToast(`Failed to push: ${data.error||'Unknown error'}`,"error");
+      }
+    }catch(e){ 
+      console.error('Push to Calendar error:', e);
+      addToast("Failed to push to calendar","error"); 
+    }
+  }
+
+  // Send staff booking notifications via Gmail drafts
+  async function sendBookingNotifications(ev){
+    setSendingNotifs(true);
+    const staffToNotify=ev.staffIds.map(id=>staff.find(s=>s.id===id)).filter(Boolean);
+    const hrs=eventHours(ev).toFixed(1);
+    const pay=staffToNotify.map(s=>({...s,total:(eventHours(ev)*s.rate).toFixed(2)}));
+    let successCount=0;
+
+    for(const s of pay){
+      try{
+        // Generate personalised email body via Claude
+        const body=await callClaude(
+          "You write concise, professional staff booking emails for Freshpeople Events Staffing. Be warm but brief. Plain text only, no markdown.",
+          `Write a booking confirmation email to ${s.name} (${s.role}) for:
+Event: ${ev.title}
+Date: ${fmtDate(ev.date)}
+Time: ${ev.startTime} – ${ev.endTime}
+Venue: ${ev.venue||"TBC"}
+Hours: ${hrs}h
+Pay: R${s.total} (R${s.rate}/h)
+Notes: ${ev.notes||"N/A"}
+Sign off from: Freshpeople Admin`,
+          currentModel
+        );
+        
+        // For now, copy to clipboard as Gmail draft creation requires OAuth2 setup
+        const emailContent = `To: ${s.email}
+Subject: Booking Confirmed: ${ev.title} — ${fmtDate(ev.date)}
+
+${body}`;
+        
+        await navigator.clipboard.writeText(emailContent);
+        successCount++;
+      }catch(e){}
+    }
+    setSendingNotifs(false);
+    setBookingModal(null);
+    addToast(`${successCount}/${staffToNotify.length} booking emails generated & copied to clipboard ✓`,"success");
+    if(successCount > 0) {
+      addToast("Paste from clipboard into Gmail to send","warn");
+    }
+  }
+
+  function openNew(day){
+    const d=`${yr}-${pad2(mo+1)}-${pad2(day)}`;
+    setForm({title:"",date:d,venue:"",startTime:"09:00",endTime:"17:00",staffIds:[],clientId:"",color:ACCENT,notes:""});
+    setEditEvt(null); setShowForm(true);
+  }
+  function openEdit(ev){
+    setForm({...ev,staffIds:[...ev.staffIds],clientId:String(ev.clientId||"")});
+    setEditEvt(ev); setShowForm(true);
+  }
+  function saveEvent(){
+    if(!form.title||!form.date) return;
+    const evt={...form,staffIds:form.staffIds.map(Number),clientId:form.clientId?Number(form.clientId):null};
+    if(editEvt){
+      setEvents(prev=>prev.map(e=>e.id===editEvt.id?{...evt,id:editEvt.id,gcalId:editEvt.gcalId}:e));
+      addToast("Event updated","success");
+    } else {
+      const newEv={...evt,id:Date.now(),gcalId:null};
+      setEvents(prev=>[...prev,newEv]);
+      addToast("Event created","success");
+      // Auto-offer to push to GCal
+      setTimeout(()=>pushToGcal(newEv),300);
+    }
+    setShowForm(false); setSelected(null);
+  }
+  function deleteEvent(id){
+    setEvents(prev=>prev.filter(e=>e.id!==id));
+    setSelected(null);
+    addToast("Event deleted","warn");
+  }
+  function toggleStaff(id){ setForm(f=>({...f,staffIds:f.staffIds.includes(id)?f.staffIds.filter(x=>x!==id):[...f.staffIds,id]})); }
+
+  const upcomingEvs=events.filter(e=>e.date>=todayStr).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,5);
+  const allCells=[...events,...gcalEvents,...appleEvents];
+
+  return(
+    <div>
+      {/* Sync banner */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,background:SURFACE2,border:`1px solid ${BORDER}`,borderRadius:10,padding:"10px 16px",flexWrap:"wrap",gap:8}}>
+        <div style={{fontSize:13}}>
+          <span style={{color:MUTED}}>Google Calendar sync · </span>
+          <span style={{color:ACCENT}}>{gcalEvents.length} events loaded</span>
+          <span style={{color:MUTED}}> · Apple Calendar · </span>
+          <span style={{color:"#FF9500"}}>{appleEvents.length} events</span>
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          <Btn variant="accent" onClick={fetchGcal} disabled={syncing} style={{fontSize:12,padding:"6px 14px"}}>
+            {syncing?"Syncing…":"↻ Google"}
+          </Btn>
+          <Btn variant="accent" onClick={fetchApple} disabled={syncingApple} style={{fontSize:12,padding:"6px 14px",background:"#FF9500"}}>
+            {syncingApple?"Syncing…":"↻ Apple"}
+          </Btn>
+        </div>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 290px",gap:20}}>
+        {/* Calendar grid */}
+        <div>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+            <div style={{fontSize:18,fontWeight:600}}>{["January","February","March","April","May","June","July","August","September","October","November","December"][mo]} {yr}</div>
+            <div style={{display:"flex",gap:8}}>
+              <Btn onClick={()=>setViewDate(new Date(yr,mo-1,1))} style={{fontSize:12,padding:"6px 12px"}}>‹</Btn>
+              <Btn onClick={()=>setViewDate(new Date(today.getFullYear(),today.getMonth(),1))} style={{fontSize:12,padding:"6px 12px"}}>Today</Btn>
+              <Btn onClick={()=>setViewDate(new Date(yr,mo+1,1))} style={{fontSize:12,padding:"6px 12px"}}>›</Btn>
+            </div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:2}}>
+            {WDAYS.map(d=><div key={d} style={{textAlign:"center",fontSize:11,color:MUTED,padding:"6px 0",textTransform:"uppercase",letterSpacing:"0.06em"}}>{d}</div>)}
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2}}>
+            {cells.map((day,idx)=>{
+              if(!day) return <div key={idx}/>;
+              const cellDate=`${yr}-${pad2(mo+1)}-${pad2(day)}`;
+              const dayEvs=allCells.filter(e=>e.date===cellDate);
+              const isToday=cellDate===todayStr;
+              return(
+                <div key={idx} onClick={()=>openNew(day)}
+                  style={{minHeight:80,background:isToday?ACCENT+"18":SURFACE,border:`1px solid ${isToday?ACCENT+"55":BORDER}`,
+                    borderRadius:8,padding:6,cursor:"pointer"}}
+                  onMouseEnter={e=>e.currentTarget.style.background=SURFACE2}
+                  onMouseLeave={e=>e.currentTarget.style.background=isToday?ACCENT+"18":SURFACE}
+                >
+                  <div style={{fontSize:12,fontWeight:isToday?700:400,color:isToday?ACCENT:TEXT,marginBottom:4}}>{day}</div>
+                  {dayEvs.map(ev=>(
+                    <div key={ev.id} onClick={e=>{e.stopPropagation();setSelected(ev);}}
+                      style={{background:ev.color+"33",border:`1px solid ${ev.color}55`,borderLeft:`3px solid ${ev.color}`,
+                        borderRadius:4,padding:"2px 5px",fontSize:10,marginBottom:2,color:TEXT,
+                        overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer"}}
+                      title={`${ev.title}${ev.isGcal?" (Google Calendar)":""}`}
+                    >{ev.isGcal?"📅 ":""}{ev.title}</div>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Sidebar */}
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          <Btn variant="primary" onClick={()=>openNew(today.getDate())} style={{width:"100%",padding:"10px"}}>+ New Event</Btn>
+
+          {/* Selected detail */}
+          {selected&&!selected.isGcal&&(
+            <div style={{background:SURFACE,border:`1px solid ${selected.color}55`,borderLeft:`4px solid ${selected.color}`,borderRadius:10,padding:16}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+                <div style={{fontWeight:600,fontSize:14}}>{selected.title}</div>
+                <button onClick={()=>setSelected(null)} style={{background:"none",border:"none",color:MUTED,fontSize:18,cursor:"pointer"}}>×</button>
+              </div>
+              <div style={{fontSize:12,color:MUTED}}>{fmtDate(selected.date)}</div>
+              {selected.venue&&<div style={{fontSize:12,marginTop:4}}>{selected.venue}</div>}
+              {selected.notes&&<div style={{fontSize:12,color:MUTED,marginTop:4,fontStyle:"italic"}}>{selected.notes}</div>}
+              <div style={{margin:"10px 0",display:"flex",flexWrap:"wrap",gap:4}}>
+                {selected.staffIds.map(id=>{const s=staff.find(x=>x.id===id);return s?<Badge key={id} color={MUTED}>{s.name.split(" ")[0]}</Badge>:null;})}
+              </div>
+              {selected.gcalId
+                ?<div style={{fontSize:11,color:ACCENT,marginBottom:10}}>✓ GCal</div>
+                :<Btn variant="accent" onClick={()=>pushToGcal(selected)} style={{width:"100%",fontSize:12,padding:"6px",marginBottom:8}}>Sync</Btn>
+              }
+              <Btn variant="amber" onClick={()=>setBookingModal(selected)} style={{width:"100%",fontSize:12,padding:"6px",marginBottom:8}}>
+                Notify
+              </Btn>
+              <div style={{display:"flex",gap:8}}>
+                <Btn onClick={()=>openEdit(selected)} style={{flex:1,fontSize:12,padding:"6px"}}>E</Btn>
+                <Btn variant="danger" onClick={()=>deleteEvent(selected.id)} style={{flex:1,fontSize:12,padding:"6px"}}>X</Btn>
+              </div>
+            </div>
+          )}
+          {selected?.isGcal&&(
+            <div style={{background:SURFACE,border:`1px solid ${selected.color}55`,borderLeft:`4px solid ${selected.color}`,borderRadius:10,padding:16}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+                <div style={{fontWeight:600,fontSize:14}}>{selected.title}</div>
+                <button onClick={()=>setSelected(null)} style={{background:"none",border:"none",color:MUTED,fontSize:18,cursor:"pointer"}}>×</button>
+              </div>
+              <div style={{fontSize:12,color:"#5ca4ea",marginBottom:4}}>📅 Google Calendar Event</div>
+              <div style={{fontSize:12,color:MUTED}}>{fmtDate(selected.date)} · {selected.startTime}–{selected.endTime}</div>
+              {selected.location&&<div style={{fontSize:12,marginTop:4}}>{selected.location}</div>}
+            </div>
+          )}
+
+          {/* Upcoming */}
+          <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:10,padding:16}}>
+            <div style={{fontSize:11,color:MUTED,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}}>Upcoming Events</div>
+            {upcomingEvs.length===0&&<div style={{fontSize:13,color:MUTED}}>No upcoming events</div>}
+            {upcomingEvs.map(ev=>(
+              <div key={ev.id} onClick={()=>setSelected(ev)} style={{marginBottom:12,cursor:"pointer"}}>
+                <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+                  <div style={{width:3,minHeight:36,background:ev.color,borderRadius:2,flexShrink:0,marginTop:2}}/>
+                  <div>
+                    <div style={{fontSize:13,fontWeight:500}}>{ev.title}</div>
+                    <div style={{fontSize:11,color:MUTED}}>{fmtDate(ev.date)} · {ev.startTime}</div>
+                    <div style={{fontSize:11,color:MUTED,display:"flex",gap:6,alignItems:"center"}}>
+                      <span>{ev.staffIds.length} staff</span>
+                      {ev.gcalId&&<span style={{color:ACCENT}}>✓GCal</span>}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* GCal legend */}
+          <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:10,padding:12,fontSize:11,color:MUTED}}>
+            <div style={{marginBottom:6,fontWeight:500,color:TEXT}}>Calendar Legend</div>
+            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}><div style={{width:10,height:10,borderRadius:2,background:ACCENT}}/> Freshpeople events</div>
+            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}><div style={{width:10,height:10,borderRadius:2,background:"#5ca4ea"}}/> Google Calendar</div>
+            <div style={{marginTop:8}}>Apple Calendar syncs via:<br/>Settings → Calendar → Add Account → Google</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Event form */}
+      {showForm&&(
+        <Modal title={editEvt?"Edit Event":"New Event"} onClose={()=>setShowForm(false)}>
+          <Fld label="Event Title"><input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="e.g. Corporate Gala" style={{width:"100%"}}/></Fld>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
+            <Fld label="Date"><input type="date" value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))} style={{width:"100%"}}/></Fld>
+            <Fld label="Client">
+              <select value={form.clientId} onChange={e=>setForm(f=>({...f,clientId:e.target.value}))} style={{width:"100%"}}>
+                <option value="">— No client —</option>
+                {clients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </Fld>
+          </div>
+          <Fld label="Venue"><input value={form.venue} onChange={e=>setForm(f=>({...f,venue:e.target.value}))} placeholder="e.g. Sandton Convention Centre" style={{width:"100%"}}/></Fld>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:14}}>
+            <Fld label="Start"><input type="time" value={form.startTime} onChange={e=>setForm(f=>({...f,startTime:e.target.value}))} style={{width:"100%"}}/></Fld>
+            <Fld label="End"><input type="time" value={form.endTime} onChange={e=>setForm(f=>({...f,endTime:e.target.value}))} style={{width:"100%"}}/></Fld>
+            <Fld label="Colour">
+              <div style={{display:"flex",gap:6,paddingTop:4}}>
+                {[ACCENT,PURPLE,AMBER,CORAL,"#5ca4ea"].map(c=>(
+                  <div key={c} onClick={()=>setForm(f=>({...f,color:c}))}
+                    style={{width:22,height:22,borderRadius:"50%",background:c,cursor:"pointer",border:form.color===c?"3px solid #fff":"3px solid transparent"}}/>
+                ))}
+              </div>
+            </Fld>
+          </div>
+          <Fld label="Assign Staff">
+            <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+              {staff.map(s=>(
+                <div key={s.id} onClick={()=>toggleStaff(s.id)}
+                  style={{padding:"5px 12px",borderRadius:20,fontSize:12,cursor:"pointer",
+                    background:form.staffIds.includes(s.id)?ACCENT+"22":SURFACE2,
+                    border:`1px solid ${form.staffIds.includes(s.id)?ACCENT:BORDER}`,
+                    color:form.staffIds.includes(s.id)?ACCENT:TEXT}}
+                >{s.name.split(" ")[0]} <span style={{color:MUTED,fontSize:10}}>({s.role})</span></div>
+              ))}
+            </div>
+          </Fld>
+          <Fld label="Notes / Instructions">
+            <textarea value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} rows={2} style={{width:"100%"}} placeholder="Dress code, contact person, etc."/>
+          </Fld>
+          <div style={{display:"flex",gap:10}}>
+            <Btn variant="primary" onClick={saveEvent} style={{flex:1,padding:"11px"}}>{editEvt?"Save Changes":"Create & Sync to Google Cal"}</Btn>
+            <Btn variant="ghost" onClick={()=>setShowForm(false)} style={{flex:1,padding:"11px"}}>Cancel</Btn>
+          </div>
+        </Modal>
+      )}
+
+      {/* Booking notifications modal */}
+      {bookingModal&&(
+        <Modal title="Send Staff Booking Notifications" onClose={()=>setBookingModal(null)} width={500}>
+          <div style={{marginBottom:20}}>
+            <div style={{fontWeight:600,fontSize:15,marginBottom:4}}>{bookingModal.title}</div>
+            <div style={{fontSize:13,color:MUTED}}>{fmtDate(bookingModal.date)} · {bookingModal.startTime}–{bookingModal.endTime} · {bookingModal.venue}</div>
+          </div>
+          <div style={{marginBottom:20}}>
+            <Lbl>Staff receiving booking emails ({bookingModal.staffIds.length})</Lbl>
+            {bookingModal.staffIds.map(id=>{
+              const s=staff.find(x=>x.id===id);
+              if(!s) return null;
+              const pay=(eventHours(bookingModal)*s.rate).toFixed(2);
+              return(
+                <div key={id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",background:SURFACE2,borderRadius:8,marginBottom:6}}>
+                  <div>
+                    <div style={{fontWeight:500,fontSize:13}}>{s.name}</div>
+                    <div style={{fontSize:11,color:MUTED}}>{s.email}</div>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontSize:13,color:ACCENT,fontFamily:"'DM Mono',monospace"}}>R {pay}</div>
+                    <div style={{fontSize:11,color:MUTED}}>{eventHours(bookingModal).toFixed(1)}h @ R{s.rate}/h</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{background:SURFACE2,borderRadius:8,padding:"10px 14px",fontSize:12,color:MUTED,marginBottom:20}}>
+            💡 Claude will write a personalised email for each staff member and save it as a Gmail draft. You review and send from your Gmail Drafts folder.
+          </div>
+          <div style={{display:"flex",gap:10}}>
+            <Btn variant="primary" onClick={()=>sendBookingNotifications(bookingModal)} disabled={sendingNotifs} style={{flex:1,padding:"11px"}}>
+              {sendingNotifs?"Drafting emails…":"📧 Draft All Booking Emails"}
+            </Btn>
+            <Btn variant="ghost" onClick={()=>setBookingModal(null)} style={{flex:1,padding:"11px"}}>Cancel</Btn>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ─── PIN Pad ──────────────────────────────────────────────────────────────────
+function PinPad({onSuccess,staff,adminMode}){
+  const [pin,setPin]=useState(""); const [shake,setShake]=useState(false); const [err,setErr]=useState("");
+  function press(d){ if(pin.length>=4)return; const next=pin+d; setPin(next); if(next.length===4)setTimeout(()=>check(next),80); }
+  function check(p){
+    if(adminMode&&p==="0000"){onSuccess(null,true);return;}
+    const found=staff.find(s=>s.pin===p);
+    if(found){onSuccess(found,false);return;}
+    setShake(true);setErr("Invalid PIN");
+    setTimeout(()=>{setShake(false);setPin("");setErr("");},700);
+  }
+  return(
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:20,padding:24}}>
+      <div style={{fontSize:13,color:MUTED}}>Enter your PIN{adminMode?" · Admin: 0000":""}</div>
+      <div style={{display:"flex",gap:12,transform:shake?"translateX(8px)":"none",transition:"transform 0.1s"}}>
+        {Array.from({length:4},(_,i)=><div key={i} style={{width:14,height:14,borderRadius:"50%",background:i<pin.length?ACCENT:"transparent",border:`2px solid ${i<pin.length?ACCENT:BORDER}`,transition:"all 0.1s"}}/>)}
+      </div>
+      {err&&<div style={{fontSize:12,color:RED}}>{err}</div>}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,width:200}}>
+        {[1,2,3,4,5,6,7,8,9,"",0,"⌫"].map((k,i)=>(
+          <button key={i} onClick={()=>k==="⌫"?setPin(p=>p.slice(0,-1)):k!==""?press(String(k)):null}
+            style={{padding:"14px 0",background:k===""?"transparent":SURFACE2,border:`1px solid ${k===""?"transparent":BORDER}`,borderRadius:8,color:TEXT,fontSize:16,fontWeight:500,fontFamily:"'DM Mono',monospace",opacity:k===""?0:1}}
+            onMouseEnter={e=>{if(k!=="")e.currentTarget.style.background=SURFACE;}}
+            onMouseLeave={e=>{if(k!=="")e.currentTarget.style.background=SURFACE2;}}
+          >{k}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Main App ─────────────────────────────────────────────────────────────────
+export default function App(){
+  const [page,setPage]           = useState("login");
+  const [currentStaff,setCS]     = useState(null);
+  const [isAdmin,setIsAdmin]     = useState(false);
+  const [staff,setStaff]      = useState(() => dataStore.listStaff());
+  const [records,setRecords]     = useState([]);
+  const [now,setNow]             = useState(Date.now());
+  const [adminTab,setAdminTab]   = useState("dashboard");
+  const [events,setEvents]       = useState(() => dataStore.listEvents());
+  const todayStr = ymd(today);
+  const todayEvents = events.filter(e => e.date === todayStr);
+  const [invoices,setInvoices]   = useState(() => dataStore.listInvoices());
+  const [quotes,setQuotes]       = useState(() => dataStore.listQuotes());
+  const [clients,setClients]     = useState(() => dataStore.listClients());
+  const [toasts,setToasts]       = useState([]);
+  const [newStaff,setNewStaff]   = useState({name:"",role:"",rate:"",pin:"",department:"Bar",uniform:false,email:"",phone:""});
+  const [editingStaffId,setEditingStaffId] = useState(null);
+  const [currentModel,setCurrentModel] = useState('deepseek/deepseek-chat-v3-0324:free');
+  const [currentTask,setCurrentTask] = useState('default');
+
+  // Refresh data from store whenever the user changes admin tab
+  useEffect(() => {
+    setStaff(dataStore.listStaff());
+    setEvents(dataStore.listEvents());
+    setInvoices(dataStore.listInvoices());
+    setQuotes(dataStore.listQuotes());
+    setClients(dataStore.listClients());
+  }, [adminTab]);
+
+  useEffect(()=>{ const t=setInterval(()=>setNow(Date.now()),10000); return()=>clearInterval(t); },[]);
+
+  // Task detection for model rotation
+  useEffect(() => {
+    const taskMapping = {
+      'dashboard': 'data-analysis',
+      'roster': 'staff-scheduling',
+      'timesheets': 'payroll-calculation',
+      'calendar': 'event-planning',
+      'documents': 'invoice-generation',
+      'clients': 'client-communication',
+      'payroll': 'payroll-calculation',
+      'add staff': 'staff-scheduling'
+    };
+    setCurrentTask(taskMapping[adminTab] || 'default');
+  }, [adminTab]);
+
+  const addToast = useCallback((msg,type="success")=>{
+    const id=Date.now();
+    setToasts(p=>[...p,{id,msg,type}]);
+    setTimeout(()=>setToasts(p=>p.filter(t=>t.id!==id)),4000);
+  },[]);
+
+  function handleLogin(member,adminFlag){
+    if(adminFlag){setIsAdmin(true);setCS(null);setPage("admin");}
+    else{setCS(member);setIsAdmin(false);setPage("staff");}
+  }
+  function clockIn(id){if(!records.find(r=>r.staffId===id&&!r.clockOut))setRecords(p=>[...p,{id:Date.now(),staffId:id,clockIn:Date.now(),clockOut:null}]);}
+  function clockOut(id){setRecords(p=>p.map(r=>r.staffId===id&&!r.clockOut?{...r,clockOut:Date.now()}:r));}
+
+  const activeRec   = currentStaff?records.find(r=>r.staffId===currentStaff.id&&!r.clockOut):null;
+  const elapsed     = activeRec?now-activeRec.clockIn:0;
+  const myShifts    = currentStaff?records.filter(r=>r.staffId===currentStaff.id&&r.clockOut).slice(-5).reverse():[];
+  const myTotalMs   = myShifts.reduce((a,r)=>a+(r.clockOut-r.clockIn),0);
+  const myPay       = currentStaff?calcPay(myTotalMs,currentStaff.rate):0;
+  const completed   = records.filter(r=>r.clockOut);
+  const tPayroll    = completed.reduce((a,r)=>{const s=staff.find(x=>x.id===r.staffId);return a+calcPay(r.clockOut-r.clockIn,s?.rate||0);},0);
+  const tHours      = completed.reduce((a,r)=>a+(r.clockOut-r.clockIn)/3600000,0);
+  const tActive     = staff.filter(s=>records.some(r=>r.staffId===s.id&&!r.clockOut)).length;
+
+  const TABS=[["dashboard","Dashboard"],["roster","Roster"],["timesheets","Timesheets"],["calendar","Calendar"],["documents","Docs & Billing"],["clients","Clients"],["payroll","Payroll"],["add staff","Add Staff"]];
+
+  return(
+    <>
+      <style>{css}</style>
+
+      {/* Header */}
+      <div style={{background:SURFACE,borderBottom:`1px solid ${BORDER}`,padding:"0 24px",display:"flex",alignItems:"center",gap:16,height:56,position:"sticky",top:0,zIndex:50}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{width:28,height:28,background:ACCENT,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:"#000"}}>FP</div>
+          <span style={{fontWeight:600,fontSize:15,letterSpacing:"-0.02em"}}>Freshpeople</span>
+          <span style={{color:MUTED,fontSize:13}}>Command Center</span>
+        </div>
+        <div style={{flex:1}}/>
+        {page!=="login"&&(
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            {isAdmin&&<Badge color={ACCENT}>Admin</Badge>}
+            {currentStaff&&<Badge color={MUTED}>{currentStaff.name.split(" ")[0]}</Badge>}
+            <button onClick={()=>{setPage("login");setCS(null);setIsAdmin(false);}}
+              style={{background:"none",border:`1px solid ${BORDER}`,borderRadius:6,color:MUTED,fontSize:12,padding:"4px 10px",cursor:"pointer"}}>Sign out</button>
+          </div>
+        )}
+        <div style={{color:MUTED,fontSize:12,fontFamily:"'DM Mono',monospace"}}>{new Date(now).toLocaleTimeString("en-ZA",{hour:"2-digit",minute:"2-digit"})}</div>
+        <ModelPanel currentTask={currentTask} onModelSelect={(modelId) => setCurrentModel(modelId)} />
+      </div>
+
+      <div style={{maxWidth:1080,margin:"0 auto",padding:"32px 20px"}}>
+
+        {/* LOGIN */}
+        {page==="login"&&(
+            <div style={{display:"flex",flexDirection:"column",alignItems:"center",paddingTop:40}}>
+              <h1 style={{fontSize:24,fontWeight:700,marginBottom:8}}>Freshpeople</h1>
+              <p style={{color:MUTED,fontSize:13,marginBottom:24}}>Enter PIN</p>
+            <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:14,width:"100%",maxWidth:320}}>
+              <PinPad staff={staff} onSuccess={handleLogin} adminMode/>
+            </div>
+            <div style={{marginTop:24,display:"flex",gap:8,flexWrap:"wrap",justifyContent:"center"}}>
+              {staff.slice(0,3).map(s=><div key={s.id} style={{fontSize:11,color:MUTED,background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:6,padding:"4px 10px"}}>{s.name.split(" ")[0]}: {s.pin}</div>)}
+            </div>
+          </div>
+        )}
+
+        {/* STAFF */}
+        {page==="staff"&&currentStaff&&(
+          <div>
+            <div style={{marginBottom:20}}>
+              <h1 style={{fontSize:22,fontWeight:700}}>{currentStaff.name}</h1>
+            </div>
+              <div style={{background:SURFACE,border:`1px solid ${activeRec?ACCENT+"44":BORDER}`,borderRadius:14,padding:28,marginBottom:24,textAlign:"center",transition:"border 0.3s"}}>
+                <div style={{fontSize:13,color:MUTED,marginBottom:8}}>{activeRec?"Active":"Off"}</div>
+                <div style={{fontSize:48,fontWeight:700,fontFamily:"'DM Mono',monospace",color:activeRec?ACCENT:MUTED,marginBottom:4,letterSpacing:"-0.02em"}}>{activeRec?fmtDur(elapsed):"—"}</div>
+                {activeRec&&<div style={{fontSize:13,color:MUTED,marginBottom:20}}>In at {fmtTime(activeRec.clockIn)}</div>}
+              <div style={{display:"flex",gap:12,justifyContent:"center",marginTop:20}}>
+                {!activeRec
+                  ?<button onClick={()=>clockIn(currentStaff.id)} style={{background:ACCENT,color:"#000",border:"none",borderRadius:10,padding:"14px 40px",fontSize:15,fontWeight:600,cursor:"pointer"}}>Clock In</button>
+                  :<button onClick={()=>clockOut(currentStaff.id)} style={{background:RED,color:"#fff",border:"none",borderRadius:10,padding:"14px 40px",fontSize:15,fontWeight:600,cursor:"pointer"}}>Clock Out</button>
+                }
+              </div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:24}}>
+              <Stat label="Shifts today" value={myShifts.length}/>
+              <Stat label="Total hours" value={`${(myTotalMs/3600000).toFixed(1)}h`} accent={ACCENT}/>
+              <Stat label="Earnings" value={`R ${myPay.toFixed(0)}`} accent={ACCENT}/>
+            </div>
+            {myShifts.length>0&&(
+              <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,padding:"16px 20px"}}>
+                <div style={{fontSize:12,color:MUTED,marginBottom:14}}>Recent</div>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                  <thead><tr style={{borderBottom:`1px solid ${BORDER}`}}>{["In","Out","Hrs","R"].map(h=><th key={h} style={{padding:"4px 8px",textAlign:"left",color:MUTED,fontWeight:400,paddingBottom:10}}>{h}</th>)}</tr></thead>
+                  <tbody>{myShifts.map(r=>(
+                    <tr key={r.id} style={{borderBottom:`1px solid ${BORDER}22`}}>
+                      <td style={{padding:"10px 8px",fontFamily:"'DM Mono',monospace"}}>{fmtTime(r.clockIn)}</td>
+                      <td style={{padding:"10px 8px",fontFamily:"'DM Mono',monospace"}}>{fmtTime(r.clockOut)}</td>
+                      <td style={{padding:"10px 8px"}}>{fmtDur(r.clockOut-r.clockIn)}</td>
+                      <td style={{padding:"10px 8px",color:ACCENT,fontFamily:"'DM Mono',monospace"}}>R {calcPay(r.clockOut-r.clockIn,currentStaff.rate).toFixed(2)}</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ADMIN */}
+        {page==="admin"&&isAdmin&&(
+          <div>
+            <div style={{marginBottom:20}}>
+              <h1 style={{fontSize:22,fontWeight:700}}>Dashboard</h1>
+            </div>
+
+            {/* Tabs */}
+            <div style={{display:"flex",gap:2,background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:10,padding:4,marginBottom:28,overflowX:"auto"}}>
+              {TABS.map(([k,l])=>(
+                <button key={k} onClick={()=>setAdminTab(k)} style={{
+                  padding:"8px 18px",borderRadius:7,border:"none",fontSize:13,fontWeight:500,whiteSpace:"nowrap",cursor:"pointer",
+                  background:adminTab===k?ACCENT+"22":"transparent",
+                  color:adminTab===k?ACCENT:MUTED,
+                  borderBottom:adminTab===k?`2px solid ${ACCENT}`:"2px solid transparent",
+                }}>{l}</button>
+              ))}
+            </div>
+
+            {/* DASHBOARD */}
+            {/* DASHBOARD - Clean & Modern */}
+            {adminTab==="dashboard"&&(
+              <div>
+                {/* KPI Row */}
+                <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:24}}>
+                  <div className="fp-kpi">
+                    <div className="fp-kpi__label">Active Staff</div>
+                    <div className="fp-kpi__value">{tActive || staff.filter(s=>s.uniform).length}</div>
+                    <div className="fp-kpi__sub">{staff.length} total in roster</div>
+                  </div>
+                  <div className="fp-kpi">
+                    <div className="fp-kpi__label">Shifts Today</div>
+                    <div className="fp-kpi__value">{todayEvents.length}</div>
+                    <div className="fp-kpi__sub">{events.length} events total</div>
+                  </div>
+                  <div className="fp-kpi">
+                    <div className="fp-kpi__label">Timesheets Pending</div>
+                    <div className="fp-kpi__value">{records.filter(r=>!r.clockOut).length}</div>
+                    <div className="fp-kpi__sub">{records.length} shifts logged</div>
+                  </div>
+                  <div className="fp-kpi">
+                    <div className="fp-kpi__label">Outstanding (ZAR)</div>
+                    <div className="fp-kpi__value">R {invoices.filter(i=>i.status!=="paid").reduce((a,i)=>a + docSubtotal(i.lines) * (i.includeTax !== false ? (1 + (Number(i.taxRate) || 15) / 100) : 1), 0).toFixed(0)}</div>
+                    <div className="fp-kpi__sub">{invoices.filter(i=>i.status!=="paid").length} unpaid</div>
+                  </div>
+                </div>
+
+                <div style={{display:"grid",gridTemplateColumns:"1fr 300px",gap:24,marginBottom:24}}>
+                  {/* Main Content */}
+                  <div>
+                    {/* Today's Events */}
+                    <div style={{marginBottom:24}}>
+                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+                        <h2 style={{fontSize:20,fontWeight:600,color:TEXT,margin:0}}>Today's Events</h2>
+                        <Btn variant="primary" onClick={()=>setAdminTab("calendar")} style={{fontSize:12}}>+ New Event</Btn>
+                      </div>
+                      
+                      {todayEvents.length === 0 ? (
+                        <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,padding:"32px 24px",textAlign:"center"}}>
+                          <div style={{fontSize:48,marginBottom:8}}>📅</div>
+                          <div style={{color:MUTED,fontSize:14}}>No events scheduled for today</div>
+                        </div>
+                      ) : (
+                        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                          {todayEvents.map(e => {
+                            const client = clients.find(c => c.id === e.clientId);
+                            const assignedStaff = staff.filter(s => e.staffIds?.includes(s.id));
+                            return (
+                              <div key={e.id} style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,padding:"20px 24px"}}>
+                                <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between"}}>
+                                  <div style={{flex:1}}>
+                                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                                      <div style={{width:8,height:8,borderRadius:"50%",background:e.color||ACCENT}}/>
+                                      <h3 style={{fontSize:16,fontWeight:600,color:TEXT,margin:0}}>{e.title}</h3>
+                                    </div>
+                                    
+                                    <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:16,marginBottom:12,fontSize:13,color:MUTED}}>
+                                      <div>📍 {e.venue}</div>
+                                      <div>⏰ {e.startTime} - {e.endTime}</div>
+                                      <div>👤 {client?.name || "Unknown Client"}</div>
+                                    </div>
+                                    
+                                    {assignedStaff.length > 0 && (
+                                      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                                        <span style={{fontSize:12,color:MUTED}}>Staff:</span>
+                                        {assignedStaff.map(s => (
+                                          <Badge key={s.id} color={ACCENT}>{s.name}</Badge>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                  
+                                  <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:16}}>
+                                    <Btn variant="accent" onClick={async ()=>{
+                                      try {
+                                        const result = await FPCCCore.sendWhatsApp(e.id, e.staffIds || []);
+                                        
+                                        if (result.success) {
+                                          addToast(`WhatsApp sent to ${result.dispatched} staff members`, 'success');
+                                        } else {
+                                          addToast('Failed to send WhatsApp notifications', 'error');
+                                        }
+                                      } catch (err) {
+                                        addToast('Network error sending notifications', 'error');
+                                      }
+                                    }} style={{fontSize:12,padding:"6px 12px"}}>
+                                      📤 Notify Staff
+                                    </Btn>
+                                    <Btn variant="ghost" onClick={()=>{setAdminTab("calendar")}} style={{fontSize:12,padding:"6px 8px"}}>✏️</Btn>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* Quick Actions */}
+                    <div style={{marginBottom:24}}>
+                      <h3 style={{fontSize:16,fontWeight:600,color:TEXT,marginBottom:16}}>Quick Actions</h3>
+                      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12}}>
+                        <button onClick={()=>setAdminTab("calendar")} style={{
+                          background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,padding:"20px 16px",
+                          display:"flex",flexDirection:"column",alignItems:"center",gap:8,
+                          transition:"all 0.2s",cursor:"pointer",color:"inherit"
+                        }}>
+                          <div style={{fontSize:24}}>📅</div>
+                          <div style={{fontSize:13,fontWeight:500,color:TEXT}}>Create Event</div>
+                        </button>
+                        
+                        <button onClick={()=>setAdminTab("add staff")} style={{
+                          background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,padding:"20px 16px",
+                          display:"flex",flexDirection:"column",alignItems:"center",gap:8,
+                          transition:"all 0.2s",cursor:"pointer",color:"inherit"
+                        }}>
+                          <div style={{fontSize:24}}>👥</div>
+                          <div style={{fontSize:13,fontWeight:500,color:TEXT}}>Add Staff</div>
+                        </button>
+                        
+                        <button onClick={async ()=>{
+                          const todayStaffIds = todayEvents.flatMap(e => e.staffIds || []);
+                          if (todayStaffIds.length === 0) {
+                            addToast('No staff assigned to today\'s events', 'warning');
+                            return;
+                          }
+                          try {
+                            for (const event of todayEvents) {
+                              if (event.staffIds?.length > 0) {
+                                await fetch('/api/dispatch-staff', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ eventId: event.id, staffIds: event.staffIds })
+                                });
+                              }
+                            }
+                            addToast('Bulk WhatsApp dispatch completed', 'success');
+                          } catch (err) {
+                            addToast('Bulk dispatch failed', 'error');
+                          }
+                        }} style={{
+                          background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,padding:"20px 16px",
+                          display:"flex",flexDirection:"column",alignItems:"center",gap:8,
+                          transition:"all 0.2s",cursor:"pointer",color:"inherit"
+                        }}>
+                          <div style={{fontSize:24}}>📤</div>
+                          <div style={{fontSize:13,fontWeight:500,color:TEXT}}>Bulk Dispatch</div>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Sidebar */}
+                  <div>
+                    {/* Staff Status */}
+                    <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,padding:"20px 24px",marginBottom:16}}>
+                      <h3 style={{fontSize:16,fontWeight:600,color:TEXT,marginBottom:16}}>Staff Status</h3>
+                      
+                      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                          <div style={{display:"flex",alignItems:"center",gap:8}}>
+                            <div style={{width:8,height:8,borderRadius:"50%",background:"#10b981"}}/>
+                            <span style={{fontSize:13,color:TEXT}}>Available</span>
+                          </div>
+                          <span style={{fontSize:14,fontWeight:600,color:"#10b981"}}>{staff.length - todayEvents.flatMap(e => e.staffIds || []).length}</span>
+                        </div>
+                        
+                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                          <div style={{display:"flex",alignItems:"center",gap:8}}>
+                            <div style={{width:8,height:8,borderRadius:"50%",background:AMBER}}/>
+                            <span style={{fontSize:13,color:TEXT}}>On Assignment</span>
+                          </div>
+                          <span style={{fontSize:14,fontWeight:600,color:AMBER}}>{todayEvents.flatMap(e => e.staffIds || []).length}</span>
+                        </div>
+                        
+                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                          <div style={{display:"flex",alignItems:"center",gap:8}}>
+                            <div style={{width:8,height:8,borderRadius:"50%",background:RED}}/>
+                            <span style={{fontSize:13,color:TEXT}}>Total Staff</span>
+                          </div>
+                          <span style={{fontSize:14,fontWeight:600,color:TEXT}}>{staff.length}</span>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* Recent Bookings */}
+                    <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,padding:"20px 24px"}}>
+                      <h3 style={{fontSize:16,fontWeight:600,color:TEXT,marginBottom:16}}>Upcoming Events</h3>
+                      
+                      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                        {events.filter(e => new Date(e.date) > new Date()).slice(0,4).map((event) => (
+                          <div key={event.id} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 0"}}>
+                            <div style={{width:6,height:6,borderRadius:"50%",background:event.color||ACCENT}}/>
+                            <div style={{flex:1}}>
+                              <div style={{fontSize:12,color:TEXT}}>{event.title}</div>
+                              <div style={{fontSize:10,color:MUTED}}>{new Date(event.date).toLocaleDateString()} - {event.startTime}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* CLIENTS - CRM Agent */}
+            {adminTab==="clients"&&<ClientsView clients={clients} events={events} addToast={addToast}/>}
+
+            {/* ROSTER - simplified, no filters */}
+            {adminTab==="roster"&&(
+              <div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:12}}>
+                  {staff.map(s=>{
+                    const active=records.some(r=>r.staffId===s.id&&!r.clockOut);
+                    const shifts=records.filter(r=>r.staffId===s.id&&r.clockOut);
+                    const hrs=shifts.reduce((a,r)=>a+(r.clockOut-r.clockIn)/3600000,0);
+                    return (
+                      <StaffCard
+                        key={s.id}
+                        staff={s}
+                        active={active}
+                        hrs={hrs}
+                        onView={()=>alert(s.name)}
+                        onEdit={()=>{
+                          setNewStaff({name:s.name,role:s.role,rate:String(s.rate),pin:s.pin,department:s.department,uniform:s.uniform,email:s.email,phone:s.phone});
+                          setEditingStaffId(s.id);
+                          setAdminTab("add staff");
+                        }}
+                        onRemove={()=>{
+                          if(window.confirm(`Remove ${s.name}?`)){
+                            setStaff(prev=>prev.filter(x=>x.id!==s.id));
+                            addToast(s.name+" removed","success");
+                          }
+                        }}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* TIMESHEETS */}
+            {adminTab==="timesheets"&&(
+              <div>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+                  <div style={{fontSize:14,color:MUTED}}>{completed.length} completed shifts</div>
+                  <Btn variant="accent" onClick={()=>{
+                    const h="Name,Dept,Clock In,Clock Out,Hours,Pay (R)";
+                    const lines=completed.map(r=>{const s=staff.find(x=>x.id===r.staffId);const dur=r.clockOut-r.clockIn;return `${s?.name},${s?.department},${fmtTime(r.clockIn)},${fmtTime(r.clockOut)},${(dur/3600000).toFixed(2)},${calcPay(dur,s?.rate||0).toFixed(2)}`;});
+                    navigator.clipboard.writeText([h,...lines].join("\n"));
+                    addToast("Payroll CSV copied to clipboard","success");
+                  }}>Export Payroll CSV</Btn>
+                </div>
+                {completed.length===0
+                  ?<div style={{color:MUTED,textAlign:"center",padding:40}}>No completed shifts yet</div>
+                  :<div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,overflow:"auto"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                      <thead style={{background:SURFACE2}}><tr>
+                        {["Staff","Dept","Clock In","Clock Out","Duration","Pay"].map(h=><th key={h} style={{padding:"12px 14px",textAlign:"left",color:MUTED,fontWeight:500,fontSize:11,textTransform:"uppercase",letterSpacing:"0.05em"}}>{h}</th>)}
+                      </tr></thead>
+                      <tbody>{completed.slice().reverse().map(r=>{
+                        const s=staff.find(x=>x.id===r.staffId); const dur=r.clockOut-r.clockIn;
+                        return(<tr key={r.id} style={{borderTop:`1px solid ${BORDER}33`}}>
+                          <td style={{padding:"12px 14px",fontWeight:500}}>{s?.name||"?"}</td>
+                          <td style={{padding:"12px 14px",color:MUTED}}>{s?.department}</td>
+                          <td style={{padding:"12px 14px",fontFamily:"'DM Mono',monospace"}}>{fmtTime(r.clockIn)}</td>
+                          <td style={{padding:"12px 14px",fontFamily:"'DM Mono',monospace"}}>{fmtTime(r.clockOut)}</td>
+                          <td style={{padding:"12px 14px"}}>{fmtDur(dur)}</td>
+                          <td style={{padding:"12px 14px",color:ACCENT,fontFamily:"'DM Mono',monospace"}}>R {calcPay(dur,s?.rate||0).toFixed(2)}</td>
+                        </tr>);
+                      })}</tbody>
+                    </table>
+                  </div>
+                }
+              </div>
+            )}
+
+            {/* CALENDAR */}
+            {adminTab==="calendar"&&<CalendarTab events={events} setEvents={setEvents} staff={staff} clients={clients} addToast={addToast}/>}
+
+            {/* DOCUMENTS */}
+            {adminTab==="documents"&&<DocumentsTab invoices={invoices} setInvoices={setInvoices} quotes={quotes} setQuotes={setQuotes} clients={clients} events={events}/>}
+
+            {/* PAYROLL - Finance Agent */}
+            {adminTab==="payroll"&&<Payroll staff={staff} events={events} records={records} addToast={addToast}/>}
+
+            {/* ADD STAFF */}
+            {adminTab==="add staff"&&(
+              <div style={{maxWidth:500}}>
+                <div style={{display:"flex",flexDirection:"column",gap:14}}>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                    {[{k:"name",l:"Full Name",p:"Amara Diallo"},{k:"role",l:"Role",p:"Bar Staff"},{k:"rate",l:"Hourly Rate (R)",p:"40",t:"number"},{k:"pin",l:"4-Digit PIN",p:"1234",mx:4}].map(f=>(
+                      <div key={f.k}>
+                        <Lbl>{f.l}</Lbl>
+                        <input type={f.t||"text"} placeholder={f.p} maxLength={f.mx} value={newStaff[f.k]} onChange={e=>setNewStaff(p=>({...p,[f.k]:e.target.value}))} style={{width:"100%"}}/>
+                      </div>
+                    ))}
+                    <div><Lbl>Email</Lbl><input value={newStaff.email} onChange={e=>setNewStaff(p=>({...p,email:e.target.value}))} placeholder="name@freshpeople.co.za" style={{width:"100%"}}/></div>
+                    <div><Lbl>Phone</Lbl><input value={newStaff.phone} onChange={e=>setNewStaff(p=>({...p,phone:e.target.value}))} placeholder="+27 71 000 0000" style={{width:"100%"}}/></div>
+                  </div>
+                  <div>
+                    <Lbl>Department</Lbl>
+                    <select value={newStaff.department} onChange={e=>setNewStaff(p=>({...p,department:e.target.value}))} style={{width:"100%"}}>
+                      {["Bar","Floor","Management","Security"].map(d=><option key={d}>{d}</option>)}
+                    </select>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    <input type="checkbox" checked={newStaff.uniform} onChange={e=>setNewStaff(p=>({...p,uniform:e.target.checked}))} style={{width:16,height:16}}/>
+                    <span style={{fontSize:13,color:MUTED}}>Requires uniform</span>
+                  </div>
+                  <Btn variant="primary" onClick={()=>{ 
+                    if(!newStaff.name||!newStaff.pin||!newStaff.rate) return; 
+                    if(editingStaffId) {
+                      // Update existing staff (persist to data store)
+                      const updated = dataStore.updateStaff(editingStaffId, {
+                        ...newStaff,
+                        rate: Number(newStaff.rate) || 40,
+                        uniform: newStaff.uniform
+                      });
+                      setStaff(prev=>prev.map(s=>s.id===editingStaffId?updated:s));
+                      addToast(`${newStaff.name} updated`,"success");
+                      setEditingStaffId(null);
+                    } else {
+                      // Add new staff (persist to data store)
+                      const created = dataStore.addStaff({
+                        ...newStaff,
+                        rate: Number(newStaff.rate) || 40,
+                        uniform: newStaff.uniform
+                      });
+                      setStaff(prev=>[...prev, created]);
+                      addToast(`${newStaff.name} added to roster`,"success");
+                    }
+                    setNewStaff({name:"",role:"",rate:"",pin:"",department:"Bar",uniform:false,email:"",phone:""}); 
+                  }} style={{padding:"12px 24px",fontSize:14}}>{editingStaffId?"Update Staff Member":"Add Staff Member"}</Btn>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Toast stack */}
+      <div style={{position:"fixed",bottom:24,right:24,zIndex:999,display:"flex",flexDirection:"column",gap:8}}>
+        {toasts.map(t=>(
+          <div key={t.id} style={{background:SURFACE,border:`1px solid ${(t.type==="error"?RED:t.type==="warn"?AMBER:ACCENT)}55`,borderLeft:`4px solid ${t.type==="error"?RED:t.type==="warn"?AMBER:ACCENT}`,borderRadius:10,padding:"12px 18px",fontSize:13,color:TEXT,maxWidth:340,boxShadow:"0 8px 32px rgba(0,0,0,0.5)"}}>
+            {t.msg}
+          </div>
+        ))}
+      </div>
+    </>
   );
 }

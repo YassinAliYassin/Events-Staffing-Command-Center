@@ -6,5 +6,19 @@ coverage/
 *.log
 .env*
 !.env.example
-cf_check.sh
-.worktrees/
+events.db
+.nix-db/
+pnpm-lock.yaml
+pnpm-workspace.yaml
+
+# Temp DB migration scripts
+add-*-column.js
+
+# Temp migration scripts
+add-*.js
+rename-*.js
+
+# Temp scripts
+create-*.js
+.vercel
+.env*.local

@@ -17,15 +17,19 @@ export default defineConfig(() => {
       hmr: process.env.DISABLE_HMR !== 'true',
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
+      // SPA fallback for React Router client-side routes
+      historyApiFallback: true,
+      // Proxy API requests to Express backend
+      proxy: {
+        '/api': {
+          target: 'http://localhost:3001',
+          changeOrigin: true,
+        }
+      }
     },
-    build: {
-      rollupOptions: {
-        output: {
-          manualChunks: {
-            'recharts': ['recharts'],
-          },
-        },
-      },
+    // Preview server fallback for production builds
+    preview: {
+      historyApiFallback: true,
     },
   };
 });
