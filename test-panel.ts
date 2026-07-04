@@ -1,8 +1,8 @@
-import { FPCCCore } from './src/services/fpcc-core';
+import { ESCCCore } from './src/services/escc-core';
 
 async function test() {
   console.log("⏳ Contacting the expert panel...");
-  const response = await FPCCCore.runPanel({
+  const response = await ESCCCore.runPanel({
     title: "Connection Test",
     description: "Respond with exactly the phrase: 'Panel is active and fully operational.'"
   });

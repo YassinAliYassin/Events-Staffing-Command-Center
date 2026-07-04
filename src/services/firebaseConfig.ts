@@ -1,4 +1,4 @@
-// Firebase configuration for FPCC
+// Firebase configuration for ESCC
 // Get these from: https://console.firebase.google.com/project/_/settings/general
 
 export const firebaseConfig = {

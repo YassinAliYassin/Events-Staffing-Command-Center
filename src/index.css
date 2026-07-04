@@ -1,5 +1,5 @@
 /* ==========================================
-   FPCC MODERN TECH/AI THEME
+   ESCC MODERN TECH/AI THEME
    Dark + Neon + Glassmorphism
 ========================================== */
 
@@ -493,56 +493,73 @@ tr:hover {
  }
 }
 
+
 /* ==========================================
-   MOBILE RESPONSIVENESS
+   MOBILE-FIRST OVERRIDES
+   Quiet Luxury optimized for all devices
 ========================================== */
 
+/* Mobile-first container */
 @media (max-width: 768px) {
- /* Stack dashboard grids */
- [style*="grid-template-columns"] {
-   grid-template-columns: 1fr !important;
- }
- 
- /* Bigger touch targets */
- button, [role="button"] {
-   min-height: 44px;
-   font-size: 14px !important;
- }
- 
- /* Reduce padding */
- [style*="padding"] {
-   padding: 12px !important;
- }
- 
- /* Make text readable */
- [style*="font-size: 11px"] {
-   font-size: 12px !important;
- }
- 
- [style*="font-size: 12px"] {
-   font-size: 14px !important;
- }
- 
- /* Stack flex containers */
- [style*="display: flex"] {
-   flex-direction: column;
-   gap: 8px;
- }
- 
- /* Full-width buttons */
- button[style*="padding: 6px 14px"] {
-   width: 100%;
-   padding: 12px !important;
- }
+  body {
+    padding: env(safe-area-inset-bottom, 0) env(safe-area-inset-right, 0) env(safe-area-inset-bottom, 0) env(safe-area-inset-left, 0);
+    overflow-x: hidden;
+  }
+
+  /* Prevent zoom-on-focus on iOS */
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+
+  /* Touch target minimums */
+  button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Scroll containers for tables/lists */
+  .scroll-x {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+
+  /* Full-width on mobile */
+  .mobile-full {
+    width: 100% !important;
+  }
+
+  /* Smaller text on mobile */
+  .mobile-text-sm {
+    font-size: 12px !important;
+  }
+
+  /* Stack columns */
+  [style*="grid-template-columns: repeat"],
+  [style*="grid-template-columns: 1fr 1fr"] {
+    grid-template-columns: 1fr !important;
+  }
 }
 
 @media (max-width: 480px) {
- /* Extra small devices */
- [style*="font-size: 18px"] {
-   font-size: 16px !important;
- }
- 
- h1, h2, h3 {
-   font-size: 1.2em !important;
- }
+  /* Extra small screens */
+  body {
+    font-size: 14px;
+  }
+
+  h1 { font-size: 1.5rem !important; }
+  h2 { font-size: 1.25rem !important; }
+  h3 { font-size: 1.1rem !important; }
+
+  /* Compact cards */
+  [style*="padding: 32px"] {
+    padding: 16px !important;
+  }
+}
+
+/* Orientation changes */
+@media (orientation: landscape) and (max-height: 500px) {
+  h1, h2, h3 {
+    font-size: 1.2em !important;
+  }
 }

@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# FPCC Backend Deployment Verification Script
+# ESCC Backend Deployment Verification Script
 # Tests all endpoints to ensure the deployment is working correctly
 # =============================================================================
 
@@ -22,7 +22,7 @@ FAILED=0
 WARNINGS=0
 
 echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}FPCC Backend Verification Script${NC}"
+echo -e "${BLUE}ESCC Backend Verification Script${NC}"
 echo -e "${BLUE}Testing: ${BASE_URL}${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo ""
@@ -98,7 +98,7 @@ if curl -s --head --connect-timeout 5 "${BASE_URL}" > /dev/null; then
 else
     print_fail "Server is not responding at ${BASE_URL}"
     echo -e "\n${RED}Deployment verification failed. Server is not running.${NC}"
-    echo -e "Try starting the server with: ${YELLOW}pm2 start server.js --name fpcc-backend${NC}"
+    echo -e "Try starting the server with: ${YELLOW}pm2 start server.js --name escc-backend${NC}"
     exit 1
 fi
 echo ""
@@ -217,13 +217,13 @@ echo ""
 # =============================================================================
 echo -e "${YELLOW}Test 10: Checking PM2 process status...${NC}"
 if command -v pm2 &> /dev/null; then
-    pm2_status=$(pm2 list | grep fpcc-backend | awk '{print $19}')
+    pm2_status=$(pm2 list | grep escc-backend | awk '{print $19}')
     if [ "$pm2_status" = "online" ]; then
-        print_pass "PM2 process 'fpcc-backend' is online"
+        print_pass "PM2 process 'escc-backend' is online"
         echo -e "       Process details:"
-        pm2 show fpcc-backend | grep -E "(name|version|pid|uptime|script path|script args|error log path|out log path)"
+        pm2 show escc-backend | grep -E "(name|version|pid|uptime|script path|script args|error log path|out log path)"
     else
-        print_warning "PM2 process 'fpcc-backend' is not online (status: $pm2_status)"
+        print_warning "PM2 process 'escc-backend' is not online (status: $pm2_status)"
     fi
 else
     print_warning "PM2 is not installed"
@@ -280,9 +280,9 @@ if [ $FAILED -eq 0 ]; then
 else
     echo -e "${RED}✗ Some tests failed.${NC}"
     echo -e "\n${YELLOW}Troubleshooting:${NC}"
-    echo -e "  1. Check PM2 logs: ${YELLOW}pm2 logs fpcc-backend${NC}"
+    echo -e "  1. Check PM2 logs: ${YELLOW}pm2 logs escc-backend${NC}"
     echo -e "  2. Check .env file: ${YELLOW}cat .env${NC}"
-    echo -e "  3. Restart the server: ${YELLOW}pm2 restart fpcc-backend${NC}"
+    echo -e "  3. Restart the server: ${YELLOW}pm2 restart escc-backend${NC}"
     echo -e "  4. Check firewall: ${YELLOW}sudo ufw status${NC}"
     exit 1
 fi

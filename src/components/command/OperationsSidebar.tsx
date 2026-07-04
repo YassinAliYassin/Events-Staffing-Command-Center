@@ -277,7 +277,7 @@ const OperationsSidebar: React.FC<OperationsSidebarProps> = ({
             </div>
             {!collapsed && (
               <div className="sidebar-logo-text">
-                <span className="logo-main">FPCC</span>
+                <span className="logo-main">ESCC</span>
                 <span className="logo-sub">{agentTheme.agentName}</span>
               </div>
             )}
@@ -403,7 +403,7 @@ const OperationsSidebar: React.FC<OperationsSidebarProps> = ({
           {/* Version Number */}
           {!collapsed && (
             <div className="sidebar-version" style={{ fontSize: '10px', color: 'rgba(156, 163, 175, 0.6)', textAlign: 'center', marginTop: '4px' }}>
-              FPCC v2.2.0 — build {new Date().toISOString().slice(0,10)}
+              ESCC v2.2.0 — build {new Date().toISOString().slice(0,10)}
             </div>
           )}
           

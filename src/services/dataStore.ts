@@ -2,7 +2,7 @@ import { db, getStaff, upsertStaff as firebaseUpsertStaff, getClients, upsertCli
 import { supabase, isSupabaseEnabled } from './supabaseClient';
 
 // ─── Local storage fallback ───────────────────────────────────────────────────
-const KEY = 'fpcc_local_store_v1';
+const KEY = 'escc_local_store_v1';
 
 interface LocalStore {
   staff: any[];

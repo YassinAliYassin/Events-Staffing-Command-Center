@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 
 /**
- * FPCC Command Bar Component
+ * ESCC Command Bar Component
  * Premium executive command bar with quick actions
  */
 const CommandBar = ({ onToggleSidebar, onToggleTheme, isDarkMode = true }) => {
@@ -20,7 +20,7 @@ const CommandBar = ({ onToggleSidebar, onToggleTheme, isDarkMode = true }) => {
       <div className="executive-header-inner">
         {/* Logo Section */}
         <div className="executive-logo">
-          <div className="executive-logo-icon">FPCC</div>
+          <div className="executive-logo-icon">ESCC</div>
           <div className="executive-logo-text">
             <div className="executive-logo-title">FRESH PEOPLE</div>
             <div className="executive-logo-subtitle">Executive Command Center</div>

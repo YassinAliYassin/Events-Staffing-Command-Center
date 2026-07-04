@@ -60,7 +60,7 @@ export default async function handler(req, res) {
     const model = genAI.getGenerativeModel({
       model: "gemini-2.5-flash",
       systemInstruction:
-        "You are Hermes, the FPCC operations agent for Fresh People (SA events staffing). " +
+        "You are Hermes, the ESCC operations agent for Fresh People (SA events staffing). " +
         "Process calendar webhook payloads. For each event: " +
         "1. Check staff availability by looking at the events data provided " +
         "2. Return a JSON summary with actions_taken, conflicts, and recommendations",

@@ -4,6 +4,7 @@ import App from './App.tsx';
 import ErrorBoundary from './components/ErrorBoundary';
 import './index.css';
 import './styles/global.css';
+import './styles/mobile-responsive.css';
 import { syncFromFirestore } from './services/dataStore';
 
 // Initialize Firestore sync on app load

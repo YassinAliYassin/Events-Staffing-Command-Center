@@ -87,7 +87,7 @@ export const calendarWebhook = onRequest(
     const model = genAI.getGenerativeModel({
       model: "gemini-2.5-flash",
       systemInstruction:
-        "You are Hermes, the FPCC operations agent for Fresh People (SA events staffing). " +
+        "You are Hermes, the ESCC operations agent for Fresh People (SA events staffing). " +
         "You have three tools: check_staff_availability, upsert_schedule, log_system_alert. " +
         "Process the calendar payload: check for conflicts, upsert valid schedules, log alerts for issues. " +
         "Be concise. Return a JSON summary with actions_taken array.",
@@ -122,5 +122,5 @@ export const calendarWebhook = onRequest(
 
 // ─── Health check endpoint ───────────────────────────────────────────────────
 export const health = onRequest({ cors: true }, (_req, res) => {
-  res.status(200).json({ status: "ok", service: "fpcc-functions", timestamp: new Date().toISOString() });
+  res.status(200).json({ status: "ok", service: "escc-functions", timestamp: new Date().toISOString() });
 });

@@ -1,4 +1,4 @@
-# FPCC Backend VPS Deployment Guide
+# ESCC Backend VPS Deployment Guide
 
 ## Server Information
 - **VPS IP**: 102.208.231.11
@@ -19,18 +19,18 @@ ssh your-username@102.208.231.11
 ### Step 2: Download and run the deployment script
 ```bash
 # Download the deployment script
-curl -O https://raw.githubusercontent.com/YassinAliYassin/Fresh-People-Command-Center/main/deploy-fpcc.sh
+curl -O https://raw.githubusercontent.com/YassinAliYassin/Fresh-People-Command-Center/main/deploy-escc.sh
 
 # Make it executable
-chmod +x deploy-fpcc.sh
+chmod +x deploy-escc.sh
 
 # Run the deployment (this will prompt for environment variables)
-bash deploy-fpcc.sh
+bash deploy-escc.sh
 ```
 
 That's it! The script will:
 1. Install Node.js, npm, PM2, and PostgreSQL client
-2. Clone the repository to `/var/www/fpcc-backend`
+2. Clone the repository to `/var/www/escc-backend`
 3. Install all dependencies
 4. Prompt you to create the `.env` file with your credentials
 5. Configure firewall (if ufw is active)
@@ -65,7 +65,7 @@ The verification script tests:
 
 ## Environment Variables Required
 
-When running `deploy-fpcc.sh`, you'll be prompted for:
+When running `deploy-escc.sh`, you'll be prompted for:
 
 ```bash
 DATABASE_URL=postgresql://user:password@host:port/database
@@ -109,8 +109,8 @@ sudo apt-get install -y git
 ```bash
 sudo mkdir -p /var/www
 sudo chown $USER:$USER /var/www
-git clone https://github.com/YassinAliYassin/Fresh-People-Command-Center.git /var/www/fpcc-backend
-cd /var/www/fpcc-backend
+git clone https://github.com/YassinAliYassin/Fresh-People-Command-Center.git /var/www/escc-backend
+cd /var/www/escc-backend
 ```
 
 ### 3. Install Dependencies
@@ -143,7 +143,7 @@ sudo ufw reload
 
 ### 6. Start with PM2
 ```bash
-pm2 start server.js --name fpcc-backend
+pm2 start server.js --name escc-backend
 pm2 save
 pm2 startup
 ```
@@ -152,23 +152,23 @@ pm2 startup
 
 ### View Logs
 ```bash
-pm2 logs fpcc-backend
-pm2 logs fpcc-backend --lines 100  # Last 100 lines
+pm2 logs escc-backend
+pm2 logs escc-backend --lines 100  # Last 100 lines
 ```
 
 ### Restart Application
 ```bash
-pm2 restart fpcc-backend
+pm2 restart escc-backend
 ```
 
 ### Stop Application
 ```bash
-pm2 stop fpcc-backend
+pm2 stop escc-backend
 ```
 
 ### Delete Application
 ```bash
-pm2 delete fpcc-backend
+pm2 delete escc-backend
 ```
 
 ### Monitor in Real-Time
@@ -179,7 +179,7 @@ pm2 monit
 ### View Status
 ```bash
 pm2 status
-pm2 show fpcc-backend
+pm2 show escc-backend
 ```
 
 ## Updating the Application
@@ -187,15 +187,15 @@ pm2 show fpcc-backend
 To pull the latest changes and restart:
 
 ```bash
-cd /var/www/fpcc-backend
+cd /var/www/escc-backend
 git pull origin main
 npm install --production
-pm2 restart fpcc-backend
+pm2 restart escc-backend
 ```
 
 Or simply re-run the deployment script:
 ```bash
-bash deploy-fpcc.sh
+bash deploy-escc.sh
 ```
 
 The script is idempotent (safe to run multiple times).
@@ -205,13 +205,13 @@ The script is idempotent (safe to run multiple times).
 ### Application Won't Start
 ```bash
 # Check PM2 logs
-pm2 logs fpcc-backend
+pm2 logs escc-backend
 
 # Check if port is in use
 sudo lsof -i :3001
 
 # Check .env file
-cat /var/www/fpcc-backend/.env
+cat /var/www/escc-backend/.env
 ```
 
 ### Database Connection Issues
@@ -220,13 +220,13 @@ cat /var/www/fpcc-backend/.env
 psql $DATABASE_URL -c "SELECT 1"
 
 # Check if using SQLite (default)
-ls -la /var/www/fpcc-backend/*.db
+ls -la /var/www/escc-backend/*.db
 ```
 
 ### WhatsApp Integration Not Working
 ```bash
 # Verify token in .env
-grep WHATSAPP_ACCESS_TOKEN /var/www/fpcc-backend/.env
+grep WHATSAPP_ACCESS_TOKEN /var/www/escc-backend/.env
 
 # Test endpoint manually
 curl -X POST http://localhost:3001/api/dispatch-staff \
@@ -268,7 +268,7 @@ Once deployed, the following endpoints are available:
 ## Support
 
 For issues or questions:
-1. Check the logs: `pm2 logs fpcc-backend`
+1. Check the logs: `pm2 logs escc-backend`
 2. Run verification: `bash verify-deployment.sh`
 3. Review this guide
 4. Check GitHub repository issues: https://github.com/YassinAliYassin/Fresh-People-Command-Center/issues
@@ -277,4 +277,4 @@ For issues or questions:
 
 **Deployment completed successfully!** 🎉
 
-Your FPCC backend should now be running at: `http://102.208.231.11:3001`
+Your ESCC backend should now be running at: `http://102.208.231.11:3001`

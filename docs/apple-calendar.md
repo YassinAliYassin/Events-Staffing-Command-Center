@@ -1,7 +1,7 @@
 # Apple Calendar (iCloud CalDAV) Integration
 
 ## Overview
-This integration connects Fresh People Command Center to your iCloud Calendar via CalDAV protocol, enabling event synchronization between FPCC and Apple Calendar.
+This integration connects Fresh People Command Center to your iCloud Calendar via CalDAV protocol, enabling event synchronization between ESCC and Apple Calendar.
 
 ## Prerequisites
 1. Active iCloud account
@@ -14,7 +14,7 @@ This integration connects Fresh People Command Center to your iCloud Calendar vi
 2. Sign in with your iCloud credentials
 3. Navigate to **Security** → **App-Specific Passwords**
 4. Click **Generate Password**
-5. Label it `FPCC CalDAV Integration`
+5. Label it `ESCC CalDAV Integration`
 6. Copy the generated password (format: xxxx-xxxx-xxxx-xxxx)
    - **Important:** This password is shown only once - store it securely
 

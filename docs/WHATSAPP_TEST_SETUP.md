@@ -1,7 +1,7 @@
 # WhatsApp Test Number Setup Guide
 
 ## Context
-FPCC uses a Meta WhatsApp Test Number (+1 555-650-0119, Phone ID: 1190600000792870) which can only send messages to verified Test Recipients. Error 131030 ("Recipient phone number not in allowed list") occurs when staff numbers are not added to the Test Recipients list.
+ESCC uses a Meta WhatsApp Test Number (+1 555-650-0119, Phone ID: 1190600000792870) which can only send messages to verified Test Recipients. Error 131030 ("Recipient phone number not in allowed list") occurs when staff numbers are not added to the Test Recipients list.
 
 ## Permanent Fix Steps: Add Staff Numbers to Test Recipients
 1. Log in to [Meta Business Console](https://business.facebook.com/) with your WABA admin account

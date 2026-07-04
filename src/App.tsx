@@ -3,7 +3,7 @@ import ClientsView from './components/ClientsView';
 import Dashboard from './components/Dashboard';
 import Payroll from './pages/Payroll';
 import StaffCard from './components/StaffCard';
-import { FPCCCore } from './services/fpcc-core';
+import { ESCCCore } from './services/escc-core';
 import ModelPanel from './components/ModelPanel';
 import * as dataStore from './services/dataStore';
 
@@ -1353,7 +1353,7 @@ export default function App(){
                                   <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:16}}>
                                     <Btn variant="accent" onClick={async ()=>{
                                       try {
-                                        const result = await FPCCCore.sendWhatsApp(e.id, e.staffIds || []);
+                                        const result = await ESCCCore.sendWhatsApp(e.id, e.staffIds || []);
                                         
                                         if (result.success) {
                                           addToast(`WhatsApp sent to ${result.dispatched} staff members`, 'success');

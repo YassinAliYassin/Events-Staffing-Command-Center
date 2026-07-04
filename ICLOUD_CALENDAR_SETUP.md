@@ -1,6 +1,6 @@
 # iCloud Calendar URL Regeneration Steps
 
-When the iCloud calendar URL expires, follow these permanent steps to regenerate and update FPCC:
+When the iCloud calendar URL expires, follow these permanent steps to regenerate and update ESCC:
 
 ## Regenerate iCloud Public Calendar URL
 1. Open **Calendar** on Mac or iOS device

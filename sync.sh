@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-#  FPCC SYNC — the "one tool" that keeps Google AI Studio <-> Firebase <-> GitHub
+#  ESCC SYNC — the "one tool" that keeps Google AI Studio <-> Firebase <-> GitHub
 #  aligned on every upgrade or improvement.
 #
 #  Pipeline (in order):
