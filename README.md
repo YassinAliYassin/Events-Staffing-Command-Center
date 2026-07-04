@@ -1,6 +1,6 @@
-# ESCC
+# Events-Staffing-Command-Center
 
-ESCC is the events staffing command center for Fresh People. It combines staff management, event scheduling, payroll, client records, and dispatch workflows in one app.
+Events-Staffing-Command-Center is the events staffing command center for Fresh People. It combines staff management, event scheduling, payroll, client records, and dispatch workflows in one app.
 
 ## Live Targets
 
@@ -75,7 +75,6 @@ npm run server
 
 ## Notes
 
-- The app now brands itself as ESCC in the UI and generated documents.
+- The app now brands itself as Events-Staffing-Command-Center in the UI and generated documents.
 - The local backend exposes `/api/health` for deployment checks.
 - Document numbers use the `ESCC-INV` and `ESCC-QTE` prefixes.
-
