@@ -13,10 +13,18 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = 3001;
+const PORT = Number(process.env.PORT) || 3001;
 
 app.use(cors());
 app.use(express.json());
+
+app.get('/api/health', (_req, res) => {
+  res.status(200).json({
+    ok: true,
+    service: 'escc',
+    timestamp: new Date().toISOString(),
+  });
+});
 
 // Apple Calendar API - mirrors api/calendar/apple.js (uses shared lib)
 app.post('/api/calendar/apple', async (req, res) => {

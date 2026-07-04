@@ -7,7 +7,7 @@ const HeroSection = () => {
     <section className="bg-gradient-to-br from-gray-900 to-gray-950 border border-gray-800 rounded-xl p-6 sm:p-8 mb-8">
       <div className="max-w-3xl">
         <h1 className="text-3xl sm:text-4xl font-bold text-white mb-4">
-          Fresh People Staffing Command Center
+          ESCC
         </h1>
         <p className="text-lg text-gray-300 mb-2">
           Built for Fresh People staffing teams to manage staff, events, and daily operations in one place.

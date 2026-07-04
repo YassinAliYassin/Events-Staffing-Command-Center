@@ -1,4 +1,4 @@
-// Agent types for Fresh People Command Center
+// Agent types for ESCC
 
 export interface CalendarEvent {
   id: string;

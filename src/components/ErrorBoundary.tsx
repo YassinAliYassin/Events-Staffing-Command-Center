@@ -28,7 +28,10 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
       return (
         <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center p-8">
           <div className="max-w-2xl">
-            <h1 className="text-4xl font-bold text-red-500 mb-4">Something went wrong</h1>
+            <h1 className="text-4xl font-bold text-red-500 mb-4">ESCC hit an error</h1>
+            <p className="text-gray-300 mb-4">
+              The app ran into a problem and could not continue safely.
+            </p>
             <pre className="bg-gray-900 p-4 rounded text-sm overflow-auto">
               {this.state.error?.toString()}
             </pre>

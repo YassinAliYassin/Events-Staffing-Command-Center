@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Calendar, dateFnsLocalizer } from 'react-big-calendar';
 import { format, parse, startOfWeek, getDay } from 'date-fns';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
@@ -26,6 +26,26 @@ const PremiumCalendar = () => {
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState('month');
   const [date, setDate] = useState(new Date());
+  const [selectedEvent, setSelectedEvent] = useState(null);
+  const [draftEvent, setDraftEvent] = useState(null);
+
+  const selectedEventDetails = useMemo(() => {
+    if (!selectedEvent) return null;
+    const staffList = Array.isArray(selectedEvent.resource?.staff_assigned)
+      ? selectedEvent.resource.staff_assigned.join(', ')
+      : (selectedEvent.resource?.staff_assigned || 'Unassigned');
+
+    return {
+      title: selectedEvent.title,
+      start: selectedEvent.start,
+      end: selectedEvent.end,
+      source: selectedEvent.resource?.source || 'local',
+      location: selectedEvent.resource?.venue || selectedEvent.resource?.location || 'No venue specified',
+      staffList,
+      notes: selectedEvent.resource?.notes || 'No notes available.',
+      priority: selectedEvent.priority || 'medium',
+    };
+  }, [selectedEvent]);
 
   useEffect(() => {
     const fetchEvents = async () => {
@@ -172,6 +192,45 @@ const PremiumCalendar = () => {
     );
   };
 
+  const openNewEventModal = (slotInfo) => {
+    const start = new Date(slotInfo.start || date);
+    const end = new Date(slotInfo.end || new Date(start.getTime() + 4 * 60 * 60 * 1000));
+    setDraftEvent({
+      title: '',
+      start,
+      end,
+      venue: '',
+      notes: '',
+      staff: '',
+      priority: 'medium',
+    });
+  };
+
+  const saveDraftEvent = () => {
+    if (!draftEvent?.title.trim()) return;
+
+    const newEvent = {
+      id: `local-${Date.now()}`,
+      title: draftEvent.title.trim(),
+      start: draftEvent.start,
+      end: draftEvent.end,
+      resource: {
+        source: 'local',
+        venue: draftEvent.venue.trim(),
+        notes: draftEvent.notes.trim(),
+        staff_assigned: draftEvent.staff
+          ? draftEvent.staff.split(',').map(part => part.trim()).filter(Boolean)
+          : [],
+        priority: draftEvent.priority,
+      },
+      priority: draftEvent.priority,
+    };
+
+    setEvents(prev => [newEvent, ...prev]);
+    setDraftEvent(null);
+    setSelectedEvent(newEvent);
+  };
+
   if (loading) {
     return (
       <div className="premium-calendar-container">
@@ -197,7 +256,7 @@ const PremiumCalendar = () => {
               borderRadius: '50%',
               animation: 'spin 1s linear infinite'
             }} />
-            <span>Loading Executive Calendar...</span>
+            <span>Loading ESCC Calendar...</span>
           </div>
         </div>
         <style>{`
@@ -234,15 +293,134 @@ const PremiumCalendar = () => {
         step={60}
         timeslots={1}
         onSelectEvent={(event) => {
-          console.log('Event selected:', event);
-          // TODO: Open event detail modal
+          setSelectedEvent(event);
+          setDraftEvent(null);
         }}
         onSelectSlot={(slotInfo) => {
-          console.log('Slot selected:', slotInfo);
-          // TODO: Open new event modal
+          openNewEventModal(slotInfo);
+          setSelectedEvent(null);
         }}
         selectable
       />
+
+      {selectedEventDetails && (
+        <div className="modal-overlay" onClick={() => setSelectedEvent(null)}>
+          <div className="modal-container" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '560px', width: '100%' }}>
+            <div className="modal-header">
+              <h2 className="modal-title">Event Details</h2>
+              <button className="modal-close" onClick={() => setSelectedEvent(null)}>✕</button>
+            </div>
+            <div className="modal-body" style={{ display: 'grid', gap: '12px' }}>
+              <div>
+                <div style={{ color: 'var(--text-muted)', fontSize: '12px', marginBottom: 4 }}>Title</div>
+                <div style={{ fontWeight: 600 }}>{selectedEventDetails.title}</div>
+              </div>
+              <div>
+                <div style={{ color: 'var(--text-muted)', fontSize: '12px', marginBottom: 4 }}>When</div>
+                <div>{format(selectedEventDetails.start, 'EEE, d MMM yyyy HH:mm')} - {format(selectedEventDetails.end, 'HH:mm')}</div>
+              </div>
+              <div>
+                <div style={{ color: 'var(--text-muted)', fontSize: '12px', marginBottom: 4 }}>Source</div>
+                <div>{selectedEventDetails.source === 'icloud' ? 'iCloud Calendar' : 'Local Calendar'}</div>
+              </div>
+              <div>
+                <div style={{ color: 'var(--text-muted)', fontSize: '12px', marginBottom: 4 }}>Venue</div>
+                <div>{selectedEventDetails.location}</div>
+              </div>
+              <div>
+                <div style={{ color: 'var(--text-muted)', fontSize: '12px', marginBottom: 4 }}>Staff</div>
+                <div>{selectedEventDetails.staffList}</div>
+              </div>
+              <div>
+                <div style={{ color: 'var(--text-muted)', fontSize: '12px', marginBottom: 4 }}>Notes</div>
+                <div>{selectedEventDetails.notes}</div>
+              </div>
+            </div>
+            <div className="modal-actions" style={{ justifyContent: 'space-between' }}>
+              <button className="modal-close-btn" onClick={() => setSelectedEvent(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {draftEvent && (
+        <div className="modal-overlay" onClick={() => setDraftEvent(null)}>
+          <div className="modal-container" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '640px', width: '100%' }}>
+            <div className="modal-header">
+              <h2 className="modal-title">Create Event</h2>
+              <button className="modal-close" onClick={() => setDraftEvent(null)}>✕</button>
+            </div>
+            <div className="modal-body" style={{ display: 'grid', gap: '12px' }}>
+              <label>
+                <div style={{ color: 'var(--text-muted)', fontSize: '12px', marginBottom: 4 }}>Title</div>
+                <input
+                  value={draftEvent.title}
+                  onChange={(e) => setDraftEvent(prev => ({ ...prev, title: e.target.value }))}
+                  placeholder="Event title"
+                  style={{ width: '100%' }}
+                />
+              </label>
+              <label>
+                <div style={{ color: 'var(--text-muted)', fontSize: '12px', marginBottom: 4 }}>Venue</div>
+                <input
+                  value={draftEvent.venue}
+                  onChange={(e) => setDraftEvent(prev => ({ ...prev, venue: e.target.value }))}
+                  placeholder="Venue location"
+                  style={{ width: '100%' }}
+                />
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <label>
+                  <div style={{ color: 'var(--text-muted)', fontSize: '12px', marginBottom: 4 }}>Start</div>
+                  <input
+                    type="datetime-local"
+                    value={format(draftEvent.start, "yyyy-MM-dd'T'HH:mm")}
+                    onChange={(e) => setDraftEvent(prev => ({ ...prev, start: new Date(e.target.value) }))}
+                    style={{ width: '100%' }}
+                  />
+                </label>
+                <label>
+                  <div style={{ color: 'var(--text-muted)', fontSize: '12px', marginBottom: 4 }}>End</div>
+                  <input
+                    type="datetime-local"
+                    value={format(draftEvent.end, "yyyy-MM-dd'T'HH:mm")}
+                    onChange={(e) => setDraftEvent(prev => ({ ...prev, end: new Date(e.target.value) }))}
+                    style={{ width: '100%' }}
+                  />
+                </label>
+              </div>
+              <label>
+                <div style={{ color: 'var(--text-muted)', fontSize: '12px', marginBottom: 4 }}>Staff Assigned</div>
+                <input
+                  value={draftEvent.staff}
+                  onChange={(e) => setDraftEvent(prev => ({ ...prev, staff: e.target.value }))}
+                  placeholder="Comma-separated staff names"
+                  style={{ width: '100%' }}
+                />
+              </label>
+              <label>
+                <div style={{ color: 'var(--text-muted)', fontSize: '12px', marginBottom: 4 }}>Notes</div>
+                <textarea
+                  value={draftEvent.notes}
+                  onChange={(e) => setDraftEvent(prev => ({ ...prev, notes: e.target.value }))}
+                  rows={3}
+                  style={{ width: '100%' }}
+                />
+              </label>
+            </div>
+            <div className="modal-actions" style={{ justifyContent: 'space-between' }}>
+              <button className="modal-close-btn" onClick={() => setDraftEvent(null)}>Cancel</button>
+              <button
+                className="modal-save-btn"
+                onClick={saveDraftEvent}
+                disabled={!draftEvent.title.trim()}
+              >
+                Save Event
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

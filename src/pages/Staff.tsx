@@ -289,7 +289,7 @@ const Staff = () => {
     
     setWhatsappSending(staff.id);
     try {
-      const message = `Hello ${staff.staffName},\n\nThis is a message from Fresh People Command Center.\n\nBest regards,\nFresh People Team`;
+      const message = `Hello ${staff.staffName},\n\nThis is a message from ESCC.\n\nBest regards,\nFresh People Team`;
       const encodedMessage = encodeURIComponent(message);
       const phone = staff.staffPhone.replace(/\D/g, '');
       const whatsappUrl = `https://wa.me/${phone}?text=${encodedMessage}`;

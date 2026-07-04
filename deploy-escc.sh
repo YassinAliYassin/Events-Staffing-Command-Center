@@ -116,7 +116,7 @@ fi
 echo -e "\n${YELLOW}Step 3: Installing Node.js dependencies...${NC}"
 
 cd "$APP_DIR"
-npm install --production
+npm ci --omit=dev
 print_status "Node.js dependencies installed"
 
 # =============================================================================
@@ -274,7 +274,7 @@ sleep 3
 if curl -s http://localhost:$PORT/api/health | grep -q "ok"; then
     print_status "Health check passed!"
 else
-    print_warning "Health check endpoint not responding (this is normal if /api/health doesn't exist yet)"
+    print_warning "Health check endpoint not responding"
 fi
 
 # Show PM2 status

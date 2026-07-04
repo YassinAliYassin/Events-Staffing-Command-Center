@@ -7,7 +7,7 @@
 # API calls are routed to Vercel where the serverless functions live.
 [[redirects]]
   from = "/api/*"
-  to = "https://fresh-people-command-center.vercel.app/api/:splat"
+  to = "https://freshpeople-app.vercel.app/api/:splat"
   status = 200
   force = true
 
