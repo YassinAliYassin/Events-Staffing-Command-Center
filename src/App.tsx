@@ -35,12 +35,12 @@ const INITIAL_CLIENTS = [
 ];
 
 const INITIAL_INVOICES = [
-  { id:1, docNo:"FP-INV-2025-001", type:"invoice", clientId:2, eventId:4, issueDate:ymd(addDays(today,-2)), dueDate:ymd(addDays(today,28)), status:"sent",
+  { id:1, docNo:"ESCC-INV-2025-001", type:"invoice", clientId:2, eventId:4, issueDate:ymd(addDays(today,-2)), dueDate:ymd(addDays(today,28)), status:"sent",
     lines:[{desc:"Floor Staff × 3 (5h)",qty:15,rate:13.0},{desc:"Supervision fee",qty:1,rate:500}], notes:"Thank you for your business." },
 ];
 
 const INITIAL_QUOTES = [
-  { id:1, docNo:"FP-QTE-2025-001", clientId:1, eventId:1, issueDate:ymd(today), validUntil:ymd(addDays(today,30)), status:"draft",
+  { id:1, docNo:"ESCC-QTE-2025-001", clientId:1, eventId:1, issueDate:ymd(today), validUntil:ymd(addDays(today,30)), status:"draft",
     lines:[{desc:"Bar Staff × 3 (6h)",qty:18,rate:14.5},{desc:"Security × 2 (6h)",qty:12,rate:15.5},{desc:"Setup & breakdown fee",qty:1,rate:800}], notes:"Valid for 30 days from issue date." },
 ];
 
@@ -327,7 +327,7 @@ function DocPrint({doc, docType, client, event: evt, allDocs, onClose}){
 
 // ─── Document Form (Invoice or Quote) ────────────────────────────────────────
 function DocForm({docType, clients, events, staff = [], existingDocs, onSave, onClose}){
-  const prefix = docType==="invoice" ? "FP-INV" : "FP-QTE";
+  const prefix = docType==="invoice" ? "ESCC-INV" : "ESCC-QTE";
   const [form,setForm] = useState({
     docNo: nextDocNo(existingDocs, prefix),
     clientId:"", eventId:"",
@@ -494,7 +494,7 @@ function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,events}){
     const inv={
       ...quote,
       id:Date.now(),
-      docNo:nextDocNo(invoices,"FP-INV"),
+      docNo:nextDocNo(invoices,"ESCC-INV"),
       type:"invoice",
       dueDate:ymd(addDays(today,30)),
       validUntil:undefined,

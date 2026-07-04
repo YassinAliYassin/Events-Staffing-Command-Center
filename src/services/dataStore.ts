@@ -40,10 +40,10 @@ const seedStore = (): LocalStore => {
       { id: 3, title: "Wedding: Khumalo/Singh", date: ymd(addDays(today, 8)), venue: "Zimbali Estate", staffIds: [1, 2, 3, 4], startTime: "12:00", endTime: "20:00", clientId: 3, color: "#f78c6c", notes: "Outdoor." },
     ],
     invoices: [
-      { id: 1, docNo: "FP-INV-2025-001", type: "invoice", clientId: 2, eventId: 4, issueDate: ymd(addDays(today, -2)), dueDate: ymd(addDays(today, 28)), status: "sent", includeTax: true, taxRate: 15, lines: [{ desc: "Floor Staff × 3 (5h)", qty: 15, rate: 40 }, { desc: "Supervision fee", qty: 1, rate: 500 }], notes: "Thank you." },
+      { id: 1, docNo: "ESCC-INV-2025-001", type: "invoice", clientId: 2, eventId: 4, issueDate: ymd(addDays(today, -2)), dueDate: ymd(addDays(today, 28)), status: "sent", includeTax: true, taxRate: 15, lines: [{ desc: "Floor Staff × 3 (5h)", qty: 15, rate: 40 }, { desc: "Supervision fee", qty: 1, rate: 500 }], notes: "Thank you." },
     ],
     quotes: [
-      { id: 1, docNo: "FP-QTE-2025-001", clientId: 1, eventId: 1, issueDate: ymd(today), validUntil: ymd(addDays(today, 30)), status: "draft", includeTax: true, taxRate: 15, lines: [{ desc: "Bar Staff × 3 (6h)", qty: 18, rate: 40 }, { desc: "Security × 2 (6h)", qty: 12, rate: 45 }, { desc: "Setup fee", qty: 1, rate: 800 }], notes: "Valid for 30 days." },
+      { id: 1, docNo: "ESCC-QTE-2025-001", clientId: 1, eventId: 1, issueDate: ymd(today), validUntil: ymd(addDays(today, 30)), status: "draft", includeTax: true, taxRate: 15, lines: [{ desc: "Bar Staff × 3 (6h)", qty: 18, rate: 40 }, { desc: "Security × 2 (6h)", qty: 12, rate: 45 }, { desc: "Setup fee", qty: 1, rate: 800 }], notes: "Valid for 30 days." },
     ],
     messages: [],
   };
@@ -144,7 +144,7 @@ export const updateEvent = (id: number, patch: any) => {
 export const listInvoices = () => store.invoices;
 export const addInvoice = (inv: any) => {
   const id = (store.invoices.at(-1)?.id ?? 0) + 1;
-  const docNo = `FP-INV-${new Date().getFullYear()}-${String(id).padStart(3, '0')}`;
+  const docNo = `ESCC-INV-${new Date().getFullYear()}-${String(id).padStart(3, '0')}`;
   const record = { ...inv, id, docNo, type: 'invoice' };
   return update(st => { st.invoices = [...st.invoices, record]; }).invoices.at(-1);
 };
@@ -153,7 +153,7 @@ export const addInvoice = (inv: any) => {
 export const listQuotes = () => store.quotes;
 export const addQuote = (q: any) => {
   const id = (store.quotes.at(-1)?.id ?? 0) + 1;
-  const docNo = `FP-QTE-${new Date().getFullYear()}-${String(id).padStart(3, '0')}`;
+  const docNo = `ESCC-QTE-${new Date().getFullYear()}-${String(id).padStart(3, '0')}`;
   const record = { ...q, id, docNo, type: 'quote' };
   return update(st => { st.quotes = [...st.quotes, record]; }).quotes.at(-1);
 };

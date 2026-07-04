@@ -10,6 +10,8 @@ import { syncFromFirestore } from './services/dataStore';
 // Initialize Firestore sync on app load
 syncFromFirestore().catch(err => console.warn('Initial Firestore sync failed:', err));
 
+document.title = 'ESCC';
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
