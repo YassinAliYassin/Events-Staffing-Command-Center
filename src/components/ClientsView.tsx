@@ -42,6 +42,9 @@ interface CRMClient extends BaseClient {
 }
 
 interface ClientsViewProps {
+  clients?: any[];
+  events?: any[];
+  addToast?: (msg: any, type?: string) => void;
   onSelectClient?: (clientId: number) => void;
 }
 
