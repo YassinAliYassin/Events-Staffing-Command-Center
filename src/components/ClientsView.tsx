@@ -3,9 +3,11 @@ import {
   Users, Plus, Search, Mail, Phone, MapPin, Star, TrendingUp, Calendar,
   Edit, Trash2, X, Save, MessageCircle, ChevronRight, ChevronDown,
   Award, Activity, Briefcase, DollarSign, Filter, MoreVertical,
-  CheckCircle, XCircle, AlertCircle, Eye, Send, Target
+  CheckCircle, XCircle, AlertCircle, Eye, Send, Target,
+  MessageSquare, Edit2, Clock, FileText
 } from 'lucide-react';
 import { Client as BaseClient } from '../types';
+import * as dataStore from '../services/dataStore';
 
 // ==========================================
 // ENHANCED TYPES FOR CRM AGENT

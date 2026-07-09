@@ -17,8 +17,6 @@ export default defineConfig(() => {
       hmr: process.env.DISABLE_HMR !== 'true',
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
-      // SPA fallback for React Router client-side routes
-      historyApiFallback: true,
       // Proxy API requests to Express backend
       proxy: {
         '/api': {
@@ -27,9 +25,6 @@ export default defineConfig(() => {
         }
       }
     },
-    // Preview server fallback for production builds
-    preview: {
-      historyApiFallback: true,
-    },
+    // SPA fallback for React Router client-side routes is the default in Vite 6
   };
 });
