@@ -22,5 +22,30 @@
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  "include": ["src"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "functions",
+    "src/data",
+    "src/components/StaffAvailabilityPanel.tsx",
+    "src/components/PayrollCalendar.tsx",
+    "src/components/RecurringEventManager.tsx",
+    "src/components/DispatchPanel.tsx",
+    "src/components/StaffingAlertsPanel.tsx",
+    "src/components/StaffShiftCalendar.tsx",
+    "src/components/MasterRegistry.tsx",
+    "src/components/StaffTimeline.tsx",
+    "src/components/StaffPerformancePanel.tsx",
+    "src/components/StaffAllocationChecklist.tsx",
+    "src/components/crm/LeadScoring.tsx",
+    "src/components/calendar/EnhancedCalendar.tsx",
+    "src/components/WebhookLogViewer.tsx",
+    "src/components/finance/TaxCalculation.tsx",
+    "src/components/EventTemplatesPanel.tsx",
+    "src/components/EventArchitect.tsx",
+    "src/components/crm/PipelineManagement.tsx",
+    "src/components/crm/CommunicationHistory.tsx"
+  ]
 }

@@ -334,7 +334,7 @@ function DocForm({docType, clients, events, staff = [], existingDocs, onSave, on
     issueDate:ymd(today),
     dueDate: docType==="invoice" ? ymd(addDays(today,30)) : "",
     validUntil: docType==="quote" ? ymd(addDays(today,30)) : "",
-    lines:[{desc:"",qty:1,rate:0}],
+    lines:[{desc:"",qty:1,rate:0,kind:"manual",total:0}],
     notes: docType==="invoice"?"Thank you for your business.":"This quotation is valid for 30 days.",
     type: docType,
     includeTax: true,
@@ -470,7 +470,7 @@ function DocForm({docType, clients, events, staff = [], existingDocs, onSave, on
 }
 
 // ─── Documents Tab (Invoices + Quotes + Statements) ──────────────────────────
-function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,events}){
+function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,events,staff,addToast}){
   const [view,setView]         = useState("invoices"); // invoices | quotes | statements
   const [showForm,setShowForm] = useState(null);       // "invoice" | "quote" | null
   const [printDoc,setPrintDoc] = useState(null);
@@ -656,7 +656,7 @@ function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,events}){
 }
 
 // ─── Calendar Tab (with Google Calendar sync) ─────────────────────────────────
-function CalendarTab({events,setEvents,staff,clients,addToast}){
+function CalendarTab({events,setEvents,staff,clients,addToast,model}){
   const [viewDate,setViewDate] = useState(new Date(today.getFullYear(),today.getMonth(),1));
   const [selected,setSelected] = useState(null);
   const [showForm,setShowForm] = useState(false);
@@ -794,7 +794,7 @@ Hours: ${hrs}h
 Pay: R${s.total} (R${s.rate}/h)
 Notes: ${ev.notes||"N/A"}
 Sign off from: Freshpeople Admin`,
-          currentModel
+          model
         );
         
         // For now, copy to clipboard as Gmail draft creation requires OAuth2 setup
@@ -1557,10 +1557,10 @@ export default function App(){
             )}
 
             {/* CALENDAR */}
-            {adminTab==="calendar"&&<CalendarTab events={events} setEvents={setEvents} staff={staff} clients={clients} addToast={addToast}/>}
+            {adminTab==="calendar"&&<CalendarTab events={events} setEvents={setEvents} staff={staff} clients={clients} addToast={addToast} model={currentModel}/>}
 
             {/* DOCUMENTS */}
-            {adminTab==="documents"&&<DocumentsTab invoices={invoices} setInvoices={setInvoices} quotes={quotes} setQuotes={setQuotes} clients={clients} events={events}/>}
+            {adminTab==="documents"&&<DocumentsTab invoices={invoices} setInvoices={setInvoices} quotes={quotes} setQuotes={setQuotes} clients={clients} events={events} staff={staff} addToast={addToast}/>}
 
             {/* PAYROLL - Finance Agent */}
             {adminTab==="payroll"&&<Payroll staff={staff} events={events} records={records} addToast={addToast}/>}

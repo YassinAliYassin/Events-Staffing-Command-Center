@@ -36,7 +36,14 @@ interface PayrollData {
   };
 }
 
-const Payroll: React.FC = () => {
+interface PayrollProps {
+  staff?: any[];
+  events?: any[];
+  records?: any[];
+  addToast?: (msg: any, type?: string) => void;
+}
+
+const Payroll: React.FC<PayrollProps> = () => {
   const [payroll, setPayroll] = useState<PayrollData | null>(null);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'PAID' | 'UNPAID' | 'PARTIAL' | 'OVERDUE'>('ALL');

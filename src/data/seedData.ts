@@ -1,5 +1,19 @@
 import { Client, Venue, Staff, Event } from '../types';
 
+// Richer seed shape for legacy seed staff (string ids, split name/surname,
+// free-form role strings, plus email). Distinct from the canonical `Staff`
+// type used by assignments/payroll.
+interface SeedStaff {
+  id: string;
+  name: string;
+  surname: string;
+  role: string;
+  rate: number;
+  phone: string;
+  email: string;
+  notes: string;
+}
+
 // Seed/Initial Data in case LocalStorage is empty or for South African migration
 
 export const INITIAL_CLIENTS: Client[] = [
@@ -200,7 +214,7 @@ export const INITIAL_VENUES: Venue[] = [
   }
 ];
 
-export const INITIAL_STAFF: Staff[] = [
+export const INITIAL_STAFF: SeedStaff[] = [
   {
     id: 'staff-1',
     name: 'Sophie',
