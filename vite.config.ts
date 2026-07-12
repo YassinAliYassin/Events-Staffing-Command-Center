@@ -26,5 +26,26 @@ export default defineConfig(() => {
       }
     },
     // SPA fallback for React Router client-side routes is the default in Vite 6
+    build: {
+      // Split vendor code (node_modules) out of the app chunk so the app
+      // payload is small and vendors cache independently. Grouped by top-level
+      // package so large libs (firebase, supabase, googleapis, recharts, …)
+      // land in their own chunks.
+      chunkSizeWarningLimit: 900,
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (id.includes('node_modules')) {
+              const match = id.split('node_modules/')[1].split('/')[0];
+              // Scoped packages: take the scope+name
+              if (match.startsWith('@')) {
+                return 'vendor_' + id.split('node_modules/')[1].split('/').slice(0, 2).join('_');
+              }
+              return 'vendor_' + match;
+            }
+          },
+        },
+      },
+    },
   };
 });
