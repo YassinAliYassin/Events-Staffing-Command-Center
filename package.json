@@ -12,6 +12,7 @@
     "server": "node server.js"
   },
   "dependencies": {
+    "@dataconnect/generated": "file:src/dataconnect-generated",
     "@google/genai": "^2.4.0",
     "@supabase/supabase-js": "^2.107.0",
     "@tailwindcss/vite": "^4.1.14",
