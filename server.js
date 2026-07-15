@@ -27,15 +27,17 @@ app.get('/api/health', (_req, res) => {
 });
 
 // Apple Calendar API - mirrors api/calendar/apple.js (uses shared lib)
-app.post('/api/calendar/apple', async (req, res) => {
+// NOTE: must be GET to match the serverless handler (api/calendar/apple.js) and
+// the frontend fetchApple() call, which issues a GET (no body).
+app.get('/api/calendar/apple', async (req, res) => {
   try {
-    const icloudUrl = req.body?.calendarUrl || process.env.ICLOUD_CALENDAR_URL || DEFAULT_ICLOUD_URL;
+    const icloudUrl = req.query?.url || process.env.ICLOUD_CALENDAR_URL || DEFAULT_ICLOUD_URL;
     if (!icloudUrl) {
       return res.json({
         success: false,
         events: [],
         count: 0,
-        error: 'No iCloud URL configured (set ICLOUD_CALENDAR_URL or pass in body)',
+        error: 'No iCloud URL configured (set ICLOUD_CALENDAR_URL or pass ?url=)',
       });
     }
     const events = await fetchAndParseICalendar(icloudUrl);
@@ -92,7 +94,8 @@ app.post('/api/dispatch-staff', async (req, res) => {
 });
 
 // Google Calendar API (mock for local dev)
-app.post('/api/calendar/google', (req, res) => {
+// GET matches the serverless handler (api/calendar/google.js) and fetchGcal()'s GET call.
+app.get('/api/calendar/google', (req, res) => {
   res.json({
     success: true,
     events: [],
