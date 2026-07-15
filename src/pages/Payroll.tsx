@@ -49,24 +49,35 @@ const Payroll: React.FC<PayrollProps> = () => {
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'PAID' | 'UNPAID' | 'PARTIAL' | 'OVERDUE'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Real-time staff sync from Firestore
+  // Compute payroll from localStorage immediately (local-first, works offline /
+  // without Firebase). Firestore, when available, is a best-effort live refresh —
+  // a failed/misconfigured Firestore must NOT block the local data.
   useEffect(() => {
-    if (!db) {
-      fetchPayroll();
-      return;
+    // Local-first: always render from the local store right away.
+    fetchPayroll();
+
+    if (!db) return;
+
+    let unsubStaff: (() => void) | undefined;
+    let unsubEvents: (() => void) | undefined;
+    try {
+      unsubStaff = onSnapshot(
+        collection(db, 'staff'),
+        () => fetchPayroll(),
+        () => { /* Firestore unavailable (e.g. placeholder creds) — ignore, local data stands */ }
+      );
+      unsubEvents = onSnapshot(
+        collection(db, 'events'),
+        () => fetchPayroll(),
+        () => { /* same: ignore, local data stands */ }
+      );
+    } catch {
+      // Synchronous setup failure (misconfigured db) — local data already rendered.
     }
 
-    const unsubStaff = onSnapshot(collection(db, 'staff'), () => {
-      fetchPayroll();
-    });
-
-    const unsubEvents = onSnapshot(collection(db, 'events'), () => {
-      fetchPayroll();
-    });
-
     return () => {
-      unsubStaff();
-      unsubEvents();
+      unsubStaff?.();
+      unsubEvents?.();
     };
   }, []);
 
