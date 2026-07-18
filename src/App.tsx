@@ -5,6 +5,7 @@ import StaffCard from './components/StaffCard';
 import { ESCCCore } from './services/escc-core';
 import ModelPanel from './components/ModelPanel';
 import * as dataStore from './services/dataStore';
+import { ESCC_COMPANY, agentForTab } from './agents/catalog';
 
 // ─── Constants & Seed ────────────────────────────────────────────────────────
 const INITIAL_STAFF = [
@@ -1206,9 +1207,10 @@ export default function App(){
       {/* Header */}
       <div style={{background:SURFACE,borderBottom:`1px solid ${BORDER}`,padding:"0 24px",display:"flex",alignItems:"center",gap:16,height:56,position:"sticky",top:0,zIndex:50}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <div style={{width:28,height:28,background:ACCENT,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:"#000"}}>FP</div>
-          <span style={{fontWeight:600,fontSize:15,letterSpacing:"-0.02em"}}>Freshpeople</span>
+          <div style={{width:28,height:28,background:ACCENT,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:"#000"}}>ESCC</div>
+          <span style={{fontWeight:600,fontSize:15,letterSpacing:"-0.02em"}}>{ESCC_COMPANY.name}</span>
           <span style={{color:MUTED,fontSize:13}}>Command Center</span>
+          <span style={{fontSize:10,color:MUTED,border:`1px solid ${BORDER}`,borderRadius:4,padding:"2px 6px"}}>multi-agent</span>
         </div>
         <div style={{flex:1}}/>
         {page!=="login"&&(
@@ -1287,10 +1289,10 @@ export default function App(){
               <h1 style={{fontSize:22,fontWeight:700}}>Dashboard</h1>
             </div>
 
-            {/* Tabs */}
-            <div style={{display:"flex",gap:2,background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:10,padding:4,marginBottom:28,overflowX:"auto"}}>
+            {/* Tabs — each section maps to an ESCC agent repo */}
+            <div style={{display:"flex",gap:2,background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:10,padding:4,marginBottom:12,overflowX:"auto"}}>
               {TABS.map(([k,l])=>(
-                <button key={k} onClick={()=>setAdminTab(k)} style={{
+                <button key={k} onClick={()=>setAdminTab(k)} title={agentForTab(k)?.name || l} style={{
                   padding:"8px 18px",borderRadius:7,border:"none",fontSize:13,fontWeight:500,whiteSpace:"nowrap",cursor:"pointer",
                   background:adminTab===k?ACCENT+"22":"transparent",
                   color:adminTab===k?ACCENT:MUTED,
@@ -1298,6 +1300,31 @@ export default function App(){
                 }}>{l}</button>
               ))}
             </div>
+            {(() => {
+              const activeAgent = agentForTab(adminTab);
+              if (!activeAgent) return null;
+              return (
+                <div style={{
+                  display:"flex",alignItems:"center",gap:10,marginBottom:24,
+                  padding:"8px 12px",borderRadius:8,background:SURFACE,
+                  border:`1px solid ${BORDER}`,fontSize:12,color:MUTED,
+                }}>
+                  <span style={{
+                    width:8,height:8,borderRadius:"50%",
+                    background:activeAgent.accent,boxShadow:`0 0 8px ${activeAgent.accent}`,
+                  }}/>
+                  <span style={{color:TEXT,fontWeight:600}}>{activeAgent.name}</span>
+                  <span>·</span>
+                  <span>section <code style={{color:ACCENT}}>{activeAgent.section}</code></span>
+                  <span>·</span>
+                  <a href={activeAgent.repo} target="_blank" rel="noreferrer"
+                    style={{color:ACCENT,textDecoration:"none"}}>
+                    {activeAgent.package}
+                  </a>
+                  <span style={{marginLeft:"auto",fontSize:11}}>Company {ESCC_COMPANY.name}</span>
+                </div>
+              );
+            })()}
 
             {/* DASHBOARD */}
             {/* DASHBOARD - Clean & Modern */}

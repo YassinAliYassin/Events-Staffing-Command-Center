@@ -1,6 +1,10 @@
 # Events-Staffing-Command-Center
 
-Events-Staffing-Command-Center (ESCC) is the event staffing operations app for Fresh People. It combines staff management, event scheduling, payroll, invoices, quotes, WhatsApp dispatch, and calendar sync in one codebase.
+**Company:** [ESCC](https://github.com/YassinAliYassin/escc) · **Project:** [ESCC board](https://github.com/users/YassinAliYassin/projects/2)
+
+Events-Staffing-Command-Center is the **Command Center shell** for ESCC — the multi-agent staffing operations platform for Fresh People / African event talent. Staff, calendar, payroll, billing, CRM, and dispatch each map to a dedicated agent repository under one company project.
+
+See [AGENTS.md](./AGENTS.md) for the full section → agent → repo map.
 
 ## What’s In The Code
 
@@ -130,11 +134,27 @@ See [`.env.example`](./.env.example):
 
 When `ICLOUD_CALENDAR_URL` fails or is missing, `/api/calendar/apple` returns **demo events** so the Calendar UI still works.
 
+## Multi-agent company layout
+
+| Section | Agent | Repository |
+|---------|--------|------------|
+| Dashboard | Executive Intelligence | [escc-executive-agent](https://github.com/YassinAliYassin/escc-executive-agent) |
+| Roster / Add Staff | Staff | [escc-staff-agent](https://github.com/YassinAliYassin/escc-staff-agent) |
+| Timesheets | Timesheet | [escc-timesheet-agent](https://github.com/YassinAliYassin/escc-timesheet-agent) |
+| Calendar | Calendar | [escc-calendar-agent](https://github.com/YassinAliYassin/escc-calendar-agent) |
+| Docs & Billing | Billing | [escc-billing-agent](https://github.com/YassinAliYassin/escc-billing-agent) |
+| Clients | CRM | [escc-crm-agent](https://github.com/YassinAliYassin/escc-crm-agent) |
+| Payroll | Finance | [escc-finance-agent](https://github.com/YassinAliYassin/escc-finance-agent) |
+| WhatsApp | Dispatch | [escc-dispatch-agent](https://github.com/YassinAliYassin/escc-dispatch-agent) |
+
+Hub + contracts: [github.com/YassinAliYassin/escc](https://github.com/YassinAliYassin/escc)
+
 ## Project Structure
 
 ```
 src/
-├── App.tsx              # Main shell (login, admin tabs, staff clock)
+├── App.tsx              # Shell (login, admin tabs, staff clock)
+├── agents/catalog.ts    # ESCC section → agent map
 ├── components/          # CRM, cards, command UI
 ├── pages/               # Payroll and route-level views
 ├── services/
@@ -144,11 +164,13 @@ src/
 api/                     # Vercel serverless handlers
 lib/                     # Shared iCal + demo calendar helpers
 server.js                # Local Express API
+AGENTS.md                # Agent ownership matrix
 ```
 
 ## Notes
 
-- Browser title: `ESCC`
+- Browser title / company: `ESCC`
 - Document prefixes: `ESCC-INV`, `ESCC-QTE`
 - App boots Firestore sync on load (no-ops when Firebase is not configured)
 - Local backend mirrors key production API behaviors for development
+- Each tab shows the owning agent package + repo link in the admin shell
