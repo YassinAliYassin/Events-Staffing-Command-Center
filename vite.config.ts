@@ -4,7 +4,12 @@ import path from 'path';
 import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
+  // GitHub Pages project site needs a non-root base; Vercel/Netlify use '/'.
+  // Set VITE_BASE=/Events-Staffing-Command-Center/ in the Pages workflow.
+  const base = process.env.VITE_BASE || '/';
+
   return {
+    base,
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {

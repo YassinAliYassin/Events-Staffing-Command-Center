@@ -6,6 +6,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { fetchAndParseICalendar, DEFAULT_ICLOUD_URL } from './lib/ical.js';
+import { getDemoCalendarEvents } from './lib/demo-calendar.js';
 
 dotenv.config();
 
@@ -17,6 +18,20 @@ const PORT = Number(process.env.PORT) || 3001;
 
 app.use(cors());
 app.use(express.json());
+
+async function loadAppleEvents(icloudUrl) {
+  if (!icloudUrl) {
+    const demo = getDemoCalendarEvents();
+    return { events: demo, source: 'demo', error: 'No iCloud URL configured' };
+  }
+  try {
+    const events = await fetchAndParseICalendar(icloudUrl);
+    return { events, source: 'icloud' };
+  } catch (error) {
+    console.warn('[Calendar] iCloud unavailable, using demo events:', error.message);
+    return { events: getDemoCalendarEvents(), source: 'demo', error: error.message };
+  }
+}
 
 app.get('/api/health', (_req, res) => {
   res.status(200).json({
@@ -32,16 +47,14 @@ app.get('/api/health', (_req, res) => {
 app.get('/api/calendar/apple', async (req, res) => {
   try {
     const icloudUrl = req.query?.url || process.env.ICLOUD_CALENDAR_URL || DEFAULT_ICLOUD_URL;
-    if (!icloudUrl) {
-      return res.json({
-        success: false,
-        events: [],
-        count: 0,
-        error: 'No iCloud URL configured (set ICLOUD_CALENDAR_URL or pass ?url=)',
-      });
-    }
-    const events = await fetchAndParseICalendar(icloudUrl);
-    return res.json({ success: true, events, count: events.length });
+    const { events, source, error } = await loadAppleEvents(icloudUrl);
+    return res.json({
+      success: true,
+      events,
+      count: events.length,
+      source,
+      ...(error ? { note: `Live feed failed (${error}); serving demo events` } : {}),
+    });
   } catch (error) {
     console.error('Apple Calendar sync error:', error);
     return res.status(500).json({ success: false, events: [], count: 0, error: error.message });
@@ -52,21 +65,16 @@ app.get('/api/calendar/apple', async (req, res) => {
 app.get('/api/calendar', async (req, res) => {
   try {
     const icloudUrl = process.env.ICLOUD_CALENDAR_URL || DEFAULT_ICLOUD_URL;
-    let iCloudEvents = [];
-    if (icloudUrl) {
-      try {
-        iCloudEvents = await fetchAndParseICalendar(icloudUrl);
-      } catch (e) {
-        console.log('[Calendar] iCloud fetch/parse error:', e.message);
-      }
-    }
+    const { events: iCloudEvents, source } = await loadAppleEvents(icloudUrl);
     if (req.query.format === 'json') {
-      return res.json({ local: [], icloud: iCloudEvents });
+      return res.json({ local: [], icloud: iCloudEvents, source });
     }
     // ICS format
     let ics = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Fresh People//Command Center//EN\r\n';
     for (const event of iCloudEvents) {
-      ics += `BEGIN:VEVENT\r\nUID:${event.uid}\r\nDTSTART:${event.start.replace(/[-:]/g, '').split('.')[0]}Z\r\nDTEND:${event.end.replace(/[-:]/g, '').split('.')[0]}Z\r\nSUMMARY:${event.title}\r\nEND:VEVENT\r\n`;
+      const start = String(event.start || '').replace(/[-:]/g, '').split('.')[0];
+      const end = String(event.end || '').replace(/[-:]/g, '').split('.')[0];
+      ics += `BEGIN:VEVENT\r\nUID:${event.uid || event.id}\r\nDTSTART:${start}Z\r\nDTEND:${end}Z\r\nSUMMARY:${event.title}\r\nEND:VEVENT\r\n`;
     }
     ics += 'END:VCALENDAR';
     res.setHeader('Content-Type', 'text/calendar');
@@ -103,6 +111,19 @@ app.get('/api/calendar/google', (req, res) => {
   });
 });
 
+// Nylas push (mock for local dev — production uses api/calendar/nylas.js)
+app.post('/api/calendar/nylas', (req, res) => {
+  const { title, start, end } = req.body || {};
+  if (!title || !start || !end) {
+    return res.status(400).json({ success: false, error: 'title, start, end required' });
+  }
+  return res.json({
+    success: true,
+    eventId: `local-${Date.now()}`,
+    note: 'Local dev: Nylas push is mock. Production uses api/calendar/nylas.js',
+  });
+});
+
 // Serve static build
 app.use(express.static(path.join(__dirname, 'dist')));
 
@@ -112,8 +133,9 @@ app.get('*', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
-  console.log(`📅 Apple Calendar: POST http://localhost:${PORT}/api/calendar/apple`);
-  console.log(`📅 Calendar JSON: GET http://localhost:${PORT}/api/calendar?format=json`);
-  console.log(`📤 Dispatch: POST http://localhost:${PORT}/api/dispatch-staff`);
+  console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`Apple Calendar: GET  http://localhost:${PORT}/api/calendar/apple`);
+  console.log(`Google Calendar: GET http://localhost:${PORT}/api/calendar/google`);
+  console.log(`Calendar JSON:   GET http://localhost:${PORT}/api/calendar?format=json`);
+  console.log(`Dispatch:        POST http://localhost:${PORT}/api/dispatch-staff`);
 });

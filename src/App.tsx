@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
 import ClientsView from './components/ClientsView';
-import Dashboard from './components/Dashboard';
 import Payroll from './pages/Payroll';
 import StaffCard from './components/StaffCard';
 import { ESCCCore } from './services/escc-core';
@@ -484,24 +483,26 @@ function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,events,staf
   const invOverdue= invoices.filter(i=>i.status==="overdue").length;
   const quoteConv = quotes.length ? Math.round(quotes.filter(q=>q.status==="accepted").length/quotes.length*100) : 0;
 
-  function setStatus(id, status, collection, setter){
+  function setStatus(id, status, isInvoice, setter){
+    if (isInvoice) dataStore.updateInvoice(id, { status });
+    else dataStore.updateQuote(id, { status });
     setter(prev=>prev.map(d=>d.id===id?{...d,status}:d));
     setToast({msg:`Status updated to ${status}`,type:"success"});
   }
-  function deleteDoc(id, setter){ setter(prev=>prev.filter(d=>d.id!==id)); }
+  function deleteDoc(id, setter, isInvoice){
+    if (isInvoice) dataStore.deleteInvoice(id);
+    else dataStore.deleteQuote(id);
+    setter(prev=>prev.filter(d=>d.id!==id));
+  }
 
   function convertToInvoice(quote){
-    const inv={
-      ...quote,
-      id:Date.now(),
-      docNo:nextDocNo(invoices,"ESCC-INV"),
-      type:"invoice",
-      dueDate:ymd(addDays(today,30)),
-      validUntil:undefined,
-      status:"draft",
-    };
-    setInvoices(prev=>[inv,...prev]);
-    setQuotes(prev=>prev.map(q=>q.id===quote.id?{...q,status:"accepted"}:q));
+    const inv = dataStore.convertQuoteToInvoice(quote.id);
+    if (!inv) {
+      setToast({msg:"Could not convert quote",type:"error"});
+      return;
+    }
+    setInvoices(dataStore.listInvoices());
+    setQuotes(dataStore.listQuotes());
     setToast({msg:`Quote converted to Invoice ${inv.docNo}`,type:"success"});
     setView("invoices");
   }
@@ -532,7 +533,7 @@ function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,events,staf
                 <td style={{padding:"12px 14px",color:doc.status==="overdue"?RED:MUTED}}>{fmtDate(isInvoice?doc.dueDate:doc.validUntil)}</td>
                 <td style={{padding:"12px 14px",fontFamily:"'DM Mono',monospace"}}>R {total}</td>
                 <td style={{padding:"12px 14px"}}>
-                  <select value={doc.status} onChange={e=>setStatus(doc.id,e.target.value,docs,setter)}
+                  <select value={doc.status} onChange={e=>setStatus(doc.id,e.target.value,isInvoice,setter)}
                     style={{background:sc+"22",color:sc,border:`1px solid ${sc}44`,borderRadius:6,padding:"3px 8px",fontSize:11,fontWeight:600,textTransform:"uppercase"}}>
                     {(isInvoice?["draft","sent","paid","overdue"]:["draft","sent","accepted","declined","expired"]).map(s=><option key={s} value={s}>{s}</option>)}
                   </select>
@@ -541,7 +542,7 @@ function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,events,staf
                   <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                     <Btn onClick={()=>setPrintDoc({doc,docType:isInvoice?"invoice":"quote"})} style={{fontSize:11,padding:"4px 10px"}}>View</Btn>
                     {!isInvoice&&doc.status!=="accepted"&&<Btn variant="accent" onClick={()=>convertToInvoice(doc)} style={{fontSize:11,padding:"4px 10px"}}>→ Invoice</Btn>}
-                    <Btn variant="danger" onClick={()=>deleteDoc(doc.id,setter)} style={{fontSize:11,padding:"4px 10px"}}>×</Btn>
+                    <Btn variant="danger" onClick={()=>deleteDoc(doc.id,setter,isInvoice)} style={{fontSize:11,padding:"4px 10px"}}>×</Btn>
                   </div>
                 </td>
               </tr>
@@ -722,7 +723,8 @@ function CalendarTab({events,setEvents,staff,clients,addToast,model}){
           color: "#FF9500",
           date: e.start?.split('T')[0]
         })));
-        addToast(`Apple Calendar synced ✓ (${data.events.length} events)`, 'success');
+        const src = data.source === 'demo' ? ' (demo fallback)' : '';
+        addToast(`Apple Calendar synced ✓ (${data.events.length} events)${src}`, 'success');
       } else {
         throw new Error(data.error || 'Invalid response');
       }
@@ -761,6 +763,7 @@ function CalendarTab({events,setEvents,staff,clients,addToast,model}){
       const data=await resp.json();
       
       if(data.success){
+        dataStore.updateEvent(ev.id, { gcalId: data.eventId });
         setEvents(prev=>prev.map(e=>e.id===ev.id?{...e,gcalId:data.eventId}:e));
         addToast(`"${ev.title}" pushed to Apple Calendar ✓ (synced to Google)`,"success");
       } else {
@@ -828,18 +831,20 @@ ${body}`;
     if(!form.title||!form.date) return;
     const evt={...form,staffIds:form.staffIds.map(Number),clientId:form.clientId?Number(form.clientId):null};
     if(editEvt){
-      setEvents(prev=>prev.map(e=>e.id===editEvt.id?{...evt,id:editEvt.id,gcalId:editEvt.gcalId}:e));
+      const updated = dataStore.updateEvent(editEvt.id, {...evt, gcalId: editEvt.gcalId});
+      setEvents(prev=>prev.map(e=>e.id===editEvt.id?(updated||{...evt,id:editEvt.id,gcalId:editEvt.gcalId}):e));
       addToast("Event updated","success");
     } else {
-      const newEv={...evt,id:Date.now(),gcalId:null};
-      setEvents(prev=>[...prev,newEv]);
+      const newEv = dataStore.addEvent({...evt, gcalId: null});
+      setEvents(prev=>[...prev, newEv]);
       addToast("Event created","success");
-      // Auto-offer to push to GCal
+      // Auto-offer to push to GCal / Apple via Nylas when configured
       setTimeout(()=>pushToGcal(newEv),300);
     }
     setShowForm(false); setSelected(null);
   }
   function deleteEvent(id){
+    dataStore.deleteEvent(id);
     setEvents(prev=>prev.filter(e=>e.id!==id));
     setSelected(null);
     addToast("Event deleted","warn");
@@ -1111,7 +1116,7 @@ export default function App(){
   const [currentStaff,setCS]     = useState(null);
   const [isAdmin,setIsAdmin]     = useState(false);
   const [staff,setStaff]      = useState(() => dataStore.listStaff());
-  const [records,setRecords]     = useState([]);
+  const [records,setRecords]     = useState(() => dataStore.listRecords());
   const [now,setNow]             = useState(Date.now());
   const [adminTab,setAdminTab]   = useState("dashboard");
   const [events,setEvents]       = useState(() => dataStore.listEvents());
@@ -1133,6 +1138,7 @@ export default function App(){
     setInvoices(dataStore.listInvoices());
     setQuotes(dataStore.listQuotes());
     setClients(dataStore.listClients());
+    setRecords(dataStore.listRecords());
   }, [adminTab]);
 
   useEffect(()=>{ const t=setInterval(()=>setNow(Date.now()),10000); return()=>clearInterval(t); },[]);
@@ -1162,8 +1168,16 @@ export default function App(){
     if(adminFlag){setIsAdmin(true);setCS(null);setPage("admin");}
     else{setCS(member);setIsAdmin(false);setPage("staff");}
   }
-  function clockIn(id){if(!records.find(r=>r.staffId===id&&!r.clockOut))setRecords(p=>[...p,{id:Date.now(),staffId:id,clockIn:Date.now(),clockOut:null}]);}
-  function clockOut(id){setRecords(p=>p.map(r=>r.staffId===id&&!r.clockOut?{...r,clockOut:Date.now()}:r));}
+  function clockIn(id){
+    const rec = dataStore.clockIn(id);
+    setRecords(dataStore.listRecords());
+    if (rec) addToast("Clocked in","success");
+  }
+  function clockOut(id){
+    dataStore.clockOut(id);
+    setRecords(dataStore.listRecords());
+    addToast("Clocked out","success");
+  }
 
   const activeRec   = currentStaff?records.find(r=>r.staffId===currentStaff.id&&!r.clockOut):null;
   const elapsed     = activeRec?now-activeRec.clockIn:0;
@@ -1509,6 +1523,7 @@ export default function App(){
                         }}
                         onRemove={()=>{
                           if(window.confirm(`Remove ${s.name}?`)){
+                            dataStore.deleteStaff(s.id);
                             setStaff(prev=>prev.filter(x=>x.id!==s.id));
                             addToast(s.name+" removed","success");
                           }

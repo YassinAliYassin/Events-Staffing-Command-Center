@@ -1,7 +1,9 @@
 // Apple Calendar API - iCloud public feed
 // Uses shared lib/ical.js for parsing (DRY: single source of truth)
+// Falls back to demo events when the live feed is unavailable.
 
-import { fetchAndParseICalendar, parseICalendar, DEFAULT_ICLOUD_URL, sanitizeEnvValue } from '../../lib/ical.js';
+import { fetchAndParseICalendar, DEFAULT_ICLOUD_URL, sanitizeEnvValue } from '../../lib/ical.js';
+import { getDemoCalendarEvents } from '../../lib/demo-calendar.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -18,11 +20,13 @@ export default async function handler(req, res) {
   const icloudUrl = sanitizeEnvValue(req.query.url) || sanitizeEnvValue(process.env.ICLOUD_CALENDAR_URL) || DEFAULT_ICLOUD_URL;
 
   if (!icloudUrl) {
+    const demo = getDemoCalendarEvents();
     return res.status(200).json({
-      success: false,
-      events: [],
-      count: 0,
-      error: 'ICLOUD_CALENDAR_URL not configured. Set env var or pass ?url=...',
+      success: true,
+      events: demo,
+      count: demo.length,
+      source: 'demo',
+      note: 'ICLOUD_CALENDAR_URL not configured — serving demo events',
       hint: 'Get the URL from iCloud Calendar → Share Calendar → Public Calendar',
     });
   }
@@ -33,14 +37,17 @@ export default async function handler(req, res) {
       success: true,
       events,
       count: events.length,
+      source: 'icloud',
     });
   } catch (error) {
     console.error('[Apple Calendar] sync error:', error);
-    return res.status(500).json({
-      success: false,
-      events: [],
-      count: 0,
-      error: error.message,
+    const demo = getDemoCalendarEvents();
+    return res.status(200).json({
+      success: true,
+      events: demo,
+      count: demo.length,
+      source: 'demo',
+      note: `Live feed failed (${error.message}); serving demo events`,
     });
   }
 }

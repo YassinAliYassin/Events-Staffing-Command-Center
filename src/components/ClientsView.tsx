@@ -256,7 +256,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({ onSelectClient }) => {
 
   const handleDelete = async (id: number) => {
     if (!confirm('Delete this client? This action cannot be undone.')) return;
-    // For now, just refetch — proper delete is handled by the data store.
+    dataStore.deleteClient(id);
     fetchClients();
   };
 

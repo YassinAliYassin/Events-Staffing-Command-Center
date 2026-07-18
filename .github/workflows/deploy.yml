@@ -21,7 +21,11 @@ jobs:
         with:
           node-version: '22'
       - run: npm install
-      - run: npm run build
+      - name: Build for GitHub Pages
+        env:
+          # Project Pages URL: https://yassinaliyassin.github.io/Events-Staffing-Command-Center/
+          VITE_BASE: /Events-Staffing-Command-Center/
+        run: npm run build
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

@@ -15,13 +15,14 @@ export interface WhatsAppDispatchResult {
   failed?: number;
   details?: Array<{
     staffId: number;
-    status: 'sent' | 'skipped' | 'failed';
+    status: 'sent' | 'skipped' | 'failed' | 'mock-sent';
     name?: string;
     phone?: string;
     messageId?: string;
     error?: string;
   }>;
   message?: string;
+  note?: string;
 }
 
 export interface AppleCalendarResult {
@@ -29,14 +30,15 @@ export interface AppleCalendarResult {
   events: CalendarEvent[];
   count: number;
   error?: string;
+  note?: string;
 }
 
 export class ESCCCore {
-  private static baseURL = window.location.origin;
+  private static baseURL = typeof window !== 'undefined' ? window.location.origin : '';
 
   // Send WhatsApp notification via backend API
   static async sendWhatsApp(
-    eventId: number, 
+    eventId: number,
     staffIds: number[]
   ): Promise<WhatsAppDispatchResult> {
     try {
@@ -57,31 +59,30 @@ export class ESCCCore {
       return result;
     } catch (error) {
       console.error('WhatsApp dispatch failed:', error);
-      return { 
-        success: false, 
-        message: error instanceof Error ? error.message : 'Failed to send notification' 
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to send notification'
       };
     }
   }
 
-  // Sync Apple Calendar
+  // Sync Apple Calendar — GET matches api/calendar/apple.js and local server.js
   static async syncAppleCalendar(calendarUrl?: string): Promise<AppleCalendarResult> {
     try {
-      const url = calendarUrl || process.env.ICLOUD_CALENDAR_URL;
-      
-      const response = await fetch(`${this.baseURL}/api/calendar/apple`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ calendarUrl: url })
-      });
+      const params = new URLSearchParams();
+      if (calendarUrl) params.set('url', calendarUrl);
+      const qs = params.toString();
+      const response = await fetch(
+        `${this.baseURL}/api/calendar/apple${qs ? `?${qs}` : ''}`
+      );
 
       const result = await response.json();
       return result;
     } catch (error) {
       console.error('Apple Calendar sync failed:', error);
-      return { 
-        success: false, 
-        events: [], 
+      return {
+        success: false,
+        events: [],
         count: 0,
         error: error instanceof Error ? error.message : 'Failed to sync Apple Calendar'
       };
@@ -91,36 +92,31 @@ export class ESCCCore {
   // Run expert panel (test connectivity)
   static async runPanel(config: { title: string; description: string }): Promise<string> {
     try {
-      console.log(`🎯 Running panel: ${config.title}`);
-      console.log(`📋 Description: ${config.description}`);
-      
-      // Test Apple Calendar connection
+      console.log(`Running panel: ${config.title}`);
+      console.log(`Description: ${config.description}`);
+
       const appleTest = await this.syncAppleCalendar();
-      
+
       if (appleTest.success) {
-        return `✅ Panel is active and fully operational.\n\nApple Calendar: Connected (${appleTest.count} events found)`;
-      } else {
-        return `⚠️ Panel active. Apple Calendar: ${appleTest.error || 'Connection issue'}`;
+        return `Panel is active and fully operational.\n\nApple Calendar: Connected (${appleTest.count} events found)`;
       }
+      return `Panel active. Apple Calendar: ${appleTest.error || 'Connection issue'}`;
     } catch (error) {
-      return `❌ Panel error: ${error instanceof Error ? error.message : 'Unknown error'}`;
+      return `Panel error: ${error instanceof Error ? error.message : 'Unknown error'}`;
     }
   }
 
-  // Sync Google Calendar
+  // Sync Google Calendar — GET matches api/calendar/google.js and local server.js
   static async syncGoogleCalendar(): Promise<AppleCalendarResult> {
     try {
-      const response = await fetch(`${this.baseURL}/api/calendar/google`, {
-        method: 'POST'
-      });
-
+      const response = await fetch(`${this.baseURL}/api/calendar/google`);
       const result = await response.json();
       return result;
     } catch (error) {
       console.error('Google Calendar sync failed:', error);
-      return { 
-        success: false, 
-        events: [], 
+      return {
+        success: false,
+        events: [],
         count: 0,
         error: error instanceof Error ? error.message : 'Failed to sync Google Calendar'
       };
