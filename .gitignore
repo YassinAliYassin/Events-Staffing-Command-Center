@@ -26,3 +26,7 @@ create-*.js
 # Git worktrees are runtime-only; never commit them (prevents phantom
 # submodule entries that break the GitHub Pages deploy on main)
 .worktrees/
+
+.data/
+.env
+

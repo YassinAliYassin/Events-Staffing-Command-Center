@@ -75,16 +75,42 @@ const Staff = () => {
   const [selectedStaff, setSelectedStaff] = useState<StaffMember | null>(null);
   const [whatsappSending, setWhatsappSending] = useState<string | null>(null);
 
+  // Normalize API/local staff shapes into StaffMember
+  const mapStaff = (raw: any): StaffMember => ({
+    id: String(raw.id),
+    staffName: raw.staffName || raw.name || raw.fullName || 'Unknown',
+    staffPhone: raw.staffPhone || raw.phone || '',
+    role: raw.role || '',
+    status: (raw.status === 'inactive' ? 'inactive' : 'active') as 'active' | 'inactive',
+    availability: (raw.availability === 'busy' || raw.availability === 'off-duty'
+      ? raw.availability
+      : 'available') as 'available' | 'busy' | 'off-duty',
+    hourlyRate: Number(raw.hourlyRate ?? raw.rate) || undefined,
+    notes: raw.notes || '',
+    createdAt: raw.createdAt,
+  });
+
   // Fetch staff and assignments
   const fetchStaff = useCallback(async () => {
     setFetching(true);
     try {
       const res = await fetch('/api/staff');
-      const data = await res.json();
-      setStaffList(data.staff || []);
+      if (res.ok) {
+        const data = await res.json();
+        setStaffList((data.staff || []).map(mapStaff));
+      } else {
+        // Fall back to browser dataStore
+        const local = (await import('../services/dataStore')).listStaff();
+        setStaffList(local.map(mapStaff));
+      }
     } catch (err) {
       console.error('Failed to fetch staff:', err);
-      setError('Failed to load staff data');
+      try {
+        const local = (await import('../services/dataStore')).listStaff();
+        setStaffList(local.map(mapStaff));
+      } catch {
+        setError('Failed to load staff data');
+      }
     } finally {
       setFetching(false);
     }
@@ -93,21 +119,26 @@ const Staff = () => {
   const fetchAssignments = useCallback(async () => {
     try {
       const res = await fetch('/api/events');
-      const data = await res.json();
-      // Extract staff assignments from events
+      let events: any[] = [];
+      if (res.ok) {
+        const data = await res.json();
+        events = data.events || [];
+      } else {
+        const local = (await import('../services/dataStore')).listEvents();
+        events = local;
+      }
       const allAssignments: EventAssignment[] = [];
-      (data.events || []).forEach((event: any) => {
-        if (event.assignedStaff) {
-          event.assignedStaff.forEach((staffId: string) => {
-            allAssignments.push({
-              id: event.id,
-              eventName: event.eventName,
-              eventDate: event.eventDate,
-              status: event.status,
-              staffId: staffId
-            });
+      events.forEach((event: any) => {
+        const staffIds = event.assignedStaff || event.staffIds || [];
+        staffIds.forEach((staffId: string | number) => {
+          allAssignments.push({
+            id: String(event.id),
+            eventName: event.eventName || event.title || 'Event',
+            eventDate: event.eventDate || event.date || '',
+            status: event.status || 'Pending',
+            staffId: String(staffId),
           });
-        }
+        });
       });
       setAssignments(allAssignments);
     } catch (err) {
@@ -130,9 +161,9 @@ const Staff = () => {
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       return (
-        staff.staffName.toLowerCase().includes(query) ||
+        (staff.staffName || '').toLowerCase().includes(query) ||
         staff.role?.toLowerCase().includes(query) ||
-        staff.staffPhone?.includes(query)
+        (staff.staffPhone || '').includes(query)
       );
     }
     return true;
@@ -219,13 +250,47 @@ const Staff = () => {
         ? { ...formData, id: editingId, hourlyRate: formData.hourlyRate ? parseFloat(formData.hourlyRate) : undefined }
         : { ...formData, hourlyRate: formData.hourlyRate ? parseFloat(formData.hourlyRate) : undefined };
       
+      const apiPayload = {
+        id: editingId || undefined,
+        name: formData.staffName,
+        staffName: formData.staffName,
+        phone: formData.staffPhone,
+        staffPhone: formData.staffPhone,
+        role: formData.role,
+        rate: formData.hourlyRate ? parseFloat(formData.hourlyRate) : undefined,
+        hourlyRate: formData.hourlyRate ? parseFloat(formData.hourlyRate) : undefined,
+        notes: formData.notes,
+      };
+
       const res = await fetch('/api/staff', {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(apiPayload)
       });
 
-      if (!res.ok) throw new Error('Failed to save staff');
+      if (!res.ok) {
+        // Local dataStore fallback
+        const ds = await import('../services/dataStore');
+        if (editingId) {
+          ds.updateStaff(Number(editingId), {
+            name: formData.staffName,
+            phone: formData.staffPhone,
+            role: formData.role,
+            rate: formData.hourlyRate ? parseFloat(formData.hourlyRate) : 40,
+            notes: formData.notes,
+          });
+        } else {
+          ds.addStaff({
+            name: formData.staffName,
+            phone: formData.staffPhone,
+            role: formData.role,
+            rate: formData.hourlyRate ? parseFloat(formData.hourlyRate) : 40,
+            pin: String(Math.floor(1000 + Math.random() * 9000)),
+            department: 'Floor',
+            notes: formData.notes,
+          });
+        }
+      }
       
       setSuccessMsg(editingId ? 'Staff updated successfully!' : 'Staff added successfully!');
       setFormData({ staffName: '', staffPhone: '', role: '', hourlyRate: '', notes: '' });

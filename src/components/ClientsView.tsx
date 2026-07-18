@@ -127,12 +127,13 @@ const ClientsView: React.FC<ClientsViewProps> = ({ onSelectClient }) => {
     // Search filter
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(client =>
-        client.name.toLowerCase().includes(query) ||
-        client.contactPerson.toLowerCase().includes(query) ||
-        client.email.toLowerCase().includes(query) ||
-        client.phone.includes(query)
-      );
+      filtered = filtered.filter(client => {
+        const name = (client.name || '').toLowerCase();
+        const contact = (client.contactPerson || client.name || '').toLowerCase();
+        const email = (client.email || '').toLowerCase();
+        const phone = String(client.phone || '');
+        return name.includes(query) || contact.includes(query) || email.includes(query) || phone.includes(query);
+      });
     }
 
     // Status filter

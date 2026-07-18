@@ -80,12 +80,18 @@ const calcPay = (ms,r) => (!ms||ms<0)?0:(ms/3600000)*r;
 const MONTHS  = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const WDAYS   = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 const fmtDate = s => { if(!s) return "—"; const d=new Date(s+"T00:00:00"); return `${d.getDate()} ${MONTHS[d.getMonth()].slice(0,3)} ${d.getFullYear()}`; };
-const eventHours = ev => { 
-  const [sh,sm]=ev.startTime.split(":").map(Number),
-        [eh,em]=ev.endTime.split(":").map(Number); 
-  let minutes = eh*60+em-sh*60-sm;
-  if(minutes < 0) minutes += 24*60; // Overnight event
-  return minutes/60; 
+const eventHours = ev => {
+  try {
+    if (!ev?.startTime || !ev?.endTime) return 0;
+    const [sh,sm]=String(ev.startTime).split(":").map(Number);
+    const [eh,em]=String(ev.endTime).split(":").map(Number);
+    if ([sh,sm,eh,em].some(n => Number.isNaN(n))) return 0;
+    let minutes = eh*60+em-sh*60-sm;
+    if(minutes < 0) minutes += 24*60; // Overnight event
+    return minutes/60;
+  } catch {
+    return 0;
+  }
 };
 
 function docSubtotal(lines) { return lines.reduce((a,l)=>a+Number(l.qty)*Number(l.rate),0); }
@@ -138,13 +144,18 @@ function Toast({msg,type="success",onDone}){
 
 // ─── OpenRouter API call helper (used inside artifact) ──────────────────────
 async function callClaude(systemPrompt, userPrompt, modelOverride = null) {
+  const apiKey = import.meta.env.VITE_OPENROUTER_API_KEY || '';
+  // Template fallback when no key — keep booking emails usable offline
+  if (!apiKey) {
+    return `Hi there,\n\n${userPrompt}\n\nPlease confirm your availability.\n\nKind regards,\nFreshpeople Admin`;
+  }
   try {
     const model = modelOverride || "deepseek/deepseek-chat-v3-0324:free";
     const res = await fetch("https://openrouter.ai/api/v1/chat/completions",{
       method:"POST",
       headers:{
         "Content-Type":"application/json",
-        "Authorization": `Bearer ${import.meta.env.VITE_OPENROUTER_API_KEY || ''}`
+        "Authorization": `Bearer ${apiKey}`
       },
       body:JSON.stringify({
         model: model,
@@ -159,20 +170,20 @@ async function callClaude(systemPrompt, userPrompt, modelOverride = null) {
     if (!res.ok) {
       const errorText = await res.text();
       console.error('OpenRouter API error:', res.status, errorText);
-      return "[Error: API call failed]";
+      return `Hi there,\n\n${userPrompt}\n\nKind regards,\nFreshpeople Admin`;
     }
     
     const data = await res.json();
     
     if (data.error) {
       console.error('OpenRouter API error:', data.error);
-      return "[Error: " + (data.error.message || "Unknown error") + "]";
+      return `Hi there,\n\n${userPrompt}\n\nKind regards,\nFreshpeople Admin`;
     }
     
     return data.choices?.[0]?.message?.content || "";
   } catch (e) {
     console.error('callClaude error:', e);
-    return "[Error: " + e.message + "]";
+    return `Hi there,\n\n${userPrompt}\n\nKind regards,\nFreshpeople Admin`;
   }
 }
 
@@ -627,16 +638,13 @@ function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,events,staf
           staff={staff}
           existingDocs={showForm==="invoice"?invoices:quotes}
           onSave={doc=>{
-            if(showForm==="invoice") {
-              const created = dataStore.addInvoice(doc);
-              setInvoices(p=>[created,...p]);
-            } else {
-              const created = dataStore.addQuote(doc);
-              setQuotes(p=>[created,...p]);
-            }
+            const isInv = showForm==="invoice";
+            const created = isInv ? dataStore.addInvoice(doc) : dataStore.addQuote(doc);
+            if (isInv) setInvoices(p=>[created,...p]);
+            else setQuotes(p=>[created,...p]);
             setShowForm(null);
-            const t = showForm==="invoice" ? "Invoice" : "Quote";
-            setToast({msg: t + " " + doc.docNo + " created", type: "success"});
+            const t = isInv ? "Invoice" : "Quote";
+            setToast({msg: t + " " + (created?.docNo || "") + " created", type: "success"});
           }}
           onClose={()=>setShowForm(null)}
         />

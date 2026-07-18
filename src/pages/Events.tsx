@@ -41,8 +41,17 @@ const Events: React.FC = () => {
 
   const handleDelete = async (id: string) => {
     if (!confirm('Delete this event?')) return;
-    // UI optimistic update - events will sync via dataStore
-    setEvents(events.filter(e => e.id !== id));
+    try {
+      await fetch('/api/events', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+    } catch { /* ignore network */ }
+    // Always persist locally
+    const numId = Number(id);
+    if (!Number.isNaN(numId)) dataStore.deleteEvent(numId);
+    setEvents(prev => prev.filter(e => String(e.id) !== String(id)));
   };
 
   // Mobile-responsive styles

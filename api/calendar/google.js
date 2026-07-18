@@ -14,7 +14,12 @@ export default async function handler(req, res) {
 
   try {
     if (!process.env.GOOGLE_SERVICE_ACCOUNT_BASE64) {
-      return res.status(500).json({ error: 'Missing GOOGLE_SERVICE_ACCOUNT_BASE64' });
+      // Soft-fail so the SPA Calendar tab still works without Google credentials
+      return res.status(200).json({
+        success: true,
+        events: [],
+        note: 'GOOGLE_SERVICE_ACCOUNT_BASE64 not configured — no Google events loaded',
+      });
     }
 
     const serviceAccount = JSON.parse(
