@@ -1,1 +1,16 @@
-{"projectId":"prj_DxKfjiACriuGkzo3uvvp3TKeXFcC","orgId":"team_VSDhMki4WH8FkyH2s6v0O6jC","projectName":"escc-command-center"}
+{
+  "projectId": "prj_DxKfjiACriuGkzo3uvvp3TKeXFcC",
+  "orgId": "team_VSDhMki4WH8FkyH2s6v0O6jC",
+  "projectName": "fresh-people-command-center",
+  "settings": {
+    "createdAt": 1779912997250,
+    "framework": "vite",
+    "devCommand": null,
+    "installCommand": null,
+    "buildCommand": null,
+    "outputDirectory": null,
+    "rootDirectory": null,
+    "directoryListing": false,
+    "nodeVersion": "24.x"
+  }
+}
