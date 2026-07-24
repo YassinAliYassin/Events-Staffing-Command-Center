@@ -8,6 +8,8 @@ import {
 } from 'lucide-react';
 import { Client as BaseClient } from '../types';
 import * as dataStore from '../services/dataStore';
+import { handleAgentIntent } from '../agents/registry';
+import '../styles/crm-agent.css';
 
 // ==========================================
 // ENHANCED TYPES FOR CRM AGENT
@@ -63,6 +65,17 @@ const ClientsView: React.FC<ClientsViewProps> = ({ onSelectClient }) => {
   const [showProfile, setShowProfile] = useState(false);
   const [editingClient, setEditingClient] = useState<CRMClient | null>(null);
   const [selectedClient, setSelectedClient] = useState<CRMClient | null>(null);
+  const [agentScore, setAgentScore] = useState<{score: number; factors: {events: number}} | null>(null);
+
+  // CRM Agent (@escc/crm-agent) live cross-check for the selected client's lead score
+  useEffect(() => {
+    if (!selectedClient) { setAgentScore(null); return; }
+    let cancelled = false;
+    handleAgentIntent('crm', 'client.score', { clientId: selectedClient.id }).then((r: any) => {
+      if (!cancelled && r?.ok) setAgentScore({ score: r.score, factors: r.factors });
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [selectedClient]);
 
   // ==========================================
   // FILTER & SORT STATE (AUTONOMOUS BEHAVIOR)
@@ -96,19 +109,40 @@ const ClientsView: React.FC<ClientsViewProps> = ({ onSelectClient }) => {
     setLoading(true);
     // Use local data store (Supabase sync is automatic when configured)
     const stored = dataStore.listClients();
-    const clientsWithStatus = (stored || []).map((client: any) => ({
-      ...client,
-      contactPerson: client.contactPerson || client.name,
-      status: client.status || 'active',
-      eventsBooked: client.eventsBooked || 0,
-      totalRevenue: client.totalRevenue || 0,
-      eventHistory: client.eventHistory || [],
-      communicationHistory: client.communicationHistory || buildCommunicationHistory(client),
-      notes: client.notes || '',
-      address: client.address || '',
-      lastContact: client.lastContact || null,
-      hourlyRate: client.hourlyRate || 90,
-    }));
+    const allEvents = dataStore.listEvents();
+    const allInvoices = dataStore.listInvoices();
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const clientsWithStatus = (stored || []).map((client: any) => {
+      // eventsBooked/totalRevenue previously always read as 0 — dataStore never
+      // wrote those fields. Derive them from real events/invoices instead.
+      const clientEvents = allEvents.filter((e: any) => e.clientId === client.id);
+      const totalRevenue = allInvoices
+        .filter((inv: any) => inv.clientId === client.id)
+        .reduce((sum: number, inv: any) => {
+          const sub = (inv.lines || []).reduce((a: number, l: any) => a + Number(l.qty) * Number(l.rate), 0);
+          const tax = inv.includeTax !== false ? sub * (Number(inv.taxRate) || 15) / 100 : 0;
+          return sum + sub + tax;
+        }, 0);
+      return {
+        ...client,
+        contactPerson: client.contactPerson || client.name,
+        status: client.status || 'active',
+        eventsBooked: clientEvents.length,
+        totalRevenue,
+        eventHistory: client.eventHistory?.length ? client.eventHistory : clientEvents.map((e: any) => ({
+          id: String(e.id),
+          title: e.title,
+          date: e.date,
+          status: e.date < todayStr ? 'completed' : 'upcoming',
+          revenue: 0,
+        })),
+        communicationHistory: client.communicationHistory || buildCommunicationHistory(client),
+        notes: client.notes || '',
+        address: client.address || '',
+        lastContact: client.lastContact || null,
+        hourlyRate: client.hourlyRate || 90,
+      };
+    });
     setClients(clientsWithStatus);
     setLoading(false);
   }, []);
@@ -945,6 +979,11 @@ const ClientsView: React.FC<ClientsViewProps> = ({ onSelectClient }) => {
                     <p>
                       {getLeadScoreReason(selectedClient)}
                     </p>
+                    {agentScore && (
+                      <p style={{ marginTop: 6, fontSize: 12, opacity: 0.7 }}>
+                        @escc/crm-agent cross-check: {agentScore.score}/100 ({agentScore.factors.events} booked events)
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>

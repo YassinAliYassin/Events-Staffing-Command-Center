@@ -8,28 +8,28 @@
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 
-  /* Neon Palette */
-  --neon-cyan: #00F5FF;
-  --neon-blue: #4F46E5;
+  /* ESCC brand accent palette (gold, per docs/AGENT_CONTRACT.md) */
+  --neon-cyan: #E0B968;
+  --neon-blue: #BF8F3B;
   --neon-purple: #7C3AED;
   --neon-green: #10B981;
 
-  /* Dark Theme */
-  --bg-primary: #0F172A;
-  --bg-secondary: #1E293B;
-  --bg-surface: #1E293B;
-  --bg-surface-hover: #334155;
+  /* Dark Theme — matches App.tsx design tokens (BG/SF/SF2/TX/MU) */
+  --bg-primary: #0a0c10;
+  --bg-secondary: #141920;
+  --bg-surface: #141920;
+  --bg-surface-hover: #1a212b;
 
-  --text-primary: #F1F5F9;
-  --text-secondary: #94A3B8;
-  --text-muted: #64748B;
+  --text-primary: #eef1f5;
+  --text-secondary: #a8b3c0;
+  --text-muted: #828d9c;
 
-  --border: rgba(255, 255, 255, 0.1);
-  --border-hover: rgba(255, 255, 255, 0.2);
+  --border: rgba(191, 143, 59, 0.14);
+  --border-hover: rgba(191, 143, 59, 0.35);
 
   /* Shadows & Glows */
-  --glow-cyan: 0 0 20px rgba(0, 245, 255, 0.3);
-  --glow-blue: 0 0 20px rgba(79, 70, 229, 0.3);
+  --glow-cyan: 0 0 20px rgba(224, 185, 104, 0.3);
+  --glow-blue: 0 0 20px rgba(191, 143, 59, 0.3);
   --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.4);
 
   /* Radius */
@@ -76,7 +76,13 @@ h1, h2, h3, h4, h5, h6 {
   font-weight: 600;
   line-height: 1.3;
   margin-bottom: 0.5rem;
-  background: linear-gradient(135deg, var(--neon-cyan), var(--neon-blue));
+  color: var(--text-primary);
+}
+
+/* Gold gradient reserved for page-level h1 titles only — h2-h6 stay solid
+   so it doesn't multiply into visual noise across smaller headings. */
+h1 {
+  background: linear-gradient(135deg, #e0b968, #bf8f3b);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -84,7 +90,7 @@ h1, h2, h3, h4, h5, h6 {
 
 code, pre {
   font-family: var(--font-mono);
-  background: rgba(0, 245, 255, 0.1);
+  background: rgba(191, 143, 59, 0.12);
   padding: 0.2rem 0.4rem;
   border-radius: 4px;
   font-size: 0.9em;

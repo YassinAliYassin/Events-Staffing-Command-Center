@@ -6,6 +6,7 @@ import { ESCCCore } from './services/escc-core';
 import ModelPanel from './components/ModelPanel';
 import * as dataStore from './services/dataStore';
 import { ESCC_COMPANY, agentForTab } from './agents/catalog';
+import { handleAgentIntent } from './agents/registry';
 
 // ─── Constants & Seed ────────────────────────────────────────────────────────
 const INITIAL_STAFF = [
@@ -45,10 +46,11 @@ const INITIAL_QUOTES = [
 ];
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
-const A="\#00e5a0",BG="\#0d1117",SF="\#161b22",SF2="\#1c2330",BD="\#30363d",
-      TX="\#e6edf3",MU="\#7d8590",RD="\#f85149",AM="\#e3b341",PU="\#7c6af7",CO="\#f78c6c";
+// ESCC brand: gold accent + dark glassmorphism (docs/AGENT_CONTRACT.md, catalog.ts)
+const A="#BF8F3B",A2="#E0B968",BG="#0a0c10",SF="#141920",SF2="#1a212b",BD="#2a323d",
+      TX="#eef1f5",MU="#828d9c",RD="#f85149",AM="#e3b341",PU="#7c6af7",CO="#f78c6c";
 
-const ACCENT=A, SURFACE=SF, SURFACE2=SF2, BORDER=BD, TEXT=TX, MUTED=MU, RED=RD, AMBER=AM, PURPLE=PU, CORAL=CO;
+const ACCENT=A, ACCENT2=A2, SURFACE=SF, SURFACE2=SF2, BORDER=BD, TEXT=TX, MUTED=MU, RED=RD, AMBER=AM, PURPLE=PU, CORAL=CO;
 
 const STATUS_COLOR = {
   draft:MUTED, sent:AMBER, paid:ACCENT, overdue:RED, accepted:ACCENT, declined:RED, expired:MUTED,
@@ -58,11 +60,20 @@ const STATUS_COLOR = {
 const css = `
   @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Outfit:wght@300;400;500;600;700&display=swap');
   *{box-sizing:border-box;margin:0;padding:0}
-  body{background:${BG};color:${TEXT};font-family:'Outfit',sans-serif;min-height:100vh}
+  body{
+    background:${BG};color:${TEXT};font-family:'Outfit',sans-serif;min-height:100vh;
+    background-image:
+      radial-gradient(ellipse 900px 500px at 12% -10%, ${ACCENT}14 0%, transparent 60%),
+      radial-gradient(ellipse 700px 500px at 100% 0%, ${PURPLE}0d 0%, transparent 55%),
+      radial-gradient(ellipse 900px 600px at 50% 110%, ${ACCENT}0a 0%, transparent 60%);
+    background-attachment:fixed;
+  }
   ::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:transparent}
   ::-webkit-scrollbar-thumb{background:${BORDER};border-radius:3px}
-  input,select,textarea{background:${SURFACE2};color:${TEXT};border:1px solid ${BORDER};border-radius:8px;padding:8px 12px;font-family:inherit;font-size:14px;outline:none;transition:border 0.15s}
-  input:focus,select:focus,textarea:focus{border-color:${ACCENT}}
+  input,select,textarea{background:${SURFACE2};color:${TEXT};border:1px solid ${BORDER};border-radius:8px;padding:8px 12px;font-family:inherit;font-size:14px;outline:none;transition:border 0.15s,box-shadow 0.15s}
+  input:focus,select:focus,textarea:focus{border-color:${ACCENT};box-shadow:0 0 0 3px ${ACCENT}22}
+  @keyframes fpFadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+  .fp-fade-in{animation:fpFadeIn 0.28s ease}
   textarea{resize:vertical}
   button{cursor:pointer;font-family:inherit}
   .mono{font-family:'DM Mono',monospace}
@@ -103,7 +114,10 @@ function Dot({on,color}){return <span style={{display:"inline-block",width:8,hei
 function Badge({color,children}){return <span style={{display:"inline-block",padding:"2px 8px",borderRadius:4,fontSize:11,fontWeight:500,background:color+"22",color,border:`1px solid ${color}44`}}>{children}</span>;}
 function Stat({label,value,accent,sub}:{label:string;value:any;accent?:string;sub?:string}){
   return(
-    <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:10,padding:"14px 18px"}}>
+    <div style={{
+      background:`linear-gradient(160deg, ${SURFACE}, ${SURFACE2}99)`,border:`1px solid ${BORDER}`,borderRadius:10,padding:"14px 18px",
+      backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",transition:"transform 0.2s, border-color 0.2s",
+    }}>
       <div style={{fontSize:11,color:MUTED,marginBottom:6}}>{label}</div>
       <div style={{fontSize:22,fontWeight:600,color:accent||TEXT,fontFamily:"'DM Mono',monospace"}}>{value}</div>
       {sub && <div style={{fontSize:10,color:MUTED,marginTop:4}}>{sub}</div>}
@@ -112,8 +126,9 @@ function Stat({label,value,accent,sub}:{label:string;value:any;accent?:string;su
 }
 function Btn({children,onClick,variant="ghost",style={},disabled=false}){
   const base={border:"none",borderRadius:8,padding:"8px 16px",fontSize:13,fontWeight:500,transition:"all 0.15s",opacity:disabled?0.45:1,...style};
-  const v={primary:{background:ACCENT,color:"#000"},danger:{background:RED+"22",color:RED,border:`1px solid ${RED}44`},
-           ghost:{background:SURFACE2,color:TEXT,border:`1px solid ${BORDER}`},accent:{background:ACCENT+"22",color:ACCENT,border:`1px solid ${ACCENT}44`},
+  const v={primary:{background:`linear-gradient(135deg, ${ACCENT2}, ${ACCENT})`,color:"#0a0c10",fontWeight:600,boxShadow:`0 2px 12px ${ACCENT}40`},
+           danger:{background:RED+"22",color:RED,border:`1px solid ${RED}44`},
+           ghost:{background:SURFACE2,color:TEXT,border:`1px solid ${BORDER}`},accent:{background:ACCENT+"1a",color:ACCENT2,border:`1px solid ${ACCENT}44`},
            amber:{background:AMBER+"22",color:AMBER,border:`1px solid ${AMBER}44`}};
   return <button onClick={disabled?undefined:onClick} style={{...base,...v[variant]}}>{children}</button>;
 }
@@ -121,8 +136,12 @@ function Lbl({children}){return <div style={{fontSize:12,color:MUTED,marginBotto
 function Fld({label,children,style={}}){return <div style={{marginBottom:14,...style}}><Lbl>{label}</Lbl>{children}</div>;}
 function Modal({title,onClose,children,width=540}){
   return(
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,padding:16}}>
-      <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:14,padding:28,width,maxWidth:"95vw",maxHeight:"92vh",overflow:"auto"}}>
+    <div style={{position:"fixed",inset:0,background:"rgba(6,8,11,0.72)",backdropFilter:"blur(4px)",WebkitBackdropFilter:"blur(4px)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,padding:16}}>
+      <div className="fp-fade-in" style={{
+        background:`linear-gradient(165deg, ${SURFACE}f2, ${SF2}f2)`,backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",
+        border:`1px solid ${BORDER}`,borderRadius:14,padding:28,width,maxWidth:"95vw",maxHeight:"92vh",overflow:"auto",
+        boxShadow:`0 24px 64px rgba(0,0,0,0.5), 0 0 0 1px ${ACCENT}14`,
+      }}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
           <div style={{fontSize:16,fontWeight:600}}>{title}</div>
           <button onClick={onClose} style={{background:"none",border:"none",color:MUTED,fontSize:22,lineHeight:1,cursor:"pointer"}}>×</button>
@@ -136,8 +155,8 @@ function Toast({msg,type="success",onDone}){
   useEffect(()=>{const t=setTimeout(onDone,3500);return()=>clearTimeout(t);},[onDone]);
   const color=type==="error"?RED:type==="warn"?AMBER:ACCENT;
   return(
-    <div style={{position:"fixed",bottom:24,right:24,zIndex:999,background:SURFACE,border:`1px solid ${color}55`,borderLeft:`4px solid ${color}`,
-      borderRadius:10,padding:"14px 20px",fontSize:13,color:TEXT,maxWidth:340,boxShadow:"0 8px 32px rgba(0,0,0,0.5)"}}>
+    <div className="fp-fade-in" style={{position:"fixed",bottom:24,right:24,zIndex:999,background:`${SURFACE}f0`,backdropFilter:"blur(12px)",WebkitBackdropFilter:"blur(12px)",border:`1px solid ${color}55`,borderLeft:`4px solid ${color}`,
+      borderRadius:10,padding:"14px 20px",fontSize:13,color:TEXT,maxWidth:340,boxShadow:`0 8px 32px rgba(0,0,0,0.5), 0 0 20px ${color}22`}}>
       {msg}
     </div>
   );
@@ -1135,6 +1154,8 @@ export default function App(){
   const [editingStaffId,setEditingStaffId] = useState(null);
   const [currentModel,setCurrentModel] = useState('deepseek/deepseek-chat-v3-0324:free');
   const [currentTask,setCurrentTask] = useState('default');
+  const [execKpis,setExecKpis]   = useState<{activeStaff:number;eventsToday:number;openInvoices:number;rosterSize:number}|null>(null);
+  const [execInsights,setExecInsights] = useState<{type:string;message:string}[]>([]);
 
   // Refresh data from store whenever the user changes admin tab
   useEffect(() => {
@@ -1145,6 +1166,19 @@ export default function App(){
     setClients(dataStore.listClients());
     setRecords(dataStore.listRecords());
   }, [adminTab]);
+
+  // Executive Intelligence Agent — live KPIs + insights for the dashboard
+  useEffect(() => {
+    if (adminTab !== "dashboard") return;
+    let cancelled = false;
+    handleAgentIntent('executive', 'kpi.refresh').then((r: any) => {
+      if (!cancelled && r?.ok) setExecKpis(r.kpis);
+    }).catch(() => {});
+    handleAgentIntent('executive', 'insight.generate').then((r: any) => {
+      if (!cancelled && r?.ok) setExecInsights(r.insights || []);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [adminTab, staff, events, records, invoices]);
 
   useEffect(()=>{ const t=setInterval(()=>setNow(Date.now()),10000); return()=>clearInterval(t); },[]);
 
@@ -1201,12 +1235,19 @@ export default function App(){
       <style>{css}</style>
 
       {/* Header */}
-      <div style={{background:SURFACE,borderBottom:`1px solid ${BORDER}`,padding:"0 24px",display:"flex",alignItems:"center",gap:16,height:56,position:"sticky",top:0,zIndex:50}}>
+      <div style={{
+        background:`${SURFACE}cc`,backdropFilter:"blur(16px)",WebkitBackdropFilter:"blur(16px)",
+        borderBottom:`1px solid ${BORDER}`,padding:"0 24px",display:"flex",alignItems:"center",gap:16,height:56,position:"sticky",top:0,zIndex:50,
+        boxShadow:"0 1px 0 rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.18)",
+      }}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <div style={{width:28,height:28,background:ACCENT,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:"#000"}}>ESCC</div>
+          <div style={{
+            width:28,height:28,background:`linear-gradient(135deg, ${ACCENT2}, ${ACCENT})`,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",
+            fontSize:11,fontWeight:700,color:"#0a0c10",boxShadow:`0 2px 10px ${ACCENT}55`,
+          }}>ESCC</div>
           <span style={{fontWeight:600,fontSize:15,letterSpacing:"-0.02em"}}>{ESCC_COMPANY.name}</span>
           <span style={{color:MUTED,fontSize:13}}>Command Center</span>
-          <span style={{fontSize:10,color:MUTED,border:`1px solid ${BORDER}`,borderRadius:4,padding:"2px 6px"}}>multi-agent</span>
+          <span style={{fontSize:10,color:ACCENT2,border:`1px solid ${ACCENT}33`,background:`${ACCENT}0d`,borderRadius:4,padding:"2px 6px"}}>multi-agent</span>
         </div>
         <div style={{flex:1}}/>
         {page!=="login"&&(
@@ -1286,13 +1327,17 @@ export default function App(){
             </div>
 
             {/* Tabs — each section maps to an ESCC agent repo */}
-            <div style={{display:"flex",gap:2,background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:10,padding:4,marginBottom:12,overflowX:"auto"}}>
+            <div style={{
+              display:"flex",gap:2,background:`${SURFACE}cc`,backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",
+              border:`1px solid ${BORDER}`,borderRadius:10,padding:4,marginBottom:12,overflowX:"auto",
+            }}>
               {TABS.map(([k,l])=>(
                 <button key={k} onClick={()=>setAdminTab(k)} title={agentForTab(k)?.name || l} style={{
                   padding:"8px 18px",borderRadius:7,border:"none",fontSize:13,fontWeight:500,whiteSpace:"nowrap",cursor:"pointer",
-                  background:adminTab===k?ACCENT+"22":"transparent",
-                  color:adminTab===k?ACCENT:MUTED,
-                  borderBottom:adminTab===k?`2px solid ${ACCENT}`:"2px solid transparent",
+                  transition:"all 0.15s",
+                  background:adminTab===k?`linear-gradient(135deg, ${ACCENT}2e, ${ACCENT}14)`:"transparent",
+                  color:adminTab===k?ACCENT2:MUTED,
+                  boxShadow:adminTab===k?`inset 0 0 0 1px ${ACCENT}44, 0 0 12px ${ACCENT}22`:"none",
                 }}>{l}</button>
               ))}
             </div>
@@ -1300,10 +1345,11 @@ export default function App(){
               const activeAgent = agentForTab(adminTab);
               if (!activeAgent) return null;
               return (
-                <div style={{
+                <div key={adminTab} className="fp-fade-in" style={{
                   display:"flex",alignItems:"center",gap:10,marginBottom:24,
-                  padding:"8px 12px",borderRadius:8,background:SURFACE,
-                  border:`1px solid ${BORDER}`,fontSize:12,color:MUTED,
+                  padding:"8px 12px",borderRadius:8,
+                  background:`linear-gradient(90deg, ${activeAgent.accent}14, ${SURFACE}cc)`,
+                  border:`1px solid ${activeAgent.accent}33`,fontSize:12,color:MUTED,
                 }}>
                   <span style={{
                     width:8,height:8,borderRadius:"50%",
@@ -1311,10 +1357,10 @@ export default function App(){
                   }}/>
                   <span style={{color:TEXT,fontWeight:600}}>{activeAgent.name}</span>
                   <span>·</span>
-                  <span>section <code style={{color:ACCENT}}>{activeAgent.section}</code></span>
+                  <span>section <code style={{color:activeAgent.accent}}>{activeAgent.section}</code></span>
                   <span>·</span>
                   <a href={activeAgent.repo} target="_blank" rel="noreferrer"
-                    style={{color:ACCENT,textDecoration:"none"}}>
+                    style={{color:activeAgent.accent,textDecoration:"none"}}>
                     {activeAgent.package}
                   </a>
                   <span style={{marginLeft:"auto",fontSize:11}}>Company {ESCC_COMPANY.name}</span>
@@ -1327,15 +1373,15 @@ export default function App(){
             {adminTab==="dashboard"&&(
               <div>
                 {/* KPI Row */}
-                <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:24}}>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:execInsights.length?12:24}}>
                   <div className="fp-kpi">
                     <div className="fp-kpi__label">Active Staff</div>
-                    <div className="fp-kpi__value">{tActive || staff.filter(s=>s.uniform).length}</div>
-                    <div className="fp-kpi__sub">{staff.length} total in roster</div>
+                    <div className="fp-kpi__value">{execKpis?.activeStaff ?? (tActive || staff.filter(s=>s.uniform).length)}</div>
+                    <div className="fp-kpi__sub">{execKpis?.rosterSize ?? staff.length} total in roster</div>
                   </div>
                   <div className="fp-kpi">
                     <div className="fp-kpi__label">Shifts Today</div>
-                    <div className="fp-kpi__value">{todayEvents.length}</div>
+                    <div className="fp-kpi__value">{execKpis?.eventsToday ?? todayEvents.length}</div>
                     <div className="fp-kpi__sub">{events.length} events total</div>
                   </div>
                   <div className="fp-kpi">
@@ -1346,9 +1392,24 @@ export default function App(){
                   <div className="fp-kpi">
                     <div className="fp-kpi__label">Outstanding (ZAR)</div>
                     <div className="fp-kpi__value">R {invoices.filter(i=>i.status!=="paid").reduce((a,i)=>a + docSubtotal(i.lines) * (i.includeTax !== false ? (1 + (Number(i.taxRate) || 15) / 100) : 1), 0).toFixed(0)}</div>
-                    <div className="fp-kpi__sub">{invoices.filter(i=>i.status!=="paid").length} unpaid</div>
+                    <div className="fp-kpi__sub">{execKpis?.openInvoices ?? invoices.filter(i=>i.status!=="paid").length} unpaid</div>
                   </div>
                 </div>
+
+                {execInsights.length>0 && (
+                  <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:24}}>
+                    {execInsights.map((ins,i)=>(
+                      <div key={i} style={{
+                        display:"flex",alignItems:"center",gap:10,padding:"10px 16px",borderRadius:10,
+                        background:`linear-gradient(90deg, ${ACCENT}14, transparent)`,border:`1px solid ${ACCENT}33`,fontSize:13,color:TEXT,
+                      }}>
+                        <span style={{fontSize:14}}>💡</span>
+                        <span>{ins.message}</span>
+                        <span style={{marginLeft:"auto",fontSize:10,color:MUTED,textTransform:"uppercase",letterSpacing:"0.05em"}}>{ins.type}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 <div style={{display:"grid",gridTemplateColumns:"1fr 300px",gap:24,marginBottom:24}}>
                   {/* Main Content */}
@@ -1557,6 +1618,7 @@ export default function App(){
                             dataStore.deleteStaff(s.id);
                             setStaff(prev=>prev.filter(x=>x.id!==s.id));
                             addToast(s.name+" removed","success");
+                            handleAgentIntent('staff', 'staff.remove', {id:s.id}).catch(()=>{});
                           }
                         }}
                       />
@@ -1646,6 +1708,7 @@ export default function App(){
                       });
                       setStaff(prev=>prev.map(s=>s.id===editingStaffId?updated:s));
                       addToast(`${newStaff.name} updated`,"success");
+                      handleAgentIntent('staff', 'staff.update', {id:editingStaffId, ...newStaff}).catch(()=>{});
                       setEditingStaffId(null);
                     } else {
                       // Add new staff (persist to data store)
@@ -1656,6 +1719,7 @@ export default function App(){
                       });
                       setStaff(prev=>[...prev, created]);
                       addToast(`${newStaff.name} added to roster`,"success");
+                      handleAgentIntent('staff', 'staff.create', created).catch(()=>{});
                     }
                     setNewStaff({name:"",role:"",rate:"",pin:"",department:"Bar",uniform:false,email:"",phone:""}); 
                   }} style={{padding:"12px 24px",fontSize:14}}>{editingStaffId?"Update Staff Member":"Add Staff Member"}</Btn>
