@@ -690,15 +690,10 @@ function CalendarTab({events,setEvents,staff,clients,addToast,model}){
   async function fetchGcal() {
     setSyncing(true);
     try{
-      // Use local API endpoint instead of direct iCal fetch
-      const resp = await fetch('/api/calendar/google');
-      if (!resp.ok) {
-        const errorData = await resp.json().catch(() => ({}));
-        throw new Error(errorData.error || 'Failed to fetch Google Calendar');
-      }
-      
-      const data = await resp.json();
-      
+      // Delegates to the calendar agent (@escc/calendar-agent), which hits
+      // the same api/calendar/google.js endpoint.
+      const data = await ESCCCore.syncGoogleCalendar();
+
       if (data.success && Array.isArray(data.events)) {
         setGcalEvents(data.events.map(e => ({
           ...e,
@@ -722,8 +717,9 @@ function CalendarTab({events,setEvents,staff,clients,addToast,model}){
   async function fetchApple() {
     setSyncingApple(true);
     try {
-      const response = await fetch('/api/calendar/apple');
-      const data = await response.json();
+      // Delegates to the calendar agent (@escc/calendar-agent), which hits
+      // the same api/calendar/apple.js endpoint.
+      const data = await ESCCCore.syncAppleCalendar();
 
       if (data.success && Array.isArray(data.events)) {
         setAppleEvents(data.events.map(e => ({

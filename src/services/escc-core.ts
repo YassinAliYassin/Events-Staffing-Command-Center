@@ -1,4 +1,6 @@
 // ESCC Core Service - Enhanced with TypeScript interfaces
+import { handleAgentIntent } from '../agents/registry';
+
 export interface CalendarEvent {
   id: string;
   title: string;
@@ -31,11 +33,10 @@ export interface AppleCalendarResult {
   count: number;
   error?: string;
   note?: string;
+  source?: string;
 }
 
 export class ESCCCore {
-  private static baseURL = typeof window !== 'undefined' ? window.location.origin : '';
-
   // Send WhatsApp notification via backend API
   static async sendWhatsApp(
     eventId: number,
@@ -49,14 +50,8 @@ export class ESCCCore {
         };
       }
 
-      const response = await fetch(`${this.baseURL}/api/dispatch-staff`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ eventId, staffIds })
-      });
-
-      const result = await response.json();
-      return result;
+      const result = await handleAgentIntent('dispatch', 'dispatch.event', { eventId, staffIds });
+      return result as WhatsAppDispatchResult;
     } catch (error) {
       console.error('WhatsApp dispatch failed:', error);
       return {
@@ -66,18 +61,12 @@ export class ESCCCore {
     }
   }
 
-  // Sync Apple Calendar — GET matches api/calendar/apple.js and local server.js
-  static async syncAppleCalendar(calendarUrl?: string): Promise<AppleCalendarResult> {
+  // Sync Apple Calendar — delegates to the calendar agent (calendar.sync.apple),
+  // which hits the same api/calendar/apple.js endpoint.
+  static async syncAppleCalendar(): Promise<AppleCalendarResult> {
     try {
-      const params = new URLSearchParams();
-      if (calendarUrl) params.set('url', calendarUrl);
-      const qs = params.toString();
-      const response = await fetch(
-        `${this.baseURL}/api/calendar/apple${qs ? `?${qs}` : ''}`
-      );
-
-      const result = await response.json();
-      return result;
+      const result = await handleAgentIntent('calendar', 'calendar.sync.apple');
+      return result as AppleCalendarResult;
     } catch (error) {
       console.error('Apple Calendar sync failed:', error);
       return {
@@ -106,12 +95,12 @@ export class ESCCCore {
     }
   }
 
-  // Sync Google Calendar — GET matches api/calendar/google.js and local server.js
+  // Sync Google Calendar — delegates to the calendar agent (calendar.sync.google),
+  // which hits the same api/calendar/google.js endpoint.
   static async syncGoogleCalendar(): Promise<AppleCalendarResult> {
     try {
-      const response = await fetch(`${this.baseURL}/api/calendar/google`);
-      const result = await response.json();
-      return result;
+      const result = await handleAgentIntent('calendar', 'calendar.sync.google');
+      return result as AppleCalendarResult;
     } catch (error) {
       console.error('Google Calendar sync failed:', error);
       return {

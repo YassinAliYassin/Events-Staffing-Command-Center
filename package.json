@@ -41,7 +41,15 @@
     "recharts": "^3.8.1",
     "sqlite3": "^5.1.6",
     "vite": "^6.2.3",
-    "xml2js": "^0.6.2"
+    "xml2js": "^0.6.2",
+    "@escc/executive-agent": "github:YassinAliYassin/escc-executive-agent#main",
+    "@escc/staff-agent": "github:YassinAliYassin/escc-staff-agent#main",
+    "@escc/timesheet-agent": "github:YassinAliYassin/escc-timesheet-agent#main",
+    "@escc/calendar-agent": "github:YassinAliYassin/escc-calendar-agent#main",
+    "@escc/billing-agent": "github:YassinAliYassin/escc-billing-agent#main",
+    "@escc/crm-agent": "github:YassinAliYassin/escc-crm-agent#main",
+    "@escc/finance-agent": "github:YassinAliYassin/escc-finance-agent#main",
+    "@escc/dispatch-agent": "github:YassinAliYassin/escc-dispatch-agent#main"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
