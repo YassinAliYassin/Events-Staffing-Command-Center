@@ -1,0 +1,22 @@
+{
+  "id": "executive",
+  "name": "Executive Intelligence Agent",
+  "company": "ESCC",
+  "section": "dashboard",
+  "version": "1.1.0",
+  "description": "KPIs, live ops intelligence, and executive insights for ESCC",
+  "accent": "#BF8F3B",
+  "capabilities": [
+    "kpi.refresh",
+    "insight.generate",
+    "status.live"
+  ],
+  "repo": "https://github.com/YassinAliYassin/escc-executive-agent",
+  "entry": "./src/index.ts",
+  "ui": {
+    "tabKey": "dashboard",
+    "tabLabel": "Dashboard",
+    "icon": "brain"
+  },
+  "dependsOn": []
+}

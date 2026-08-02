@@ -1,0 +1,25 @@
+import type { AgentManifest } from "./types.js";
+
+export const manifest: AgentManifest = {
+  "id": "crm",
+  "name": "CRM Agent",
+  "company": "ESCC",
+  "section": "clients",
+  "version": "1.1.0",
+  "description": "Client relationships, pipeline, lead scoring, and history",
+  "accent": "#EC4899",
+  "capabilities": [
+    "client.list",
+    "client.create",
+    "client.score",
+    "pipeline.move"
+  ],
+  "repo": "https://github.com/YassinAliYassin/escc-crm-agent",
+  "entry": "./src/index.ts",
+  "ui": {
+    "tabKey": "clients",
+    "tabLabel": "Clients",
+    "icon": "handshake"
+  },
+  "dependsOn": []
+} as AgentManifest;

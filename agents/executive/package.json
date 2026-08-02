@@ -1,0 +1,33 @@
+{
+  "name": "@escc/executive-agent",
+  "version": "1.1.0",
+  "description": "Executive Intelligence Agent — KPIs, live ops intelligence, and executive insights for ESCC",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./agent.json": "./agent.json"
+  },
+  "keywords": ["escc", "agent", "staffing", "events"],
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/YassinAliYassin/escc-executive-agent.git"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@escc/core": "file:../core"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "devDependencies": {
+    "typescript": "~5.8.2",
+    "@types/react": "^19.0.0",
+    "vitest": "^2.1.0"
+  }
+}

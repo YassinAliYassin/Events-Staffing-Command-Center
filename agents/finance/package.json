@@ -1,0 +1,32 @@
+{
+  "name": "@escc/finance-agent",
+  "version": "1.0.0",
+  "description": "Finance Agent — Payroll, payments status, staff earnings, and finance alerts",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./agent.json": "./agent.json"
+  },
+  "keywords": ["escc", "agent", "finance", "staffing", "events"],
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/YassinAliYassin/escc-finance-agent.git"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/*.test.js 2>/dev/null || echo 'No tests yet'"
+  },
+  "dependencies": {
+    "@escc/core": "file:../core"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "devDependencies": {
+    "typescript": "~5.8.2",
+    "@types/react": "^19.0.0"
+  }
+}

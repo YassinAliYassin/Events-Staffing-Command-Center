@@ -1,0 +1,71 @@
+{
+  "company": "ESCC",
+  "project": "https://github.com/users/YassinAliYassin/projects/2",
+  "shell": "https://github.com/YassinAliYassin/Events-Staffing-Command-Center",
+  "agents": [
+    {
+      "id": "executive",
+      "name": "Executive Intelligence Agent",
+      "section": "dashboard",
+      "repo": "https://github.com/YassinAliYassin/escc-executive-agent",
+      "package": "@escc/executive-agent",
+      "accent": "#BF8F3B"
+    },
+    {
+      "id": "staff",
+      "name": "Staff Agent",
+      "section": "roster",
+      "repo": "https://github.com/YassinAliYassin/escc-staff-agent",
+      "package": "@escc/staff-agent",
+      "accent": "#3B82F6"
+    },
+    {
+      "id": "timesheet",
+      "name": "Timesheet Agent",
+      "section": "timesheets",
+      "repo": "https://github.com/YassinAliYassin/escc-timesheet-agent",
+      "package": "@escc/timesheet-agent",
+      "accent": "#10B981"
+    },
+    {
+      "id": "calendar",
+      "name": "Calendar Agent",
+      "section": "calendar",
+      "repo": "https://github.com/YassinAliYassin/escc-calendar-agent",
+      "package": "@escc/calendar-agent",
+      "accent": "#8B5CF6"
+    },
+    {
+      "id": "billing",
+      "name": "Billing Agent",
+      "section": "documents",
+      "repo": "https://github.com/YassinAliYassin/escc-billing-agent",
+      "package": "@escc/billing-agent",
+      "accent": "#F59E0B"
+    },
+    {
+      "id": "crm",
+      "name": "CRM Agent",
+      "section": "clients",
+      "repo": "https://github.com/YassinAliYassin/escc-crm-agent",
+      "package": "@escc/crm-agent",
+      "accent": "#EC4899"
+    },
+    {
+      "id": "finance",
+      "name": "Finance Agent",
+      "section": "payroll",
+      "repo": "https://github.com/YassinAliYassin/escc-finance-agent",
+      "package": "@escc/finance-agent",
+      "accent": "#D4A853"
+    },
+    {
+      "id": "dispatch",
+      "name": "Dispatch Agent",
+      "section": "whatsapp",
+      "repo": "https://github.com/YassinAliYassin/escc-dispatch-agent",
+      "package": "@escc/dispatch-agent",
+      "accent": "#22C55E"
+    }
+  ]
+}
