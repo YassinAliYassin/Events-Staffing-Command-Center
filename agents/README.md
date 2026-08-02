@@ -67,5 +67,7 @@ are folded here **once**:
   `CODE_OF_CONDUCT.md`, `.editorconfig`, `.prettierrc`, `.github/` (issue/PR
   templates, dependabot) — production/OSS files from the shell audit clone
 
-The per-agent MIT license field + `test: node --test` script still need wiring
-into each `agents/<name>/package.json` when the agent refactor is finished.
+The agent refactor is complete: every `agents/<name>/src/manifest.ts` now imports
+`AgentManifest` from `@escc/core` (types moved into core; the old local `./types.js`
+was deleted), and `agents/core` declares `@types/node` for its `process` usage.
+All 9 packages typecheck cleanly (tsc --strict, moduleResolution bundler).

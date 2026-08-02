@@ -51,7 +51,7 @@ export class CalendarAgent extends BaseEsccAgent {
       method,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
-    }).then((res) => ({
+    }).then(async (res) => ({
       ok: res.ok,
       intent,
       status: res.status,

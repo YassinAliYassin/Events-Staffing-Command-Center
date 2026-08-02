@@ -9,7 +9,12 @@
     ".": "./src/index.ts",
     "./test-fixtures": "./src/test-fixtures.ts"
   },
-  "keywords": ["escc", "agent", "contract", "openrouter"],
+  "keywords": [
+    "escc",
+    "agent",
+    "contract",
+    "openrouter"
+  ],
   "license": "UNLICENSED",
   "repository": {
     "type": "git",
@@ -22,6 +27,7 @@
   },
   "devDependencies": {
     "typescript": "~5.8.2",
-    "vitest": "^2.1.0"
+    "vitest": "^2.1.0",
+    "@types/node": "^22.0.0"
   }
 }

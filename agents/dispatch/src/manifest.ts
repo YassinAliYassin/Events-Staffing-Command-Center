@@ -1,4 +1,4 @@
-import type { AgentManifest } from "./types.js";
+import type { AgentManifest } from "@escc/core";
 
 export const manifest: AgentManifest = {
   "id": "dispatch",
