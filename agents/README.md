@@ -49,3 +49,23 @@ correspond 1:1 to the folders in this directory.
 > still name the old GitHub repo URLs (e.g. `…/escc-billing-agent`). Those repos
 > are retained (kept-as-stale per consolidation), so the URLs remain valid; the
 > code itself now lives here.
+
+## Production hardening (folded from `eng/production-hardening` branch pass)
+
+A production-hardening pass (MIT license, contract test suite, CI workflow,
+OSS community files, audit) had been applied locally to each agent repo on a
+local-only `eng/production-hardening` branch that was never pushed. To avoid
+losing that work AND avoid re-creating 8 identical copies, the shared artifacts
+are folded here **once**:
+
+- `agents/LICENSE-MIT.txt` — MIT license (Copyright 2026 Yassin Ali)
+- `agents/shared/contract.test.js` — contract-level test suite valid for every
+  ESCC agent (public API: mount/unmount/getStatus/handle)
+- `agents/shared/CHANGELOG.md` — changelog
+- `agents/shared/ci.yml` — shared CI workflow shape
+- repo root: `AUDIT.md`, `LICENSE`, `SECURITY.md`, `CONTRIBUTING.md`,
+  `CODE_OF_CONDUCT.md`, `.editorconfig`, `.prettierrc`, `.github/` (issue/PR
+  templates, dependabot) — production/OSS files from the shell audit clone
+
+The per-agent MIT license field + `test: node --test` script still need wiring
+into each `agents/<name>/package.json` when the agent refactor is finished.
