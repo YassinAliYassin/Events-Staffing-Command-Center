@@ -30,7 +30,7 @@ jobs:
         run: auto-changelog --output CHANGELOG.md --template keepachangelog
 
       - name: Commit & Push Changes
-        uses: stefanzweifel/git-auto-commit-action@v5
+        uses: stefanzweifel/git-auto-commit-action@v7
         with:
           commit_message: "docs: update CHANGELOG"
           file_pattern: CHANGELOG.md
