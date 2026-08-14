@@ -21,7 +21,7 @@ describe("ExecutiveAgent", () => {
     await a.mount(makeCtx());
     const r: any = await a.handle("status.live");
     expect(r.ok).toBe(true);
-    expect(r.status).toBe("active");
+    expect(r.status).toBe("analyzing");
   });
 
   it("generates an insight via hy3 (mocked OpenRouter)", async () => {
