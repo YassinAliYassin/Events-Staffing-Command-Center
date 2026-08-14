@@ -38,7 +38,7 @@
     "node-ical": "^0.26.1",
     "pg": "^8.21.0",
     "react": "^19.0.1",
-    "react-big-calendar": "^1.19.4",
+    "react-big-calendar": "^1.20.0",
     "react-dom": "^19.0.1",
     "react-router-dom": "^7.15.1",
     "recharts": "^3.8.1",
