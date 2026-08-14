@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "workspaces": [
+    "agents/*"
+  ],
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
     "build": "vite build",
@@ -42,14 +45,15 @@
     "sqlite3": "^5.1.6",
     "vite": "^6.2.3",
     "xml2js": "^0.6.2",
-    "@escc/executive-agent": "github:YassinAliYassin/escc-executive-agent#main",
-    "@escc/staff-agent": "github:YassinAliYassin/escc-staff-agent#main",
-    "@escc/timesheet-agent": "github:YassinAliYassin/escc-timesheet-agent#main",
-    "@escc/calendar-agent": "github:YassinAliYassin/escc-calendar-agent#main",
-    "@escc/billing-agent": "github:YassinAliYassin/escc-billing-agent#main",
-    "@escc/crm-agent": "github:YassinAliYassin/escc-crm-agent#main",
-    "@escc/finance-agent": "github:YassinAliYassin/escc-finance-agent#main",
-    "@escc/dispatch-agent": "github:YassinAliYassin/escc-dispatch-agent#main"
+    "@escc/core": "file:agents/core",
+    "@escc/executive-agent": "file:agents/executive",
+    "@escc/staff-agent": "file:agents/staff",
+    "@escc/timesheet-agent": "file:agents/timesheet",
+    "@escc/calendar-agent": "file:agents/calendar",
+    "@escc/billing-agent": "file:agents/billing",
+    "@escc/crm-agent": "file:agents/crm",
+    "@escc/finance-agent": "file:agents/finance",
+    "@escc/dispatch-agent": "file:agents/dispatch"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
