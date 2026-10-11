@@ -1125,7 +1125,7 @@ ${body}`;
 }
 
 // ─── PIN Pad ──────────────────────────────────────────────────────────────────
-function PinPad({onSuccess,staff,adminMode}){
+function PinPad({onSuccess,staff,adminMode,showAdminHint}){
   const [pin,setPin]=useState(""); const [shake,setShake]=useState(false); const [err,setErr]=useState("");
   function press(d){ if(pin.length>=4)return; const next=pin+d; setPin(next); if(next.length===4)setTimeout(()=>check(next),80); }
   function check(p){
@@ -1137,17 +1137,19 @@ function PinPad({onSuccess,staff,adminMode}){
   }
   return(
     <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:20,padding:24}}>
-      <div style={{fontSize:13,color:MUTED}}>Enter your PIN{adminMode?" · Admin: 0000":""}</div>
+      <div style={{fontSize:13,color:MUTED}}>Enter your PIN{showAdminHint?" · Admin: 0000":""}</div>
       <div style={{display:"flex",gap:12,transform:shake?"translateX(8px)":"none",transition:"transform 0.1s"}}>
         {Array.from({length:4},(_,i)=><div key={i} style={{width:14,height:14,borderRadius:"50%",background:i<pin.length?ACCENT:"transparent",border:`2px solid ${i<pin.length?ACCENT:BORDER}`,transition:"all 0.1s"}}/>)}
       </div>
       {err&&<div style={{fontSize:12,color:RED}}>{err}</div>}
       <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,width:200}}>
-        {[1,2,3,4,5,6,7,8,9,"",0,"⌫"].map((k,i)=>(
-          <button key={i} onClick={()=>k==="⌫"?setPin(p=>p.slice(0,-1)):k!==""?press(String(k)):null}
-            style={{padding:"14px 0",background:k===""?"transparent":SURFACE2,border:`1px solid ${k===""?"transparent":BORDER}`,borderRadius:8,color:TEXT,fontSize:16,fontWeight:500,fontFamily:"var(--mono)",opacity:k===""?0:1}}
-            onMouseEnter={e=>{if(k!=="")e.currentTarget.style.background=SURFACE;}}
-            onMouseLeave={e=>{if(k!=="")e.currentTarget.style.background=SURFACE2;}}
+        {[1,2,3,4,5,6,7,8,9,"",0,"⌫"].map((k,i)=> k==="" ? (
+          <div key={i} aria-hidden="true" />
+        ) : (
+          <button key={i} type="button" aria-label={k==="⌫"?"Delete last digit":String(k)} onClick={()=>k==="⌫"?setPin(p=>p.slice(0,-1)):press(String(k))}
+            style={{padding:"14px 0",background:SURFACE2,border:`1px solid ${BORDER}`,borderRadius:8,color:TEXT,fontSize:16,fontWeight:500,fontFamily:"var(--mono)"}}
+            onMouseEnter={e=>{e.currentTarget.style.background=SURFACE;}}
+            onMouseLeave={e=>{e.currentTarget.style.background=SURFACE2;}}
           >{k}</button>
         ))}
       </div>
@@ -1206,7 +1208,7 @@ export default function App(){
     return () => { cancelled = true; };
   }, [adminTab, staff, events, records, invoices]);
 
-  useEffect(()=>{ const t=setInterval(()=>setNow(Date.now()),10000); return()=>clearInterval(t); },[]);
+  useEffect(()=>{ const t=setInterval(()=>setNow(Date.now()),1000); return()=>clearInterval(t); },[]);
 
   // Task detection for model rotation
   useEffect(() => {
@@ -1267,16 +1269,18 @@ export default function App(){
   function clockIn(id){
     const rec = dataStore.clockIn(id);
     setRecords(dataStore.listRecords());
+    setNow(Date.now());
     if (rec) addToast("Clocked in","success");
   }
   function clockOut(id){
     dataStore.clockOut(id);
     setRecords(dataStore.listRecords());
+    setNow(Date.now());
     addToast("Clocked out","success");
   }
 
   const activeRec   = currentStaff?records.find(r=>r.staffId===currentStaff.id&&!r.clockOut):null;
-  const elapsed     = activeRec?now-activeRec.clockIn:0;
+  const elapsed     = activeRec?Math.max(0, now-activeRec.clockIn):0;
   const myShifts    = currentStaff?records.filter(r=>r.staffId===currentStaff.id&&r.clockOut).slice(-5).reverse():[];
   const myTotalMs   = myShifts.reduce((a,r)=>a+(r.clockOut-r.clockIn),0);
   const myPay       = currentStaff?calcPay(myTotalMs,currentStaff.rate):0;
@@ -1336,7 +1340,7 @@ export default function App(){
               <h1 style={{fontSize:24,fontWeight:700,marginBottom:8}}>Freshpeople</h1>
               <p style={{color:MUTED,fontSize:13,marginBottom:24}}>Enter PIN</p>
             <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:14,width:"100%",maxWidth:320}}>
-              <PinPad staff={staff} onSuccess={handleLogin} adminMode/>
+              <PinPad staff={staff} onSuccess={handleLogin} adminMode showAdminHint={demo}/>
             </div>
             <div style={{marginTop:24,width:"100%",maxWidth:320}}>
               {demo ? (
@@ -1372,7 +1376,7 @@ export default function App(){
             ))}
               <div style={{background:SURFACE,border:`1px solid ${activeRec?mix(ACCENT,27):BORDER}`,borderRadius:14,padding:28,marginBottom:24,textAlign:"center",transition:"border 0.3s"}}>
                 <div style={{fontSize:13,color:MUTED,marginBottom:8}}>{activeRec?"Active":"Off"}</div>
-                <div style={{fontSize:48,fontWeight:700,fontFamily:"var(--mono)",color:activeRec?ACCENT:MUTED,marginBottom:4,letterSpacing:"-0.02em"}}>{activeRec?fmtDur(elapsed):"—"}</div>
+                <div style={{fontSize:48,fontWeight:700,fontFamily:"var(--mono)",color:activeRec?ACCENT:MUTED,marginBottom:4,letterSpacing:"-0.02em"}}>{activeRec?`${Math.floor(elapsed/3600000)}h ${pad2(Math.floor((elapsed%3600000)/60000))}m`:"—"}</div>
                 {activeRec&&<div style={{fontSize:13,color:MUTED,marginBottom:20}}>In at {fmtTime(activeRec.clockIn)}</div>}
               <div style={{display:"flex",gap:12,justifyContent:"center",marginTop:20}}>
                 {!activeRec
