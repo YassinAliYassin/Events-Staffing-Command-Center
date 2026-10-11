@@ -100,7 +100,7 @@ export default async function handler(req, res) {
     }
     
     if (req.method === 'POST') {
-      const { id, title, date, duration, staff_assigned, sendWhatsApp } = req.body;
+      const { id, title, date, duration, staff_assigned } = req.body;
       
       // Validate minimum 5-hour charge
       if (!duration || duration < 5) {
@@ -112,31 +112,13 @@ export default async function handler(req, res) {
         'INSERT INTO events (id, title, date, duration, staff_assigned) VALUES ($1, $2, $3, $4, $5)',
         [id, title, date, duration, JSON.stringify(staff_assigned)]
       );
-      
-      // Send WhatsApp notifications if requested
-      let whatsappResults = [];
-      if (sendWhatsApp && staff_assigned && staff_assigned.length > 0) {
-        const eventDate = new Date(date);
-        const whatsappMessage = `📅 NEW BOOKING ASSIGNED\n\nEvent: ${title}\nDate: ${eventDate.toLocaleDateString()}\nTime: ${eventDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}\nDuration: ${duration || 5}hrs (Minimum 5-hour charge applies)\n\nPlease confirm availability. Thank you!`;
-        
-        for (const staffName of staff_assigned) {
-          const staffResult = await pool.query('SELECT phone FROM staff WHERE name = $1', [staffName]);
-          if (staffResult.rows.length > 0 && staffResult.rows[0].phone) {
-            const phone = staffResult.rows[0].phone;
-            const sent = await sendWhatsAppMessage(phone, whatsappMessage);
-            whatsappResults.push({ staff: staffName, phone, sent });
-          }
-        }
-      }
-      
-      // Recalculate staff total hours after creation
+
       await recalculateStaffHours();
-      
+
       await pool.end();
-      return res.json({ 
-        id, 
-        message: 'Event created successfully',
-        whatsapp: whatsappResults.length > 0 ? whatsappResults : undefined
+      return res.json({
+        id,
+        message: 'Event created successfully'
       });
     }
     
@@ -147,17 +129,6 @@ export default async function handler(req, res) {
     console.error('API Error:', error);
     return res.status(500).json({ error: error.message || 'Server error' });
   }
-}
-
-function formatE164(phone) {
-  if (!phone) return '';
-  // Remove all non-digit characters except +
-  let cleaned = phone.replace(/[^\d+]/g, '');
-  // If it doesn't start with +, add it
-  if (!cleaned.startsWith('+')) {
-    cleaned = '+' + cleaned.replace(/\D/g, '');
-  }
-  return cleaned;
 }
 
 // Calculate current payroll cycle (26th of previous month to 25th of current month)
@@ -249,71 +220,5 @@ async function recalculateStaffHours() {
     console.log('Staff total hours recalculated for cycle:', cycle.start, 'to', cycle.end);
   } catch (error) {
     console.error('Error recalculating staff hours:', error);
-  }
-}
-
-async function sendWhatsAppMessage(phone, message) {
-  const token = process.env.WHATSAPP_ACCESS_TOKEN;
-  const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
-  
-  if (!token || !phoneId || !phone) {
-    console.log('[WhatsApp] Missing credentials or phone, skipping');
-    return false;
-  }
-
-  const formattedPhone = formatE164(phone);
-  if (!formattedPhone) {
-    console.error('[WhatsApp] Invalid phone number after formatting:', phone);
-    return false;
-  }
-  
-  try {
-    const response = await fetch(`https://graph.facebook.com/v22.0/${phoneId}/messages`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        messaging_product: 'whatsapp',
-        to: formattedPhone,
-        type: 'text',
-        text: { body: message }
-      })
-    });
-    
-    const result = await response.json();
-    
-    if (!response.ok) {
-      console.error('[WhatsApp] API Request Failed:', {
-        status: response.status,
-        statusText: response.statusText,
-        phoneId,
-        recipient: formattedPhone,
-        originalPhone: phone,
-        error: result.error || result,
-        messagePreview: message.substring(0, 50) + '...'
-      });
-      return false;
-    }
-    
-    if (result.error) {
-      console.error('[WhatsApp] Business Logic Error:', {
-        recipient: formattedPhone,
-        error: result.error,
-        whatsappError: result.error
-      });
-      return false;
-    }
-    
-    console.log('[WhatsApp] Message sent successfully to:', formattedPhone);
-    return true;
-  } catch (e) {
-    console.error('[WhatsApp] Send Exception:', {
-      recipient: formattedPhone,
-      error: e.message,
-      stack: e.stack?.split('\n').slice(0, 3).join('\n')
-    });
-    return false;
   }
 }

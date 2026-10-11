@@ -16,7 +16,7 @@ Each admin section is owned by a dedicated agent repository under the ESCC compa
 | Docs & Billing | Billing | [escc-billing-agent](https://github.com/YassinAliYassin/escc-billing-agent) |
 | Clients | CRM | [escc-crm-agent](https://github.com/YassinAliYassin/escc-crm-agent) |
 | Payroll | Finance | [escc-finance-agent](https://github.com/YassinAliYassin/escc-finance-agent) |
-| WhatsApp notify | Dispatch | [escc-dispatch-agent](https://github.com/YassinAliYassin/escc-dispatch-agent) |
+| Run sheets | Dispatch | [escc-dispatch-agent](https://github.com/YassinAliYassin/escc-dispatch-agent) |
 
 ## In-app catalog
 

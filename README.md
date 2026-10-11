@@ -13,7 +13,7 @@ See [AGENTS.md](./AGENTS.md) for the full section → agent → repo map.
 - Local Express backend for development and VPS deployments
 - Firestore sync with **localStorage-first** fallback (works offline)
 - Supabase-ready data layer
-- Google Calendar, iCloud calendar, and WhatsApp integration hooks
+- Google Calendar and iCloud calendar sync
 - Vercel and Netlify deployment support
 
 ## Main URLs
@@ -74,11 +74,14 @@ npm run lint
 - **Event creation and calendar views** — with Apple / Google sync buttons
 - **Invoice and quote generation** — status updates and quote→invoice conversion
 - **Statement summaries** by client
-- **WhatsApp staff dispatch** (live on Vercel with env; mock locally)
-- **Payroll summary** from event assignments (local-first)
+- **Printable run sheet** per event, with on-site check-in
+- **Shift roster** with search, filters, availability, and fill rate
+- **Payroll summary** from event assignments (local-first, unpaid until recorded)
 - **CRM clients view** with pipeline-style filters
 - **Firebase/Firestore sync** when configured; otherwise full offline mode
 - **Calendar import** — live iCloud feed, or demo events when the feed is unavailable
+
+Sample roster, clients, and events shipped with a fresh browser are **demo data**, labelled in the app. They are not live Fresh People bookings.
 
 ## API Surface
 
@@ -90,7 +93,6 @@ npm run lint
 - `GET /api/calendar/apple`
 - `GET /api/calendar/google`
 - `POST /api/calendar/nylas` (mock locally)
-- `POST /api/dispatch-staff`
 
 ### Vercel serverless routes
 
@@ -127,8 +129,7 @@ See [`.env.example`](./.env.example):
 - `VITE_FIREBASE_*` — Firestore client config
 - `GOOGLE_SERVICE_ACCOUNT_BASE64` — Google Calendar service account
 - `VITE_GEMINI_API_KEY` / `VITE_OPENROUTER_API_KEY` — AI helpers
-- `DATABASE_URL` — Postgres for production WhatsApp dispatch
-- `WHATSAPP_ACCESS_TOKEN` / `WHATSAPP_PHONE_NUMBER_ID`
+- `DATABASE_URL` — optional Postgres for API routes that use it
 - `ICLOUD_CALENDAR_URL` — public iCloud calendar feed
 - `CRON_SECRET`
 
@@ -145,7 +146,7 @@ When `ICLOUD_CALENDAR_URL` fails or is missing, `/api/calendar/apple` returns **
 | Docs & Billing | Billing | [escc-billing-agent](https://github.com/YassinAliYassin/escc-billing-agent) |
 | Clients | CRM | [escc-crm-agent](https://github.com/YassinAliYassin/escc-crm-agent) |
 | Payroll | Finance | [escc-finance-agent](https://github.com/YassinAliYassin/escc-finance-agent) |
-| WhatsApp | Dispatch | [escc-dispatch-agent](https://github.com/YassinAliYassin/escc-dispatch-agent) |
+| Run sheets | Dispatch | [escc-dispatch-agent](https://github.com/YassinAliYassin/escc-dispatch-agent) |
 
 Hub + contracts: [github.com/YassinAliYassin/escc](https://github.com/YassinAliYassin/escc)
 
@@ -160,7 +161,7 @@ src/
 ├── services/
 │   ├── dataStore.ts     # localStorage-first CRUD
 │   ├── firebaseService.ts
-│   └── escc-core.ts     # calendar + WhatsApp client API
+│   └── escc-core.ts     # calendar sync client API
 api/                     # Vercel serverless handlers
 lib/                     # Shared iCal + demo calendar helpers
 server.js                # Local Express API

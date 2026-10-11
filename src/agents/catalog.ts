@@ -111,12 +111,12 @@ export const ESCC_AGENTS: EsccAgentCatalogEntry[] = [
   {
     id: "dispatch",
     name: "Dispatch Agent",
-    section: "whatsapp",
+    section: "dispatch",
     tabKeys: [],
     repo: "https://github.com/YassinAliYassin/escc-dispatch-agent",
     package: "@escc/dispatch-agent",
     accent: "#22C55E",
-    description: "WhatsApp staff dispatch and field notifications",
+    description: "On-site run sheets and crew briefings",
   },
 ];
 

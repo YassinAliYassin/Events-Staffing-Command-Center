@@ -2,8 +2,18 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
-    <meta name="theme-color" content="#0d1117" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="description" content="Fresh People events staffing command center. Roster, shifts, check-in, and run sheets." />
+    <meta name="theme-color" content="#0a0c10" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23bf8f3b'/%3E%3Ctext x='16' y='21' text-anchor='middle' font-size='11' font-family='system-ui' font-weight='700' fill='%231a1408'%3EES%3C/text%3E%3C/svg%3E" />
+    <script>
+      try {
+        var t = localStorage.getItem('escc-theme');
+        document.documentElement.dataset.theme = t === 'light' ? 'light' : 'dark';
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta && t === 'light') meta.setAttribute('content', '#f6f3ec');
+      } catch (e) {}
+    </script>
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>ESCC</title>

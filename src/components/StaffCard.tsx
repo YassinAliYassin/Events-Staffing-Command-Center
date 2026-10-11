@@ -4,27 +4,26 @@ interface StaffCardProps {
   staff: any;
   active: boolean;
   hrs: number;
+  note?: string;
+  warn?: boolean;
   onView: () => void;
   onEdit: () => void;
   onRemove: () => void;
 }
 
-const StaffCard: React.FC<StaffCardProps> = ({ staff, active, hrs, onView, onEdit, onRemove }) => {
+const StaffCard: React.FC<StaffCardProps> = ({ staff, active, hrs, note, warn, onView, onEdit, onRemove }) => {
   return (
     <div style={{
-      background: 'linear-gradient(160deg, rgba(20,25,32,0.9), rgba(26,33,43,0.7))',
-      backdropFilter: 'blur(10px)',
-      WebkitBackdropFilter: 'blur(10px)',
-      border: `1px solid ${active ? '#bf8f3b55' : '#2a323d'}`,
-      boxShadow: active ? '0 0 0 1px #bf8f3b22, 0 4px 20px rgba(191,143,59,0.12)' : '0 4px 16px rgba(0,0,0,0.25)',
+      background: 'var(--surface)',
+      border: `1px solid ${warn ? 'var(--amber)' : active ? 'var(--accent)' : 'var(--border)'}`,
       borderRadius: 12,
       padding: '16px 18px',
-      transition: 'transform 0.15s, border-color 0.15s',
     }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
         <div>
-          <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 2 }}>{staff.name}</div>
-          <div style={{ fontSize: 12, color: '#828d9c' }}>{staff.department}</div>
+          <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 2, color: 'var(--text)' }}>{staff.name}</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)' }}>{staff.role ? `${staff.role} · ` : ''}{staff.department}</div>
+          {note && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>{note}</div>}
         </div>
         <div style={{
           width: 8,
@@ -36,8 +35,8 @@ const StaffCard: React.FC<StaffCardProps> = ({ staff, active, hrs, onView, onEdi
           flexShrink: 0
         }} />
       </div>
-      <div style={{ fontSize: 12, fontFamily: "'DM Mono', monospace", color: '#e0b968' }}>
-        R{staff.rate}/h · {hrs.toFixed(1)}h
+      <div style={{ fontSize: 12, fontFamily: 'var(--mono)', color: 'var(--accent-2)' }}>
+        R{staff.rate}/h · {hrs.toFixed(1)}h logged
       </div>
       {staff.uniform && (
         <div style={{ marginTop: 8 }}>
@@ -47,43 +46,46 @@ const StaffCard: React.FC<StaffCardProps> = ({ staff, active, hrs, onView, onEdi
             borderRadius: 4,
             fontSize: 11,
             fontWeight: 500,
-            background: '#828d9c22',
-            color: '#828d9c',
-            border: '1px solid #828d9c44'
+            background: 'var(--surface-2)',
+            color: 'var(--muted)',
+            border: '1px solid var(--border)'
           }}>Uni</span>
         </div>
       )}
       <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
         <button onClick={onView} style={{
           flex: 1,
-          fontSize: 11,
-          padding: '4px 8px',
+          minHeight: 44,
+          fontSize: 13,
+          padding: '8px 8px',
           cursor: 'pointer',
-          background: '#1a212b',
-          border: '1px solid #2a323d',
+          background: 'var(--surface-2)',
+          border: '1px solid var(--border)',
           borderRadius: 6,
-          color: '#eef1f5'
+          color: 'var(--text)'
         }}>View</button>
-        <button onClick={onEdit} style={{
+        <button onClick={onEdit} aria-label={`Edit ${staff.name}`} style={{
           flex: 1,
-          fontSize: 11,
-          padding: '4px 8px',
+          minHeight: 44,
+          fontSize: 13,
+          padding: '8px 8px',
           cursor: 'pointer',
-          background: '#1a212b',
-          border: '1px solid #2a323d',
+          background: 'var(--surface-2)',
+          border: '1px solid var(--border)',
           borderRadius: 6,
-          color: '#eef1f5'
-        }}>E</button>
-        <button onClick={onRemove} style={{
+          color: 'var(--text)'
+        }}>Edit</button>
+        <button onClick={onRemove} aria-label={`Remove ${staff.name}`} style={{
           flex: 1,
-          fontSize: 11,
-          padding: '4px 8px',
+          minHeight: 44,
+          fontSize: 13,
+          padding: '8px 8px',
           cursor: 'pointer',
-          background: '#f8514922',
-          border: '1px solid #f8514944',
+          background: 'color-mix(in srgb, var(--danger) 12%, transparent)',
+          border: '1px solid color-mix(in srgb, var(--danger) 35%, transparent)',
           borderRadius: 6,
-          color: '#f85149'
-        }}>X</button>
+          color: 'var(--danger)'
+        }}>Remove</button>
       </div>
     </div>
   );
