@@ -50,10 +50,9 @@ export const INTENTS: readonly IntentSpec[] = [
   { id: "payment.remind", agent: "finance", description: "Compose a payroll payment reminder" },
   { id: "payroll.export", agent: "finance", description: "Export payroll summary" },
   // dispatch
-  { id: "dispatch.event", agent: "dispatch", description: "Dispatch staff to a single event" },
-  { id: "dispatch.bulk", agent: "dispatch", description: "Dispatch staff to all of today's events" },
-  { id: "whatsapp.webhook", agent: "dispatch", description: "Handle an inbound WhatsApp webhook payload" },
-  { id: "whatsapp.health", agent: "dispatch", description: "Check WhatsApp gateway health" },
+  { id: "dispatch.event", agent: "dispatch", description: "Build a run sheet for one event" },
+  { id: "dispatch.bulk", agent: "dispatch", description: "Build run sheets for today's events" },
+  { id: "dispatch.runsheet", agent: "dispatch", description: "Build a printable run sheet for one event" },
 ] as const;
 
 /** All intent ids as a plain string tuple. */

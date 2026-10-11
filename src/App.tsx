@@ -1,12 +1,18 @@
-import { useState, useEffect, useCallback } from "react";
-import ClientsView from './components/ClientsView';
-import Payroll from './pages/Payroll';
-import StaffCard from './components/StaffCard';
+import { useState, useEffect, useCallback, lazy, Suspense } from "react";
 import { ESCCCore } from './services/escc-core';
 import ModelPanel from './components/ModelPanel';
 import * as dataStore from './services/dataStore';
 import { ESCC_COMPANY, agentForTab } from './agents/catalog';
 import { handleAgentIntent } from './agents/registry';
+import RosterBoard from './shell/RosterBoard';
+import EventTimeline from './shell/EventTimeline';
+import RunSheet from './shell/RunSheet';
+import FillBar from './shell/FillBar';
+import { assignmentConflicts, downloadCsv, isCheckedIn, isMarkedOff } from './shell/ops';
+import './shell/shell.css';
+
+const ClientsView = lazy(() => import('./components/ClientsView'));
+const Payroll = lazy(() => import('./pages/Payroll'));
 
 // ─── Constants & Seed ────────────────────────────────────────────────────────
 const INITIAL_STAFF = [
@@ -47,10 +53,9 @@ const INITIAL_QUOTES = [
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 // ESCC brand: gold accent + dark glassmorphism (docs/AGENT_CONTRACT.md, catalog.ts)
-const A="#BF8F3B",A2="#E0B968",BG="#0a0c10",SF="#141920",SF2="#1a212b",BD="#2a323d",
-      TX="#eef1f5",MU="#828d9c",RD="#f85149",AM="#e3b341",PU="#7c6af7",CO="#f78c6c";
-
-const ACCENT=A, ACCENT2=A2, SURFACE=SF, SURFACE2=SF2, BORDER=BD, TEXT=TX, MUTED=MU, RED=RD, AMBER=AM, PURPLE=PU, CORAL=CO;
+const ACCENT="var(--accent)", ACCENT2="var(--accent-2)", BG="var(--bg)", SURFACE="var(--surface)", SURFACE2="var(--surface-2)", BORDER="var(--border)",
+      TEXT="var(--text)", MUTED="var(--muted)", RED="var(--danger)", AMBER="var(--amber)", PURPLE="var(--purple)", CORAL="var(--coral)";
+const mix = (color, pct) => `color-mix(in srgb, ${color} ${pct}%, transparent)`;
 
 const STATUS_COLOR = {
   draft:MUTED, sent:AMBER, paid:ACCENT, overdue:RED, accepted:ACCENT, declined:RED, expired:MUTED,
@@ -58,25 +63,24 @@ const STATUS_COLOR = {
 };
 
 const css = `
-  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Outfit:wght@300;400;500;600;700&display=swap');
   *{box-sizing:border-box;margin:0;padding:0}
   body{
-    background:${BG};color:${TEXT};font-family:'Outfit',sans-serif;min-height:100vh;
+    background:${BG};color:${TEXT};font-family:var(--font);min-height:100vh;
     background-image:
-      radial-gradient(ellipse 900px 500px at 12% -10%, ${ACCENT}14 0%, transparent 60%),
-      radial-gradient(ellipse 700px 500px at 100% 0%, ${PURPLE}0d 0%, transparent 55%),
-      radial-gradient(ellipse 900px 600px at 50% 110%, ${ACCENT}0a 0%, transparent 60%);
+      radial-gradient(ellipse 900px 500px at 12% -10%, ${mix(ACCENT,8)} 0%, transparent 60%),
+      radial-gradient(ellipse 700px 500px at 100% 0%, ${mix(PURPLE,5)} 0%, transparent 55%),
+      radial-gradient(ellipse 900px 600px at 50% 110%, ${mix(ACCENT,4)} 0%, transparent 60%);
     background-attachment:fixed;
   }
   ::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:transparent}
   ::-webkit-scrollbar-thumb{background:${BORDER};border-radius:3px}
-  input,select,textarea{background:${SURFACE2};color:${TEXT};border:1px solid ${BORDER};border-radius:8px;padding:8px 12px;font-family:inherit;font-size:14px;outline:none;transition:border 0.15s,box-shadow 0.15s}
-  input:focus,select:focus,textarea:focus{border-color:${ACCENT};box-shadow:0 0 0 3px ${ACCENT}22}
+  input,select,textarea{background:${SURFACE2};color:${TEXT};border:1px solid ${BORDER};border-radius:8px;padding:8px 12px;font-family:inherit;font-size:16px;outline:none;transition:border 0.15s,box-shadow 0.15s}
+  input:focus,select:focus,textarea:focus{border-color:${ACCENT};box-shadow:0 0 0 3px ${mix(ACCENT,13)}}
   @keyframes fpFadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
   .fp-fade-in{animation:fpFadeIn 0.28s ease}
   textarea{resize:vertical}
   button{cursor:pointer;font-family:inherit}
-  .mono{font-family:'DM Mono',monospace}
+  .mono{font-family:var(--mono)}
   @media print{
     .no-print{display:none!important}
     body{background:#fff!important;color:#111!important}
@@ -111,25 +115,25 @@ function nextDocNo(arr, prefix) { return `${prefix}-${new Date().getFullYear()}-
 
 // ─── Shared UI ────────────────────────────────────────────────────────────────
 function Dot({on,color}){return <span style={{display:"inline-block",width:8,height:8,borderRadius:"50%",background:on?(color||ACCENT):MUTED,boxShadow:on?`0 0 6px ${color||ACCENT}`:"none",flexShrink:0}}/>;}
-function Badge({color,children}){return <span style={{display:"inline-block",padding:"2px 8px",borderRadius:4,fontSize:11,fontWeight:500,background:color+"22",color,border:`1px solid ${color}44`}}>{children}</span>;}
+function Badge({color,children}){return <span style={{display:"inline-block",padding:"2px 8px",borderRadius:4,fontSize:11,fontWeight:500,background:mix(color,13),color,border:`1px solid ${mix(color,27)}`}}>{children}</span>;}
 function Stat({label,value,accent,sub}:{label:string;value:any;accent?:string;sub?:string}){
   return(
     <div style={{
-      background:`linear-gradient(160deg, ${SURFACE}, ${SURFACE2}99)`,border:`1px solid ${BORDER}`,borderRadius:10,padding:"14px 18px",
+      background:`linear-gradient(160deg, ${SURFACE}, ${mix(SURFACE2,60)})`,border:`1px solid ${BORDER}`,borderRadius:10,padding:"14px 18px",
       backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",transition:"transform 0.2s, border-color 0.2s",
     }}>
       <div style={{fontSize:11,color:MUTED,marginBottom:6}}>{label}</div>
-      <div style={{fontSize:22,fontWeight:600,color:accent||TEXT,fontFamily:"'DM Mono',monospace"}}>{value}</div>
+      <div style={{fontSize:22,fontWeight:600,color:accent||TEXT,fontFamily:"var(--mono)"}}>{value}</div>
       {sub && <div style={{fontSize:10,color:MUTED,marginTop:4}}>{sub}</div>}
     </div>
   );
 }
 function Btn({children,onClick,variant="ghost",style={},disabled=false}){
   const base={border:"none",borderRadius:8,padding:"8px 16px",fontSize:13,fontWeight:500,transition:"all 0.15s",opacity:disabled?0.45:1,...style};
-  const v={primary:{background:`linear-gradient(135deg, ${ACCENT2}, ${ACCENT})`,color:"#0a0c10",fontWeight:600,boxShadow:`0 2px 12px ${ACCENT}40`},
-           danger:{background:RED+"22",color:RED,border:`1px solid ${RED}44`},
-           ghost:{background:SURFACE2,color:TEXT,border:`1px solid ${BORDER}`},accent:{background:ACCENT+"1a",color:ACCENT2,border:`1px solid ${ACCENT}44`},
-           amber:{background:AMBER+"22",color:AMBER,border:`1px solid ${AMBER}44`}};
+  const v={primary:{background:`linear-gradient(135deg, ${ACCENT2}, ${ACCENT})`,color:"var(--on-accent)",fontWeight:600,boxShadow:`0 2px 12px ${mix(ACCENT,25)}`},
+           danger:{background:mix(RED,13),color:RED,border:`1px solid ${mix(RED,27)}`},
+           ghost:{background:SURFACE2,color:TEXT,border:`1px solid ${BORDER}`},accent:{background:mix(ACCENT,10),color:ACCENT2,border:`1px solid ${mix(ACCENT,27)}`},
+           amber:{background:mix(AMBER,13),color:AMBER,border:`1px solid ${mix(AMBER,27)}`}};
   return <button onClick={disabled?undefined:onClick} style={{...base,...v[variant]}}>{children}</button>;
 }
 function Lbl({children}){return <div style={{fontSize:12,color:MUTED,marginBottom:6}}>{children}</div>;}
@@ -138,9 +142,9 @@ function Modal({title,onClose,children,width=540}){
   return(
     <div style={{position:"fixed",inset:0,background:"rgba(6,8,11,0.72)",backdropFilter:"blur(4px)",WebkitBackdropFilter:"blur(4px)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,padding:16}}>
       <div className="fp-fade-in" style={{
-        background:`linear-gradient(165deg, ${SURFACE}f2, ${SF2}f2)`,backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",
+        background:`linear-gradient(165deg, ${mix(SURFACE,95)}, ${mix(SURFACE2,95)})`,backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",
         border:`1px solid ${BORDER}`,borderRadius:14,padding:28,width,maxWidth:"95vw",maxHeight:"92vh",overflow:"auto",
-        boxShadow:`0 24px 64px rgba(0,0,0,0.5), 0 0 0 1px ${ACCENT}14`,
+        boxShadow:`0 24px 64px rgba(0,0,0,0.5), 0 0 0 1px ${mix(ACCENT,8)}`,
       }}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
           <div style={{fontSize:16,fontWeight:600}}>{title}</div>
@@ -155,8 +159,8 @@ function Toast({msg,type="success",onDone}){
   useEffect(()=>{const t=setTimeout(onDone,3500);return()=>clearTimeout(t);},[onDone]);
   const color=type==="error"?RED:type==="warn"?AMBER:ACCENT;
   return(
-    <div className="fp-fade-in" style={{position:"fixed",bottom:24,right:24,zIndex:999,background:`${SURFACE}f0`,backdropFilter:"blur(12px)",WebkitBackdropFilter:"blur(12px)",border:`1px solid ${color}55`,borderLeft:`4px solid ${color}`,
-      borderRadius:10,padding:"14px 20px",fontSize:13,color:TEXT,maxWidth:340,boxShadow:`0 8px 32px rgba(0,0,0,0.5), 0 0 20px ${color}22`}}>
+    <div className="fp-fade-in" style={{position:"fixed",bottom:24,right:24,zIndex:999,background:mix(SURFACE,94),backdropFilter:"blur(12px)",WebkitBackdropFilter:"blur(12px)",border:`1px solid ${mix(color,33)}`,borderLeft:`4px solid ${color}`,
+      borderRadius:10,padding:"14px 20px",fontSize:13,color:TEXT,maxWidth:340,boxShadow:`0 8px 32px rgba(0,0,0,0.5), 0 0 20px ${mix(color,13)}`}}>
       {msg}
     </div>
   );
@@ -289,7 +293,7 @@ function DocPrint({doc, docType, client, event: evt, allDocs, onClose}){
                     <td style={{padding:"9px 10px",fontSize:12,color:"#888",textTransform:"capitalize"}}>{d.type||"invoice"}</td>
                     <td style={{padding:"9px 10px",fontSize:12}}>{fmtDate(d.issueDate)}</td>
                     <td style={{padding:"9px 10px",fontSize:12,color:d.status==="overdue"?"#dc2626":"#555"}}>{fmtDate(d.dueDate)}</td>
-                    <td style={{padding:"9px 10px",fontSize:12,fontFamily:"'DM Mono',monospace"}}>R {amt}</td>
+                    <td style={{padding:"9px 10px",fontSize:12,fontFamily:"var(--mono)"}}>R {amt}</td>
                     <td style={{padding:"9px 10px"}}><span style={{background:STATUS_COLOR[d.status]||"#888",color:"#000",fontSize:10,padding:"2px 7px",borderRadius:3,fontWeight:700}}>{d.status?.toUpperCase()}</span></td>
                   </tr>
                 );
@@ -298,11 +302,11 @@ function DocPrint({doc, docType, client, event: evt, allDocs, onClose}){
             <div style={{display:"flex",justifyContent:"flex-end"}}>
               <table style={{fontSize:13,borderCollapse:"collapse"}}>
                 {[["Total Invoiced",`R ${(paidAmt+outstanding).toFixed(2)}`],["Paid",`R ${paidAmt.toFixed(2)}`]].map(([l,v])=>(
-                  <tr key={l}><td style={{padding:"4px 16px 4px 0",color:"#555"}}>{l}</td><td style={{padding:"4px 0",textAlign:"right",fontFamily:"'DM Mono',monospace"}}>{v}</td></tr>
+                  <tr key={l}><td style={{padding:"4px 16px 4px 0",color:"#555"}}>{l}</td><td style={{padding:"4px 0",textAlign:"right",fontFamily:"var(--mono)"}}>{v}</td></tr>
                 ))}
                 <tr style={{borderTop:"2px solid #111"}}>
                   <td style={{padding:"8px 16px 4px 0",fontWeight:700,fontSize:15}}>Balance Due</td>
-                  <td style={{padding:"8px 0 4px 0",textAlign:"right",fontWeight:700,fontSize:15,fontFamily:"'DM Mono',monospace",color:"#dc2626"}}>R {outstanding.toFixed(2)}</td>
+                  <td style={{padding:"8px 0 4px 0",textAlign:"right",fontWeight:700,fontSize:15,fontFamily:"var(--mono)",color:"#dc2626"}}>R {outstanding.toFixed(2)}</td>
                 </tr>
               </table>
             </div>
@@ -319,20 +323,20 @@ function DocPrint({doc, docType, client, event: evt, allDocs, onClose}){
                 <tr key={i} style={{borderBottom:"1px solid #f3f4f6"}}>
                   <td style={{padding:"10px 10px",fontSize:13}}>{l.desc}</td>
                   <td style={{padding:"10px 10px",textAlign:"right",fontSize:13}}>{l.qty}</td>
-                  <td style={{padding:"10px 10px",textAlign:"right",fontSize:13,fontFamily:"'DM Mono',monospace"}}>R {Number(l.rate).toFixed(2)}</td>
-                  <td style={{padding:"10px 10px",textAlign:"right",fontSize:13,fontFamily:"'DM Mono',monospace",fontWeight:500}}>R {(l.qty*l.rate).toFixed(2)}</td>
+                  <td style={{padding:"10px 10px",textAlign:"right",fontSize:13,fontFamily:"var(--mono)"}}>R {Number(l.rate).toFixed(2)}</td>
+                  <td style={{padding:"10px 10px",textAlign:"right",fontSize:13,fontFamily:"var(--mono)",fontWeight:500}}>R {(l.qty*l.rate).toFixed(2)}</td>
                 </tr>
               ))}</tbody>
             </table>
             <div style={{display:"flex",justifyContent:"flex-end",marginBottom:24}}>
               <table style={{fontSize:13,borderCollapse:"collapse"}}>
-                <tr><td style={{padding:"4px 16px 4px 0",color:"#666"}}>Subtotal</td><td style={{padding:"4px 0",textAlign:"right",fontFamily:"'DM Mono',monospace"}}>R {sub.toFixed(2)}</td></tr>
+                <tr><td style={{padding:"4px 16px 4px 0",color:"#666"}}>Subtotal</td><td style={{padding:"4px 0",textAlign:"right",fontFamily:"var(--mono)"}}>R {sub.toFixed(2)}</td></tr>
                 {includeTax && (
-                  <tr><td style={{padding:"4px 16px 4px 0",color:"#666"}}>VAT ({taxRate}%)</td><td style={{padding:"4px 0",textAlign:"right",fontFamily:"'DM Mono',monospace"}}>R {vat.toFixed(2)}</td></tr>
+                  <tr><td style={{padding:"4px 16px 4px 0",color:"#666"}}>VAT ({taxRate}%)</td><td style={{padding:"4px 0",textAlign:"right",fontFamily:"var(--mono)"}}>R {vat.toFixed(2)}</td></tr>
                 )}
                 <tr style={{borderTop:"2px solid #111"}}>
                   <td style={{padding:"8px 16px 4px 0",fontWeight:700,fontSize:15}}>Total</td>
-                  <td style={{padding:"8px 0 4px 0",textAlign:"right",fontWeight:700,fontSize:15,fontFamily:"'DM Mono',monospace"}}>R {total.toFixed(2)}</td>
+                  <td style={{padding:"8px 0 4px 0",textAlign:"right",fontWeight:700,fontSize:15,fontFamily:"var(--mono)"}}>R {total.toFixed(2)}</td>
                 </tr>
               </table>
             </div>
@@ -556,16 +560,16 @@ function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,events,staf
             const total=(sub+tax).toFixed(2);
             const sc=STATUS_COLOR[doc.status]||MUTED;
             return(
-              <tr key={doc.id} style={{borderTop:`1px solid ${BORDER}33`}}>
-                <td style={{padding:"12px 14px",fontFamily:"'DM Mono',monospace",color:ACCENT}}>{doc.docNo}</td>
+              <tr key={doc.id} style={{borderTop:`1px solid ${mix(BORDER,20)}`}}>
+                <td style={{padding:"12px 14px",fontFamily:"var(--mono)",color:ACCENT}}>{doc.docNo}</td>
                 <td style={{padding:"12px 14px",fontWeight:500}}>{client?.name||"—"}</td>
                 <td style={{padding:"12px 14px",color:MUTED,fontSize:12,maxWidth:140,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{event?.title||"—"}</td>
                 <td style={{padding:"12px 14px",color:MUTED}}>{fmtDate(doc.issueDate)}</td>
                 <td style={{padding:"12px 14px",color:doc.status==="overdue"?RED:MUTED}}>{fmtDate(isInvoice?doc.dueDate:doc.validUntil)}</td>
-                <td style={{padding:"12px 14px",fontFamily:"'DM Mono',monospace"}}>R {total}</td>
+                <td style={{padding:"12px 14px",fontFamily:"var(--mono)"}}>R {total}</td>
                 <td style={{padding:"12px 14px"}}>
                   <select value={doc.status} onChange={e=>setStatus(doc.id,e.target.value,isInvoice,setter)}
-                    style={{background:sc+"22",color:sc,border:`1px solid ${sc}44`,borderRadius:6,padding:"3px 8px",fontSize:11,fontWeight:600,textTransform:"uppercase"}}>
+                    style={{background:mix(sc,13),color:sc,border:`1px solid ${mix(sc,27)}`,borderRadius:6,padding:"3px 8px",fontSize:11,fontWeight:600,textTransform:"uppercase"}}>
                     {(isInvoice?["draft","sent","paid","overdue"]:["draft","sent","accepted","declined","expired"]).map(s=><option key={s} value={s}>{s}</option>)}
                   </select>
                 </td>
@@ -587,7 +591,7 @@ function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,events,staf
   return(
     <div>
       {/* Stats */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:24}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:12,marginBottom:24}}>
         <Stat label="Invoiced (incl VAT)"  value={`R ${invTotal.toFixed(0)}`}    accent={ACCENT} />
         <Stat label="Collected"            value={`R ${invPaid.toFixed(0)}`}      accent={ACCENT} />
         <Stat label="Overdue invoices"     value={invOverdue}                     accent={invOverdue?RED:MUTED} />
@@ -599,7 +603,7 @@ function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,events,staf
         {[["invoices","Invoices"],["quotes","Quotations"],["statements","Statements"]].map(([k,l])=>(
           <button key={k} onClick={()=>setView(k)} style={{
             padding:"8px 20px",borderRadius:7,border:"none",fontSize:13,fontWeight:500,
-            background:view===k?ACCENT+"22":"transparent",
+            background:view===k?mix(ACCENT,13):"transparent",
             color:view===k?ACCENT:MUTED,
             borderBottom:view===k?`2px solid ${ACCENT}`:"2px solid transparent",
           }}>{l}</button>
@@ -685,7 +689,7 @@ function DocumentsTab({invoices,setInvoices,quotes,setQuotes,clients,events,staf
 }
 
 // ─── Calendar Tab (with Google Calendar sync) ─────────────────────────────────
-function CalendarTab({events,setEvents,staff,clients,addToast,model}){
+function CalendarTab({events,setEvents,staff,clients,addToast,model,onRunSheet,onCheckIn}){
   const [viewDate,setViewDate] = useState(new Date(today.getFullYear(),today.getMonth(),1));
   const [selected,setSelected] = useState(null);
   const [showForm,setShowForm] = useState(false);
@@ -696,7 +700,8 @@ function CalendarTab({events,setEvents,staff,clients,addToast,model}){
   const [syncingApple,setSyncingApple] = useState(false);
   const [bookingModal,setBookingModal] = useState(null); // event to send notifications for
   const [sendingNotifs,setSendingNotifs] = useState(false);
-  const [form,setForm] = useState({title:"",date:"",venue:"",startTime:"09:00",endTime:"17:00",staffIds:[],clientId:"",color:ACCENT,notes:""});
+  const [form,setForm] = useState({title:"",date:"",venue:"",startTime:"09:00",endTime:"17:00",staffIds:[],clientId:"",color:ACCENT,notes:"",requiredHeadcount:""});
+  const [calView,setCalView] = useState("month");
 
   const yr=viewDate.getFullYear(), mo=viewDate.getMonth();
   const firstDay=new Date(yr,mo,1).getDay();
@@ -844,16 +849,16 @@ ${body}`;
 
   function openNew(day){
     const d=`${yr}-${pad2(mo+1)}-${pad2(day)}`;
-    setForm({title:"",date:d,venue:"",startTime:"09:00",endTime:"17:00",staffIds:[],clientId:"",color:ACCENT,notes:""});
+    setForm({title:"",date:d,venue:"",startTime:"09:00",endTime:"17:00",staffIds:[],clientId:"",color:ACCENT,notes:"",requiredHeadcount:""});
     setEditEvt(null); setShowForm(true);
   }
   function openEdit(ev){
-    setForm({...ev,staffIds:[...ev.staffIds],clientId:String(ev.clientId||"")});
+    setForm({...ev,staffIds:[...(ev.staffIds||[])],clientId:String(ev.clientId||""),requiredHeadcount:ev.requiredHeadcount?String(ev.requiredHeadcount):""});
     setEditEvt(ev); setShowForm(true);
   }
   function saveEvent(){
     if(!form.title||!form.date) return;
-    const evt={...form,staffIds:form.staffIds.map(Number),clientId:form.clientId?Number(form.clientId):null};
+    const evt={...form,staffIds:form.staffIds.map(Number),clientId:form.clientId?Number(form.clientId):null,requiredHeadcount:form.requiredHeadcount?Number(form.requiredHeadcount):null};
     if(editEvt){
       const updated = dataStore.updateEvent(editEvt.id, {...evt, gcalId: editEvt.gcalId});
       setEvents(prev=>prev.map(e=>e.id===editEvt.id?(updated||{...evt,id:editEvt.id,gcalId:editEvt.gcalId}):e));
@@ -862,8 +867,6 @@ ${body}`;
       const newEv = dataStore.addEvent({...evt, gcalId: null});
       setEvents(prev=>[...prev, newEv]);
       addToast("Event created","success");
-      // Auto-offer to push to GCal / Apple via Nylas when configured
-      setTimeout(()=>pushToGcal(newEv),300);
     }
     setShowForm(false); setSelected(null);
   }
@@ -898,7 +901,15 @@ ${body}`;
         </div>
       </div>
 
-      <div style={{display:"grid",gridTemplateColumns:"1fr 290px",gap:20}}>
+      <div style={{display:"flex",gap:8,marginBottom:12}} role="group" aria-label="Calendar layout">
+        <Btn variant={calView==="month"?"accent":"ghost"} onClick={()=>setCalView("month")}>Month</Btn>
+        <Btn variant={calView==="timeline"?"accent":"ghost"} onClick={()=>setCalView("timeline")}>Timeline</Btn>
+      </div>
+
+      {calView==="timeline" ? (
+        <EventTimeline events={events} staff={staff} clients={clients} onOpen={setSelected} onRunSheet={onRunSheet} onCheckIn={onCheckIn} />
+      ) : (
+      <div className="escc-cal">
         {/* Calendar grid */}
         <div>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
@@ -919,11 +930,11 @@ ${body}`;
               const dayEvs=allCells.filter(e=>e.date===cellDate);
               const isToday=cellDate===todayStr;
               return(
-                <div key={idx} onClick={()=>openNew(day)}
-                  style={{minHeight:80,background:isToday?ACCENT+"18":SURFACE,border:`1px solid ${isToday?ACCENT+"55":BORDER}`,
+                <div key={idx} className="escc-day" onClick={()=>openNew(day)}
+                  style={{minHeight:80,background:isToday?mix(ACCENT,9):SURFACE,border:`1px solid ${isToday?mix(ACCENT,33):BORDER}`,
                     borderRadius:8,padding:6,cursor:"pointer"}}
                   onMouseEnter={e=>e.currentTarget.style.background=SURFACE2}
-                  onMouseLeave={e=>e.currentTarget.style.background=isToday?ACCENT+"18":SURFACE}
+                  onMouseLeave={e=>e.currentTarget.style.background=isToday?mix(ACCENT,9):SURFACE}
                 >
                   <div style={{fontSize:12,fontWeight:isToday?700:400,color:isToday?ACCENT:TEXT,marginBottom:4}}>{day}</div>
                   {dayEvs.map(ev=>(
@@ -954,15 +965,17 @@ ${body}`;
               <div style={{fontSize:12,color:MUTED}}>{fmtDate(selected.date)}</div>
               {selected.venue&&<div style={{fontSize:12,marginTop:4}}>{selected.venue}</div>}
               {selected.notes&&<div style={{fontSize:12,color:MUTED,marginTop:4,fontStyle:"italic"}}>{selected.notes}</div>}
+              <div style={{margin:"10px 0"}}><FillBar event={selected}/></div>
               <div style={{margin:"10px 0",display:"flex",flexWrap:"wrap",gap:4}}>
-                {selected.staffIds.map(id=>{const s=staff.find(x=>x.id===id);return s?<Badge key={id} color={MUTED}>{s.name.split(" ")[0]}</Badge>:null;})}
+                {(selected.staffIds||[]).map(id=>{const s=staff.find(x=>x.id===id);return s?<Badge key={id} color={MUTED}>{s.name.split(" ")[0]}{isCheckedIn(selected,s.id)?" · in":""}</Badge>:null;})}
               </div>
               {selected.gcalId
                 ?<div style={{fontSize:11,color:ACCENT,marginBottom:10}}>✓ GCal</div>
                 :<Btn variant="accent" onClick={()=>pushToGcal(selected)} style={{width:"100%",fontSize:12,padding:"6px",marginBottom:8}}>Sync</Btn>
               }
+              <Btn variant="accent" onClick={()=>onRunSheet(selected)} style={{width:"100%",fontSize:12,padding:"6px",marginBottom:8}}>Run sheet</Btn>
               <Btn variant="amber" onClick={()=>setBookingModal(selected)} style={{width:"100%",fontSize:12,padding:"6px",marginBottom:8}}>
-                Notify
+                Copy booking note
               </Btn>
               <div style={{display:"flex",gap:8}}>
                 <Btn onClick={()=>openEdit(selected)} style={{flex:1,fontSize:12,padding:"6px"}}>E</Btn>
@@ -994,8 +1007,7 @@ ${body}`;
                     <div style={{fontSize:13,fontWeight:500}}>{ev.title}</div>
                     <div style={{fontSize:11,color:MUTED}}>{fmtDate(ev.date)} · {ev.startTime}</div>
                     <div style={{fontSize:11,color:MUTED,display:"flex",gap:6,alignItems:"center"}}>
-                      <span>{ev.staffIds.length} staff</span>
-                      {ev.gcalId&&<span style={{color:ACCENT}}>✓GCal</span>}
+                      <span>{(ev.staffIds||[]).length} staff</span>
                     </div>
                   </div>
                 </div>
@@ -1012,6 +1024,7 @@ ${body}`;
           </div>
         </div>
       </div>
+      )}
 
       {/* Event form */}
       {showForm&&(
@@ -1030,32 +1043,40 @@ ${body}`;
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:14}}>
             <Fld label="Start"><input type="time" value={form.startTime} onChange={e=>setForm(f=>({...f,startTime:e.target.value}))} style={{width:"100%"}}/></Fld>
             <Fld label="End"><input type="time" value={form.endTime} onChange={e=>setForm(f=>({...f,endTime:e.target.value}))} style={{width:"100%"}}/></Fld>
-            <Fld label="Colour">
-              <div style={{display:"flex",gap:6,paddingTop:4}}>
-                {[ACCENT,PURPLE,AMBER,CORAL,"#5ca4ea"].map(c=>(
-                  <div key={c} onClick={()=>setForm(f=>({...f,color:c}))}
-                    style={{width:22,height:22,borderRadius:"50%",background:c,cursor:"pointer",border:form.color===c?"3px solid #fff":"3px solid transparent"}}/>
-                ))}
-              </div>
+            <Fld label="Crew needed">
+              <input type="number" min="1" value={form.requiredHeadcount} onChange={e=>setForm(f=>({...f,requiredHeadcount:e.target.value}))} placeholder="Target" style={{width:"100%"}}/>
             </Fld>
           </div>
+          <Fld label="Colour">
+            <div style={{display:"flex",gap:6,paddingTop:4}}>
+              {["#BF8F3B","#7c6af7","#e3b341","#f78c6c","#5ca4ea"].map(c=>(
+                <button type="button" key={c} aria-label={`Colour ${c}`} onClick={()=>setForm(f=>({...f,color:c}))}
+                  style={{width:28,height:28,borderRadius:"50%",background:c,cursor:"pointer",border:form.color===c?"3px solid var(--text)":"3px solid transparent"}}/>
+              ))}
+            </div>
+          </Fld>
           <Fld label="Assign Staff">
             <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
-              {staff.map(s=>(
-                <div key={s.id} onClick={()=>toggleStaff(s.id)}
-                  style={{padding:"5px 12px",borderRadius:20,fontSize:12,cursor:"pointer",
-                    background:form.staffIds.includes(s.id)?ACCENT+"22":SURFACE2,
-                    border:`1px solid ${form.staffIds.includes(s.id)?ACCENT:BORDER}`,
+              {staff.map(s=>{
+                const clashes = assignmentConflicts(s.id, form, events);
+                const off = isMarkedOff(s, form.date);
+                const flagged = clashes.length>0 || off;
+                return (
+                <button type="button" key={s.id} onClick={()=>toggleStaff(s.id)}
+                  aria-pressed={form.staffIds.includes(s.id)}
+                  style={{padding:"8px 12px",borderRadius:20,fontSize:13,cursor:"pointer",minHeight:44,
+                    background:form.staffIds.includes(s.id)?mix(ACCENT,13):SURFACE2,
+                    border:`1px solid ${flagged?AMBER:form.staffIds.includes(s.id)?ACCENT:BORDER}`,
                     color:form.staffIds.includes(s.id)?ACCENT:TEXT}}
-                >{s.name.split(" ")[0]} <span style={{color:MUTED,fontSize:10}}>({s.role})</span></div>
-              ))}
+                >{s.name.split(" ")[0]} <span style={{color:MUTED,fontSize:11}}>({s.role}{off?" · off":clashes.length?" · clash":""})</span></button>
+              );})}
             </div>
           </Fld>
           <Fld label="Notes / Instructions">
             <textarea value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} rows={2} style={{width:"100%"}} placeholder="Dress code, contact person, etc."/>
           </Fld>
           <div style={{display:"flex",gap:10}}>
-            <Btn variant="primary" onClick={saveEvent} style={{flex:1,padding:"11px"}}>{editEvt?"Save Changes":"Create & Sync to Google Cal"}</Btn>
+            <Btn variant="primary" onClick={saveEvent} style={{flex:1,padding:"11px"}}>{editEvt?"Save changes":"Create event"}</Btn>
             <Btn variant="ghost" onClick={()=>setShowForm(false)} style={{flex:1,padding:"11px"}}>Cancel</Btn>
           </div>
         </Modal>
@@ -1081,7 +1102,7 @@ ${body}`;
                     <div style={{fontSize:11,color:MUTED}}>{s.email}</div>
                   </div>
                   <div style={{textAlign:"right"}}>
-                    <div style={{fontSize:13,color:ACCENT,fontFamily:"'DM Mono',monospace"}}>R {pay}</div>
+                    <div style={{fontSize:13,color:ACCENT,fontFamily:"var(--mono)"}}>R {pay}</div>
                     <div style={{fontSize:11,color:MUTED}}>{eventHours(bookingModal).toFixed(1)}h @ R{s.rate}/h</div>
                   </div>
                 </div>
@@ -1089,11 +1110,11 @@ ${body}`;
             })}
           </div>
           <div style={{background:SURFACE2,borderRadius:8,padding:"10px 14px",fontSize:12,color:MUTED,marginBottom:20}}>
-            💡 Claude will write a personalised email for each staff member and save it as a Gmail draft. You review and send from your Gmail Drafts folder.
+            💡 A booking note is copied for each assigned person. Paste it into your own mail. Nothing is sent from this app.
           </div>
           <div style={{display:"flex",gap:10}}>
             <Btn variant="primary" onClick={()=>sendBookingNotifications(bookingModal)} disabled={sendingNotifs} style={{flex:1,padding:"11px"}}>
-              {sendingNotifs?"Drafting emails…":"📧 Draft All Booking Emails"}
+              {sendingNotifs?"Writing notes…":"Copy booking notes"}
             </Btn>
             <Btn variant="ghost" onClick={()=>setBookingModal(null)} style={{flex:1,padding:"11px"}}>Cancel</Btn>
           </div>
@@ -1124,7 +1145,7 @@ function PinPad({onSuccess,staff,adminMode}){
       <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,width:200}}>
         {[1,2,3,4,5,6,7,8,9,"",0,"⌫"].map((k,i)=>(
           <button key={i} onClick={()=>k==="⌫"?setPin(p=>p.slice(0,-1)):k!==""?press(String(k)):null}
-            style={{padding:"14px 0",background:k===""?"transparent":SURFACE2,border:`1px solid ${k===""?"transparent":BORDER}`,borderRadius:8,color:TEXT,fontSize:16,fontWeight:500,fontFamily:"'DM Mono',monospace",opacity:k===""?0:1}}
+            style={{padding:"14px 0",background:k===""?"transparent":SURFACE2,border:`1px solid ${k===""?"transparent":BORDER}`,borderRadius:8,color:TEXT,fontSize:16,fontWeight:500,fontFamily:"var(--mono)",opacity:k===""?0:1}}
             onMouseEnter={e=>{if(k!=="")e.currentTarget.style.background=SURFACE;}}
             onMouseLeave={e=>{if(k!=="")e.currentTarget.style.background=SURFACE2;}}
           >{k}</button>
@@ -1156,6 +1177,11 @@ export default function App(){
   const [currentTask,setCurrentTask] = useState('default');
   const [execKpis,setExecKpis]   = useState<{activeStaff:number;eventsToday:number;openInvoices:number;rosterSize:number}|null>(null);
   const [execInsights,setExecInsights] = useState<{type:string;message:string}[]>([]);
+  const [theme,setTheme] = useState(() => (typeof document !== "undefined" && document.documentElement.dataset.theme) || "dark");
+  const [runEvents,setRunEvents] = useState<any[] | null>(null);
+  const [staffDetail,setStaffDetail] = useState<any>(null);
+  const [moreOpen,setMoreOpen] = useState(false);
+  const demo = dataStore.isDemoData();
 
   // Refresh data from store whenever the user changes admin tab
   useEffect(() => {
@@ -1207,6 +1233,37 @@ export default function App(){
     if(adminFlag){setIsAdmin(true);setCS(null);setPage("admin");}
     else{setCS(member);setIsAdmin(false);setPage("staff");}
   }
+  function toggleTheme(){
+    const next = theme === "light" ? "dark" : "light";
+    setTheme(next);
+    document.documentElement.dataset.theme = next;
+    try { localStorage.setItem("escc-theme", next); } catch {}
+  }
+  function openRunSheet(eventOrList){
+    const list = Array.isArray(eventOrList) ? eventOrList : [eventOrList];
+    setRunEvents(list.filter(Boolean));
+  }
+  function setCheckIn(eventId, staffId){
+    const ev = dataStore.listEvents().find(e => e.id === eventId);
+    if (!ev) return;
+    const list = Array.isArray(ev.checkIns) ? ev.checkIns : [];
+    const on = list.some(c => c.staffId === staffId);
+    const checkIns = on ? list.filter(c => c.staffId !== staffId) : [...list, { staffId, at: Date.now() }];
+    dataStore.updateEvent(eventId, { checkIns });
+    const next = dataStore.listEvents();
+    setEvents(next);
+    setRunEvents(prev => prev ? prev.map(ev => next.find(item => item.id === ev.id) || ev) : prev);
+    addToast(on ? "Check-in cleared" : "Checked in", "success");
+  }
+  function toggleOff(member, date){
+    const dates = Array.isArray(member.unavailableDates) ? member.unavailableDates : [];
+    const next = dates.includes(date) ? dates.filter(d => d !== date) : [...dates, date];
+    dataStore.updateStaff(member.id, { unavailableDates: next });
+    const roster = dataStore.listStaff();
+    setStaff(roster);
+    setStaffDetail(prev => prev && prev.id === member.id ? roster.find(s => s.id === member.id) || prev : prev);
+    addToast(next.includes(date) ? `${member.name} marked off ${date}` : `${member.name} is available ${date}`, "success");
+  }
   function clockIn(id){
     const rec = dataStore.clockIn(id);
     setRecords(dataStore.listRecords());
@@ -1235,34 +1292,43 @@ export default function App(){
       <style>{css}</style>
 
       {/* Header */}
-      <div style={{
-        background:`${SURFACE}cc`,backdropFilter:"blur(16px)",WebkitBackdropFilter:"blur(16px)",
-        borderBottom:`1px solid ${BORDER}`,padding:"0 24px",display:"flex",alignItems:"center",gap:16,height:56,position:"sticky",top:0,zIndex:50,
-        boxShadow:"0 1px 0 rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.18)",
+      <a className="escc-skip no-print" href="#main">Skip to content</a>
+      <div className="escc-header no-print" style={{
+        background:mix(SURFACE,80),backdropFilter:"blur(16px)",WebkitBackdropFilter:"blur(16px)",
+        borderBottom:`1px solid ${BORDER}`,display:"flex",alignItems:"center",gap:16,position:"sticky",top:0,zIndex:50,
       }}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <div style={{
             width:28,height:28,background:`linear-gradient(135deg, ${ACCENT2}, ${ACCENT})`,borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",
-            fontSize:11,fontWeight:700,color:"#0a0c10",boxShadow:`0 2px 10px ${ACCENT}55`,
+            fontSize:11,fontWeight:700,color:"var(--on-accent)",
           }}>ESCC</div>
           <span style={{fontWeight:600,fontSize:15,letterSpacing:"-0.02em"}}>{ESCC_COMPANY.name}</span>
-          <span style={{color:MUTED,fontSize:13}}>Command Center</span>
-          <span style={{fontSize:10,color:ACCENT2,border:`1px solid ${ACCENT}33`,background:`${ACCENT}0d`,borderRadius:4,padding:"2px 6px"}}>multi-agent</span>
+          <span className="escc-brand-sub" style={{color:MUTED,fontSize:13}}>Command Center</span>
         </div>
         <div style={{flex:1}}/>
+        <button type="button" onClick={toggleTheme} aria-pressed={theme==="light"}
+          style={{background:"none",border:`1px solid ${BORDER}`,borderRadius:6,color:TEXT,fontSize:12,padding:"8px 10px",minHeight:44,cursor:"pointer"}}>
+          {theme==="light"?"Dark":"Light"}
+        </button>
         {page!=="login"&&(
           <div style={{display:"flex",gap:8,alignItems:"center"}}>
             {isAdmin&&<Badge color={ACCENT}>Admin</Badge>}
             {currentStaff&&<Badge color={MUTED}>{currentStaff.name.split(" ")[0]}</Badge>}
             <button onClick={()=>{setPage("login");setCS(null);setIsAdmin(false);}}
-              style={{background:"none",border:`1px solid ${BORDER}`,borderRadius:6,color:MUTED,fontSize:12,padding:"4px 10px",cursor:"pointer"}}>Sign out</button>
+              style={{background:"none",border:`1px solid ${BORDER}`,borderRadius:6,color:MUTED,fontSize:12,padding:"8px 10px",minHeight:44,cursor:"pointer"}}>Sign out</button>
           </div>
         )}
-        <div style={{color:MUTED,fontSize:12,fontFamily:"'DM Mono',monospace"}}>{new Date(now).toLocaleTimeString("en-ZA",{hour:"2-digit",minute:"2-digit"})}</div>
-        <ModelPanel currentTask={currentTask} onModelSelect={(modelId) => setCurrentModel(modelId)} />
+        <div className="escc-clock" style={{color:MUTED,fontSize:12,fontFamily:"var(--mono)"}}>{new Date(now).toLocaleTimeString("en-ZA",{hour:"2-digit",minute:"2-digit"})}</div>
+        <div className="escc-model"><ModelPanel currentTask={currentTask} onModelSelect={(modelId) => setCurrentModel(modelId)} /></div>
       </div>
 
-      <div style={{maxWidth:1080,margin:"0 auto",padding:"32px 20px"}}>
+      {demo && (
+        <div className="escc-demo no-print" role="status">
+          Demo data. The roster, clients, and events on a fresh install are sample records for the command center, not live Fresh People bookings.
+        </div>
+      )}
+
+      <div id="main" className="escc-main no-print" style={{maxWidth:1080,margin:"0 auto"}}>
 
         {/* LOGIN */}
         {page==="login"&&(
@@ -1272,8 +1338,18 @@ export default function App(){
             <div style={{background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:14,width:"100%",maxWidth:320}}>
               <PinPad staff={staff} onSuccess={handleLogin} adminMode/>
             </div>
-            <div style={{marginTop:24,display:"flex",gap:8,flexWrap:"wrap",justifyContent:"center"}}>
-              {staff.slice(0,3).map(s=><div key={s.id} style={{fontSize:11,color:MUTED,background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:6,padding:"4px 10px"}}>{s.name.split(" ")[0]}: {s.pin}</div>)}
+            <div style={{marginTop:24,width:"100%",maxWidth:320}}>
+              {demo ? (
+                <details>
+                  <summary style={{cursor:"pointer",color:MUTED,fontSize:13}}>Demo sign-in PINs</summary>
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"center",marginTop:10}}>
+                    <div style={{fontSize:11,color:MUTED,background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:6,padding:"4px 10px"}}>Admin: 0000</div>
+                    {staff.map(s=><div key={s.id} style={{fontSize:11,color:MUTED,background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:6,padding:"4px 10px"}}>{s.name.split(" ")[0]}: {s.pin}</div>)}
+                  </div>
+                </details>
+              ) : (
+                <p style={{color:MUTED,fontSize:13,textAlign:"center"}}>Use the PIN issued to you. Admin entry is 0000.</p>
+              )}
             </div>
           </div>
         )}
@@ -1283,10 +1359,20 @@ export default function App(){
           <div>
             <div style={{marginBottom:20}}>
               <h1 style={{fontSize:22,fontWeight:700}}>{currentStaff.name}</h1>
+              <p className="escc-muted">{currentStaff.role} · {currentStaff.department}</p>
             </div>
-              <div style={{background:SURFACE,border:`1px solid ${activeRec?ACCENT+"44":BORDER}`,borderRadius:14,padding:28,marginBottom:24,textAlign:"center",transition:"border 0.3s"}}>
+            {events.filter(e => e.date===todayStr && (e.staffIds||[]).includes(currentStaff.id)).map(e => (
+              <div key={e.id} className="escc-panel" style={{marginBottom:12}}>
+                <strong>{e.title}</strong>
+                <p className="escc-muted">{e.startTime}–{e.endTime} · {e.venue || "Venue TBC"}</p>
+                <button type="button" className="escc-btn escc-btn-primary" style={{marginTop:8}} onClick={()=>setCheckIn(e.id, currentStaff.id)}>
+                  {isCheckedIn(e, currentStaff.id) ? "Checked in — undo" : "Check in for this event"}
+                </button>
+              </div>
+            ))}
+              <div style={{background:SURFACE,border:`1px solid ${activeRec?mix(ACCENT,27):BORDER}`,borderRadius:14,padding:28,marginBottom:24,textAlign:"center",transition:"border 0.3s"}}>
                 <div style={{fontSize:13,color:MUTED,marginBottom:8}}>{activeRec?"Active":"Off"}</div>
-                <div style={{fontSize:48,fontWeight:700,fontFamily:"'DM Mono',monospace",color:activeRec?ACCENT:MUTED,marginBottom:4,letterSpacing:"-0.02em"}}>{activeRec?fmtDur(elapsed):"—"}</div>
+                <div style={{fontSize:48,fontWeight:700,fontFamily:"var(--mono)",color:activeRec?ACCENT:MUTED,marginBottom:4,letterSpacing:"-0.02em"}}>{activeRec?fmtDur(elapsed):"—"}</div>
                 {activeRec&&<div style={{fontSize:13,color:MUTED,marginBottom:20}}>In at {fmtTime(activeRec.clockIn)}</div>}
               <div style={{display:"flex",gap:12,justifyContent:"center",marginTop:20}}>
                 {!activeRec
@@ -1295,7 +1381,7 @@ export default function App(){
                 }
               </div>
             </div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:24}}>
+            <div className="escc-stats-3" style={{marginBottom:24}}>
               <Stat label="Shifts today" value={myShifts.length}/>
               <Stat label="Total hours" value={`${(myTotalMs/3600000).toFixed(1)}h`} accent={ACCENT}/>
               <Stat label="Earnings" value={`R ${myPay.toFixed(0)}`} accent={ACCENT}/>
@@ -1306,11 +1392,11 @@ export default function App(){
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                   <thead><tr style={{borderBottom:`1px solid ${BORDER}`}}>{["In","Out","Hrs","R"].map(h=><th key={h} style={{padding:"4px 8px",textAlign:"left",color:MUTED,fontWeight:400,paddingBottom:10}}>{h}</th>)}</tr></thead>
                   <tbody>{myShifts.map(r=>(
-                    <tr key={r.id} style={{borderBottom:`1px solid ${BORDER}22`}}>
-                      <td style={{padding:"10px 8px",fontFamily:"'DM Mono',monospace"}}>{fmtTime(r.clockIn)}</td>
-                      <td style={{padding:"10px 8px",fontFamily:"'DM Mono',monospace"}}>{fmtTime(r.clockOut)}</td>
+                    <tr key={r.id} style={{borderBottom:`1px solid ${mix(BORDER,13)}`}}>
+                      <td style={{padding:"10px 8px",fontFamily:"var(--mono)"}}>{fmtTime(r.clockIn)}</td>
+                      <td style={{padding:"10px 8px",fontFamily:"var(--mono)"}}>{fmtTime(r.clockOut)}</td>
                       <td style={{padding:"10px 8px"}}>{fmtDur(r.clockOut-r.clockIn)}</td>
-                      <td style={{padding:"10px 8px",color:ACCENT,fontFamily:"'DM Mono',monospace"}}>R {calcPay(r.clockOut-r.clockIn,currentStaff.rate).toFixed(2)}</td>
+                      <td style={{padding:"10px 8px",color:ACCENT,fontFamily:"var(--mono)"}}>R {calcPay(r.clockOut-r.clockIn,currentStaff.rate).toFixed(2)}</td>
                     </tr>
                   ))}</tbody>
                 </table>
@@ -1323,21 +1409,21 @@ export default function App(){
         {page==="admin"&&isAdmin&&(
           <div>
             <div style={{marginBottom:20}}>
-              <h1 style={{fontSize:22,fontWeight:700}}>Dashboard</h1>
+              <h1 style={{fontSize:22,fontWeight:700}}>{TABS.find(([k])=>k===adminTab)?.[1] || "Dashboard"}</h1>
             </div>
 
             {/* Tabs — each section maps to an ESCC agent repo */}
-            <div style={{
-              display:"flex",gap:2,background:`${SURFACE}cc`,backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",
+            <div className="escc-tabs" role="tablist" aria-label="Command sections" style={{
+              display:"flex",gap:2,background:mix(SURFACE,80),backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",
               border:`1px solid ${BORDER}`,borderRadius:10,padding:4,marginBottom:12,overflowX:"auto",
             }}>
               {TABS.map(([k,l])=>(
-                <button key={k} onClick={()=>setAdminTab(k)} title={agentForTab(k)?.name || l} style={{
+                <button key={k} role="tab" aria-selected={adminTab===k} onClick={()=>{setAdminTab(k);setMoreOpen(false);}} title={agentForTab(k)?.name || l} style={{
                   padding:"8px 18px",borderRadius:7,border:"none",fontSize:13,fontWeight:500,whiteSpace:"nowrap",cursor:"pointer",
                   transition:"all 0.15s",
-                  background:adminTab===k?`linear-gradient(135deg, ${ACCENT}2e, ${ACCENT}14)`:"transparent",
+                  background:adminTab===k?`linear-gradient(135deg, ${mix(ACCENT,18)}, ${mix(ACCENT,8)})`:"transparent",
                   color:adminTab===k?ACCENT2:MUTED,
-                  boxShadow:adminTab===k?`inset 0 0 0 1px ${ACCENT}44, 0 0 12px ${ACCENT}22`:"none",
+                  boxShadow:adminTab===k?`inset 0 0 0 1px ${mix(ACCENT,27)}, 0 0 12px ${mix(ACCENT,13)}`:"none",
                 }}>{l}</button>
               ))}
             </div>
@@ -1348,7 +1434,7 @@ export default function App(){
                 <div key={adminTab} className="fp-fade-in" style={{
                   display:"flex",alignItems:"center",gap:10,marginBottom:24,
                   padding:"8px 12px",borderRadius:8,
-                  background:`linear-gradient(90deg, ${activeAgent.accent}14, ${SURFACE}cc)`,
+                  background:`linear-gradient(90deg, ${mix(activeAgent.accent,8)}, ${mix(SURFACE,80)})`,
                   border:`1px solid ${activeAgent.accent}33`,fontSize:12,color:MUTED,
                 }}>
                   <span style={{
@@ -1373,7 +1459,7 @@ export default function App(){
             {adminTab==="dashboard"&&(
               <div>
                 {/* KPI Row */}
-                <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:execInsights.length?12:24}}>
+                <div className="escc-kpis" style={{marginBottom:execInsights.length?12:24}}>
                   <div className="fp-kpi">
                     <div className="fp-kpi__label">Active Staff</div>
                     <div className="fp-kpi__value">{execKpis?.activeStaff ?? (tActive || staff.filter(s=>s.uniform).length)}</div>
@@ -1401,7 +1487,7 @@ export default function App(){
                     {execInsights.map((ins,i)=>(
                       <div key={i} style={{
                         display:"flex",alignItems:"center",gap:10,padding:"10px 16px",borderRadius:10,
-                        background:`linear-gradient(90deg, ${ACCENT}14, transparent)`,border:`1px solid ${ACCENT}33`,fontSize:13,color:TEXT,
+                        background:`linear-gradient(90deg, ${mix(ACCENT,8)}, transparent)`,border:`1px solid ${mix(ACCENT,20)}`,fontSize:13,color:TEXT,
                       }}>
                         <span style={{fontSize:14}}>💡</span>
                         <span>{ins.message}</span>
@@ -1411,7 +1497,7 @@ export default function App(){
                   </div>
                 )}
 
-                <div style={{display:"grid",gridTemplateColumns:"1fr 300px",gap:24,marginBottom:24}}>
+                <div className="escc-split" style={{marginBottom:24}}>
                   {/* Main Content */}
                   <div>
                     {/* Today's Events */}
@@ -1440,7 +1526,7 @@ export default function App(){
                                       <h3 style={{fontSize:16,fontWeight:600,color:TEXT,margin:0}}>{e.title}</h3>
                                     </div>
                                     
-                                    <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:16,marginBottom:12,fontSize:13,color:MUTED}}>
+                                    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:8,marginBottom:12,fontSize:13,color:MUTED}}>
                                       <div>📍 {e.venue}</div>
                                       <div>⏰ {e.startTime} - {e.endTime}</div>
                                       <div>👤 {client?.name || "Unknown Client"}</div>
@@ -1450,29 +1536,20 @@ export default function App(){
                                       <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                                         <span style={{fontSize:12,color:MUTED}}>Staff:</span>
                                         {assignedStaff.map(s => (
-                                          <Badge key={s.id} color={ACCENT}>{s.name}</Badge>
+                                          <button key={s.id} type="button" onClick={()=>setCheckIn(e.id, s.id)} style={{background:"none",border:0,padding:0}}>
+                                            <Badge color={isCheckedIn(e, s.id)?ACCENT:MUTED}>{s.name}{isCheckedIn(e, s.id)?" · in":""}</Badge>
+                                          </button>
                                         ))}
                                       </div>
                                     )}
+                                    <FillBar event={e} />
                                   </div>
                                   
-                                  <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:16}}>
-                                    <Btn variant="accent" onClick={async ()=>{
-                                      try {
-                                        const result = await ESCCCore.sendWhatsApp(e.id, e.staffIds || []);
-                                        
-                                        if (result.success) {
-                                          addToast(`WhatsApp sent to ${result.dispatched} staff members`, 'success');
-                                        } else {
-                                          addToast('Failed to send WhatsApp notifications', 'error');
-                                        }
-                                      } catch (err) {
-                                        addToast('Network error sending notifications', 'error');
-                                      }
-                                    }} style={{fontSize:12,padding:"6px 12px"}}>
-                                      📤 Notify Staff
+                                    <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:16,flexWrap:"wrap"}}>
+                                    <Btn variant="accent" onClick={()=>openRunSheet(e)} style={{fontSize:12,padding:"6px 12px"}}>
+                                      Run sheet
                                     </Btn>
-                                    <Btn variant="ghost" onClick={()=>{setAdminTab("calendar")}} style={{fontSize:12,padding:"6px 8px"}}>✏️</Btn>
+                                    <Btn variant="ghost" onClick={()=>setAdminTab("calendar")} style={{fontSize:12,padding:"6px 8px"}}>Edit</Btn>
                                   </div>
                                 </div>
                               </div>
@@ -1485,7 +1562,7 @@ export default function App(){
                     {/* Quick Actions */}
                     <div style={{marginBottom:24}}>
                       <h3 style={{fontSize:16,fontWeight:600,color:TEXT,marginBottom:16}}>Quick Actions</h3>
-                      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12}}>
+                      <div className="escc-actions">
                         <button onClick={()=>setAdminTab("calendar")} style={{
                           background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,padding:"20px 16px",
                           display:"flex",flexDirection:"column",alignItems:"center",gap:8,
@@ -1504,33 +1581,19 @@ export default function App(){
                           <div style={{fontSize:13,fontWeight:500,color:TEXT}}>Add Staff</div>
                         </button>
                         
-                        <button onClick={async ()=>{
-                          const todayStaffIds = todayEvents.flatMap(e => e.staffIds || []);
-                          if (todayStaffIds.length === 0) {
-                            addToast('No staff assigned to today\'s events', 'warning');
+                        <button onClick={()=>{
+                          if (todayEvents.length === 0) {
+                            addToast('No events today to print', 'warn');
                             return;
                           }
-                          try {
-                            for (const event of todayEvents) {
-                              if (event.staffIds?.length > 0) {
-                                await fetch('/api/dispatch-staff', {
-                                  method: 'POST',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify({ eventId: event.id, staffIds: event.staffIds })
-                                });
-                              }
-                            }
-                            addToast('Bulk WhatsApp dispatch completed', 'success');
-                          } catch (err) {
-                            addToast('Bulk dispatch failed', 'error');
-                          }
+                          openRunSheet(todayEvents);
                         }} style={{
                           background:SURFACE,border:`1px solid ${BORDER}`,borderRadius:12,padding:"20px 16px",
                           display:"flex",flexDirection:"column",alignItems:"center",gap:8,
                           transition:"all 0.2s",cursor:"pointer",color:"inherit"
                         }}>
                           <div style={{fontSize:24}}>📤</div>
-                          <div style={{fontSize:13,fontWeight:500,color:TEXT}}>Bulk Dispatch</div>
+                          <div style={{fontSize:13,fontWeight:500,color:TEXT}}>Today's run sheets</div>
                         </button>
                       </div>
                     </div>
@@ -1591,54 +1654,58 @@ export default function App(){
             )}
 
             {/* CLIENTS - CRM Agent */}
-            {adminTab==="clients"&&<ClientsView clients={clients} events={events} addToast={addToast}/>}
+            {adminTab==="clients"&&(
+              <Suspense fallback={<div className="escc-state">Loading clients…</div>}>
+                <ClientsView clients={clients} events={events} addToast={addToast}/>
+              </Suspense>
+            )}
 
-            {/* ROSTER - simplified, no filters */}
             {adminTab==="roster"&&(
-              <div>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:12}}>
-                  {staff.map(s=>{
-                    const active=records.some(r=>r.staffId===s.id&&!r.clockOut);
-                    const shifts=records.filter(r=>r.staffId===s.id&&r.clockOut);
-                    const hrs=shifts.reduce((a,r)=>a+(r.clockOut-r.clockIn)/3600000,0);
-                    return (
-                      <StaffCard
-                        key={s.id}
-                        staff={s}
-                        active={active}
-                        hrs={hrs}
-                        onView={()=>alert(s.name)}
-                        onEdit={()=>{
-                          setNewStaff({name:s.name,role:s.role,rate:String(s.rate),pin:s.pin,department:s.department,uniform:s.uniform,email:s.email,phone:s.phone});
-                          setEditingStaffId(s.id);
-                          setAdminTab("add staff");
-                        }}
-                        onRemove={()=>{
-                          if(window.confirm(`Remove ${s.name}?`)){
-                            dataStore.deleteStaff(s.id);
-                            setStaff(prev=>prev.filter(x=>x.id!==s.id));
-                            addToast(s.name+" removed","success");
-                            handleAgentIntent('staff', 'staff.remove', {id:s.id}).catch(()=>{});
-                          }
-                        }}
-                      />
-                    );
-                  })}
-                </div>
-              </div>
+              <RosterBoard
+                staff={staff}
+                records={records}
+                events={events}
+                today={todayStr}
+                onView={setStaffDetail}
+                onEdit={(s)=>{
+                  setNewStaff({name:s.name,role:s.role,rate:String(s.rate),pin:s.pin,department:s.department,uniform:s.uniform,email:s.email,phone:s.phone});
+                  setEditingStaffId(s.id);
+                  setAdminTab("add staff");
+                }}
+                onRemove={(s)=>{
+                  if(window.confirm(`Remove ${s.name}?`)){
+                    dataStore.deleteStaff(s.id);
+                    setStaff(dataStore.listStaff());
+                    addToast(s.name+" removed","success");
+                    handleAgentIntent('staff', 'staff.remove', {id:s.id}).catch(()=>{});
+                  }
+                }}
+                onToggleOff={toggleOff}
+                onRunSheet={openRunSheet}
+              />
             )}
 
             {/* TIMESHEETS */}
             {adminTab==="timesheets"&&(
               <div>
+                <div className="escc-panel" style={{marginBottom:16}}>
+                  <h2 style={{fontSize:16}}>Attendance</h2>
+                  {records.filter(r=>!r.clockOut).length===0
+                    ? <p className="escc-muted">Nobody is clocked in right now.</p>
+                    : <ul className="escc-crew">{records.filter(r=>!r.clockOut).map(r=>{
+                        const s=staff.find(x=>x.id===r.staffId);
+                        return <li key={r.id}><span>{s?.name||"Unknown"} · in since {fmtTime(r.clockIn)}</span></li>;
+                      })}</ul>}
+                </div>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
                   <div style={{fontSize:14,color:MUTED}}>{completed.length} completed shifts</div>
                   <Btn variant="accent" onClick={()=>{
-                    const h="Name,Dept,Clock In,Clock Out,Hours,Pay (R)";
-                    const lines=completed.map(r=>{const s=staff.find(x=>x.id===r.staffId);const dur=r.clockOut-r.clockIn;return `${s?.name},${s?.department},${fmtTime(r.clockIn)},${fmtTime(r.clockOut)},${(dur/3600000).toFixed(2)},${calcPay(dur,s?.rate||0).toFixed(2)}`;});
-                    navigator.clipboard.writeText([h,...lines].join("\n"));
-                    addToast("Payroll CSV copied to clipboard","success");
-                  }}>Export Payroll CSV</Btn>
+                    downloadCsv(`timesheets-${todayStr}.csv`, [
+                      ["Name","Dept","Clock In","Clock Out","Hours","Pay (R)"],
+                      ...completed.map(r=>{const s=staff.find(x=>x.id===r.staffId);const dur=r.clockOut-r.clockIn;return [s?.name,s?.department,fmtTime(r.clockIn),fmtTime(r.clockOut),(dur/3600000).toFixed(2),calcPay(dur,s?.rate||0).toFixed(2)];})
+                    ]);
+                    addToast("Timesheet CSV downloaded","success");
+                  }}>Download timesheet CSV</Btn>
                 </div>
                 {completed.length===0
                   ?<div style={{color:MUTED,textAlign:"center",padding:40}}>No completed shifts yet</div>
@@ -1649,13 +1716,13 @@ export default function App(){
                       </tr></thead>
                       <tbody>{completed.slice().reverse().map(r=>{
                         const s=staff.find(x=>x.id===r.staffId); const dur=r.clockOut-r.clockIn;
-                        return(<tr key={r.id} style={{borderTop:`1px solid ${BORDER}33`}}>
+                        return(<tr key={r.id} style={{borderTop:`1px solid ${mix(BORDER,20)}`}}>
                           <td style={{padding:"12px 14px",fontWeight:500}}>{s?.name||"?"}</td>
                           <td style={{padding:"12px 14px",color:MUTED}}>{s?.department}</td>
-                          <td style={{padding:"12px 14px",fontFamily:"'DM Mono',monospace"}}>{fmtTime(r.clockIn)}</td>
-                          <td style={{padding:"12px 14px",fontFamily:"'DM Mono',monospace"}}>{fmtTime(r.clockOut)}</td>
+                          <td style={{padding:"12px 14px",fontFamily:"var(--mono)"}}>{fmtTime(r.clockIn)}</td>
+                          <td style={{padding:"12px 14px",fontFamily:"var(--mono)"}}>{fmtTime(r.clockOut)}</td>
                           <td style={{padding:"12px 14px"}}>{fmtDur(dur)}</td>
-                          <td style={{padding:"12px 14px",color:ACCENT,fontFamily:"'DM Mono',monospace"}}>R {calcPay(dur,s?.rate||0).toFixed(2)}</td>
+                          <td style={{padding:"12px 14px",color:ACCENT,fontFamily:"var(--mono)"}}>R {calcPay(dur,s?.rate||0).toFixed(2)}</td>
                         </tr>);
                       })}</tbody>
                     </table>
@@ -1665,13 +1732,17 @@ export default function App(){
             )}
 
             {/* CALENDAR */}
-            {adminTab==="calendar"&&<CalendarTab events={events} setEvents={setEvents} staff={staff} clients={clients} addToast={addToast} model={currentModel}/>}
+            {adminTab==="calendar"&&<CalendarTab events={events} setEvents={setEvents} staff={staff} clients={clients} addToast={addToast} model={currentModel} onRunSheet={openRunSheet} onCheckIn={setCheckIn}/>}
 
             {/* DOCUMENTS */}
             {adminTab==="documents"&&<DocumentsTab invoices={invoices} setInvoices={setInvoices} quotes={quotes} setQuotes={setQuotes} clients={clients} events={events} staff={staff} addToast={addToast}/>}
 
             {/* PAYROLL - Finance Agent */}
-            {adminTab==="payroll"&&<Payroll staff={staff} events={events} records={records} addToast={addToast}/>}
+            {adminTab==="payroll"&&(
+              <Suspense fallback={<div className="escc-state">Loading payroll…</div>}>
+                <Payroll staff={staff} events={events} records={records} addToast={addToast}/>
+              </Suspense>
+            )}
 
             {/* ADD STAFF */}
             {adminTab==="add staff"&&(
@@ -1730,10 +1801,45 @@ export default function App(){
         )}
       </div>
 
+      {page==="admin"&&isAdmin&&(
+        <>
+          <nav className="escc-bottomnav no-print" aria-label="Primary">
+            {[["dashboard","Home"],["roster","Roster"],["timesheets","Time"],["calendar","Diary"]].map(([k,l])=>(
+              <button key={k} type="button" aria-current={adminTab===k?"page":undefined} onClick={()=>{setAdminTab(k);setMoreOpen(false);}}>{l}</button>
+            ))}
+            <button type="button" aria-expanded={moreOpen} aria-current={["documents","clients","payroll","add staff"].includes(adminTab)?"page":undefined} onClick={()=>setMoreOpen(v=>!v)}>More</button>
+          </nav>
+          {moreOpen&&(
+            <div className="escc-more no-print" role="menu">
+              {[["documents","Docs & Billing"],["clients","Clients"],["payroll","Payroll"],["add staff","Add Staff"]].map(([k,l])=>(
+                <button key={k} type="button" className="escc-btn" onClick={()=>{setAdminTab(k);setMoreOpen(false);}}>{l}</button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {staffDetail&&(
+        <Modal title={staffDetail.name} onClose={()=>setStaffDetail(null)}>
+          <div className="escc-detail">
+            <p>{staffDetail.role} · {staffDetail.department}</p>
+            <p className="escc-muted">R{staffDetail.rate}/h · {staffDetail.phone || "No phone"} · {staffDetail.email || "No email"}</p>
+            <p style={{marginTop:8}}>{isMarkedOff(staffDetail, todayStr) ? "Marked off today." : "Not marked off today."}</p>
+            <button type="button" className="escc-btn" style={{marginTop:12}} onClick={()=>toggleOff(staffDetail, todayStr)}>
+              {isMarkedOff(staffDetail, todayStr) ? "Clear day off" : "Mark off today"}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {runEvents&&(
+        <RunSheet events={runEvents} staff={staff} clients={clients} onClose={()=>setRunEvents(null)} onCheckIn={setCheckIn} />
+      )}
+
       {/* Toast stack */}
-      <div style={{position:"fixed",bottom:24,right:24,zIndex:999,display:"flex",flexDirection:"column",gap:8}}>
+      <div className="escc-toasts no-print" style={{position:"fixed",bottom:24,right:24,zIndex:999,display:"flex",flexDirection:"column",gap:8}}>
         {toasts.map(t=>(
-          <div key={t.id} style={{background:SURFACE,border:`1px solid ${(t.type==="error"?RED:t.type==="warn"?AMBER:ACCENT)}55`,borderLeft:`4px solid ${t.type==="error"?RED:t.type==="warn"?AMBER:ACCENT}`,borderRadius:10,padding:"12px 18px",fontSize:13,color:TEXT,maxWidth:340,boxShadow:"0 8px 32px rgba(0,0,0,0.5)"}}>
+          <div key={t.id} style={{background:SURFACE,border:`1px solid ${mix(t.type==="error"?RED:t.type==="warn"?AMBER:ACCENT,33)}`,borderLeft:`4px solid ${t.type==="error"?RED:t.type==="warn"?AMBER:ACCENT}`,borderRadius:10,padding:"12px 18px",fontSize:13,color:TEXT,maxWidth:340,boxShadow:"0 8px 32px rgba(0,0,0,0.5)"}}>
             {t.msg}
           </div>
         ))}

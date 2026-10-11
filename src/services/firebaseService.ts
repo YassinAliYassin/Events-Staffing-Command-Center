@@ -1,101 +1,57 @@
-import { initializeApp, type FirebaseApp } from 'firebase/app';
-import {
-  getFirestore,
-  collection,
-  doc,
-  getDocs,
-  setDoc,
-  query,
-  orderBy,
-  enableIndexedDbPersistence,
-  type Firestore,
-} from 'firebase/firestore';
 import { firebaseConfig, isFirebaseConfigured } from './firebaseConfig';
 
-let app: FirebaseApp | null = null;
-export let db: Firestore | null = null;
+type FirestoreDb = import('firebase/firestore').Firestore;
 
-if (isFirebaseConfigured) {
+let dbPromise: Promise<FirestoreDb | null> | null = null;
+
+/** Firestore loads in its own chunk, after first paint, and only when configured. */
+export function getDb(): Promise<FirestoreDb | null> {
+  if (!isFirebaseConfigured) return Promise.resolve(null);
+  if (!dbPromise) dbPromise = initDb();
+  return dbPromise;
+}
+
+async function initDb(): Promise<FirestoreDb | null> {
   try {
-    app = initializeApp(firebaseConfig);
-    db = getFirestore(app);
-    enableIndexedDbPersistence(db).catch(err => {
-      if (err.code === 'failed-precondition') {
-        console.warn('Multiple tabs open, persistence can only be enabled in one tab');
-      } else if (err.code === 'unimplemented') {
-        console.warn("Browser doesn't support persistence");
-      }
-    });
+    const { initializeApp } = await import('firebase/app');
+    const { getFirestore, enableIndexedDbPersistence } = await import('firebase/firestore');
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    enableIndexedDbPersistence(db).catch(() => {});
+    return db;
   } catch (err) {
     console.warn('Firebase init failed — running local-only:', err);
-    app = null;
-    db = null;
+    return null;
   }
-} else {
-  console.info('Firebase not configured — ESCC running on localStorage fallback');
 }
 
-// Staff operations
-export async function getStaff() {
-  if (!db) return [];
-  const snapshot = await getDocs(query(collection(db, 'staff'), orderBy('id')));
-  return snapshot.docs.map(d => ({ id: Number(d.data().id) || d.id, ...d.data() }));
+async function api() {
+  const db = await getDb();
+  if (!db) return null;
+  const firestore = await import('firebase/firestore');
+  return { db, ...firestore };
 }
 
-export async function upsertStaff(staff: any) {
-  if (!db) return;
-  const ref = doc(db, 'staff', String(staff.id));
-  await setDoc(ref, staff, { merge: true });
+async function readAll(name: string, order: string) {
+  const store = await api();
+  if (!store) return [];
+  const snapshot = await store.getDocs(store.query(store.collection(store.db, name), store.orderBy(order)));
+  return snapshot.docs.map((d) => ({ id: Number(d.data().id) || d.id, ...d.data() }));
 }
 
-// Client operations
-export async function getClients() {
-  if (!db) return [];
-  const snapshot = await getDocs(query(collection(db, 'clients'), orderBy('id')));
-  return snapshot.docs.map(d => ({ id: Number(d.data().id) || d.id, ...d.data() }));
+async function write(name: string, record: any) {
+  const store = await api();
+  if (!store || record?.id == null) return;
+  await store.setDoc(store.doc(store.db, name, String(record.id)), record, { merge: true });
 }
 
-export async function upsertClient(client: any) {
-  if (!db) return;
-  const ref = doc(db, 'clients', String(client.id));
-  await setDoc(ref, client, { merge: true });
-}
-
-// Event operations
-export async function getEvents() {
-  if (!db) return [];
-  const snapshot = await getDocs(query(collection(db, 'events'), orderBy('date')));
-  return snapshot.docs.map(d => ({ id: Number(d.data().id) || d.id, ...d.data() }));
-}
-
-export async function upsertEvent(event: any) {
-  if (!db) return;
-  const ref = doc(db, 'events', String(event.id));
-  await setDoc(ref, event, { merge: true });
-}
-
-// Invoice operations
-export async function getInvoices() {
-  if (!db) return [];
-  const snapshot = await getDocs(query(collection(db, 'invoices'), orderBy('id')));
-  return snapshot.docs.map(d => ({ id: Number(d.data().id) || d.id, ...d.data() }));
-}
-
-export async function upsertInvoice(invoice: any) {
-  if (!db) return;
-  const ref = doc(db, 'invoices', String(invoice.id));
-  await setDoc(ref, invoice, { merge: true });
-}
-
-// Quote operations
-export async function getQuotes() {
-  if (!db) return [];
-  const snapshot = await getDocs(query(collection(db, 'quotes'), orderBy('id')));
-  return snapshot.docs.map(d => ({ id: Number(d.data().id) || d.id, ...d.data() }));
-}
-
-export async function upsertQuote(quote: any) {
-  if (!db) return;
-  const ref = doc(db, 'quotes', String(quote.id));
-  await setDoc(ref, quote, { merge: true });
-}
+export const getStaff = () => readAll('staff', 'id');
+export const upsertStaff = (staff: any) => write('staff', staff);
+export const getClients = () => readAll('clients', 'id');
+export const upsertClient = (client: any) => write('clients', client);
+export const getEvents = () => readAll('events', 'date');
+export const upsertEvent = (event: any) => write('events', event);
+export const getInvoices = () => readAll('invoices', 'id');
+export const upsertInvoice = (invoice: any) => write('invoices', invoice);
+export const getQuotes = () => readAll('quotes', 'id');
+export const upsertQuote = (quote: any) => write('quotes', quote);

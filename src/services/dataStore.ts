@@ -1,4 +1,4 @@
-import { db, getStaff, upsertStaff as firebaseUpsertStaff, getClients, upsertClient as firebaseUpsertClient, getEvents, upsertEvent as firebaseUpsertEvent, getInvoices, upsertInvoice as firebaseUpsertInvoice, getQuotes, upsertQuote as firebaseUpsertQuote } from './firebaseService';
+import { getDb, getStaff, upsertStaff as firebaseUpsertStaff, getClients, upsertClient as firebaseUpsertClient, getEvents, upsertEvent as firebaseUpsertEvent, getInvoices, upsertInvoice as firebaseUpsertInvoice, getQuotes, upsertQuote as firebaseUpsertQuote } from './firebaseService';
 
 // ─── Local storage fallback (primary source of truth offline) ────────────────
 const KEY = 'escc_local_store_v1';
@@ -11,6 +11,21 @@ interface LocalStore {
   quotes: any[];
   messages: any[];
   records: any[]; // timesheet clock in/out
+  meta?: { demo?: boolean };
+}
+
+const SAMPLE_ROSTER = [
+  { name: 'Amara Diallo', pin: '1111' },
+  { name: 'Themba Nkosi', pin: '2222' },
+  { name: 'Priya Moodley', pin: '3333' },
+  { name: 'Lerato Khumalo', pin: '4444' },
+  { name: 'Sipho Dlamini', pin: '5555' },
+  { name: 'Naledi Tau', pin: '6666' },
+];
+
+export function rosterIsSample(staff: any[] | undefined): boolean {
+  if (!Array.isArray(staff) || staff.length !== SAMPLE_ROSTER.length) return false;
+  return SAMPLE_ROSTER.every((sample) => staff.some((member) => member?.name === sample.name && member?.pin === sample.pin));
 }
 
 const DEFAULT_STAFF = [
@@ -47,6 +62,7 @@ const seedStore = (): LocalStore => {
     ],
     messages: [],
     records: [],
+    meta: { demo: true },
   };
 };
 
@@ -60,6 +76,7 @@ const normalizeStore = (raw: any): LocalStore => {
     quotes: Array.isArray(raw?.quotes) ? raw.quotes : seed.quotes,
     messages: Array.isArray(raw?.messages) ? raw.messages : [],
     records: Array.isArray(raw?.records) ? raw.records : [],
+    meta: raw?.meta && typeof raw.meta === 'object' ? raw.meta : { demo: rosterIsSample(Array.isArray(raw?.staff) ? raw.staff : seed.staff) },
   };
 };
 
@@ -89,6 +106,7 @@ const nextId = (arr: { id?: number }[]) =>
 
 // Firestore sync (best-effort — never blocks local writes)
 const syncToFirestore = async (s: LocalStore) => {
+  const db = await getDb();
   if (!db) return;
   try {
     for (const staff of s.staff) await firebaseUpsertStaff(staff);
@@ -203,7 +221,7 @@ export const convertQuoteToInvoice = (quoteId: number) => {
   });
 };
 
-// Messages (for WhatsApp)
+// Saved notices (dispatch notes, booking copies)
 export const addMessage = (m: any) => {
   const id = nextId(store.messages);
   return update(st => {
@@ -233,7 +251,13 @@ export const clockOut = (staffId: number) => {
 };
 
 // Sync from Firestore (call on app init) — only merges non-empty remote collections
+export function isDemoData() {
+  if (store.meta?.demo === false) return false;
+  return store.meta?.demo === true || rosterIsSample(store.staff);
+}
+
 export async function syncFromFirestore() {
+  const db = await getDb();
   if (!db) return;
 
   try {
@@ -271,4 +295,4 @@ export const resetStore = () => {
   return fresh;
 };
 
-export const getSnapshot = () => ({ ...store, staff: [...store.staff], clients: [...store.clients], events: [...store.events], invoices: [...store.invoices], quotes: [...store.quotes], records: [...store.records], messages: [...store.messages] });
+export const getSnapshot = () => ({ ...store, staff: [...store.staff], clients: [...store.clients], events: [...store.events], invoices: [...store.invoices], quotes: [...store.quotes], records: [...store.records], messages: [...store.messages], meta: store.meta });

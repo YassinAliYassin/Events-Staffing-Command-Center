@@ -1,13 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import {
-  DollarSign, MessageCircle, Download, Calendar,
-  TrendingUp, TrendingDown, AlertCircle, CheckCircle,
-  Clock, XCircle, Filter, RefreshCw, ChevronDown, ChevronUp,
-  Search, Send, FileText, BarChart3, Users
-} from 'lucide-react';
 import * as dataStore from '../services/dataStore';
-import { collection, onSnapshot, type QueryDocumentSnapshot } from 'firebase/firestore';
-import { db } from '../services/firebaseService';
+import { getDb } from '../services/firebaseService';
+import { downloadCsv } from '../shell/ops';
 
 interface PayrollStaff {
   staffId: number;
@@ -48,42 +42,12 @@ const Payroll: React.FC<PayrollProps> = () => {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'PAID' | 'UNPAID' | 'PARTIAL' | 'OVERDUE'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
-
-  // Compute payroll from localStorage immediately (local-first, works offline /
-  // without Firebase). Firestore, when available, is a best-effort live refresh —
-  // a failed/misconfigured Firestore must NOT block the local data.
-  useEffect(() => {
-    // Local-first: always render from the local store right away.
-    fetchPayroll();
-
-    if (!db) return;
-
-    let unsubStaff: (() => void) | undefined;
-    let unsubEvents: (() => void) | undefined;
-    try {
-      unsubStaff = onSnapshot(
-        collection(db, 'staff'),
-        () => fetchPayroll(),
-        () => { /* Firestore unavailable (e.g. placeholder creds) — ignore, local data stands */ }
-      );
-      unsubEvents = onSnapshot(
-        collection(db, 'events'),
-        () => fetchPayroll(),
-        () => { /* same: ignore, local data stands */ }
-      );
-    } catch {
-      // Synchronous setup failure (misconfigured db) — local data already rendered.
-    }
-
-    return () => {
-      unsubStaff?.();
-      unsubEvents?.();
-    };
-  }, []);
+  const [error, setError] = useState('');
 
   const fetchPayroll = useCallback(() => {
     setLoading(true);
-    
+    setError('');
+    try {
     const storedStaff: any[] = dataStore.listStaff();
     const storedEvents: any[] = dataStore.listEvents();
     const today = new Date();
@@ -114,9 +78,9 @@ const Payroll: React.FC<PayrollProps> = () => {
         assignmentsCount: assignments.length,
         totalHours,
         totalEarned,
-        paymentStatus: 'UNPAID' as 'PAID' | 'UNPAID' | 'PARTIAL' | 'PROCESSING' | 'OVERDUE',
-        pendingAmount: totalEarned * 0.3,
-        paidAmount: totalEarned * 0.7
+        paymentStatus: 'UNPAID' as const,
+        pendingAmount: totalEarned,
+        paidAmount: 0
       };
     });
 
@@ -135,7 +99,32 @@ const Payroll: React.FC<PayrollProps> = () => {
     });
 
     setLoading(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not calculate payroll');
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    fetchPayroll();
+    let cancelled = false;
+    const unsubs: Array<() => void> = [];
+    getDb().then(async (db) => {
+      if (!db || cancelled) return;
+      const { collection, onSnapshot } = await import('firebase/firestore');
+      if (cancelled) return;
+      try {
+        unsubs.push(onSnapshot(collection(db, 'staff'), () => fetchPayroll(), () => {}));
+        unsubs.push(onSnapshot(collection(db, 'events'), () => fetchPayroll(), () => {}));
+      } catch {
+        /* local payroll already rendered */
+      }
+    }).catch(() => {});
+    return () => {
+      cancelled = true;
+      unsubs.forEach((unsub) => unsub());
+    };
+  }, [fetchPayroll]);
 
   const filteredStaff = useMemo(() => {
     if (!payroll) return [];
@@ -169,7 +158,7 @@ const Payroll: React.FC<PayrollProps> = () => {
     title: {
       fontSize: 'clamp(24px, 4vw, 28px)',
       fontWeight: '600',
-      color: '#e6edf3',
+      color: 'var(--text)',
       letterSpacing: '-0.02em',
       margin: 0
     },
@@ -180,8 +169,8 @@ const Payroll: React.FC<PayrollProps> = () => {
       width: '100%'
     },
     statCard: {
-      backgroundColor: '#161b22',
-      border: '1px solid #30363d',
+      backgroundColor: 'var(--surface)',
+      border: '1px solid var(--border)',
       borderRadius: 'clamp(8px, 2vw, 12px)',
       padding: 'clamp(16px, 3vw, 24px)',
       textAlign: 'center'
@@ -189,12 +178,12 @@ const Payroll: React.FC<PayrollProps> = () => {
     statValue: {
       fontSize: 'clamp(18px, 3vw, 24px)',
       fontWeight: '600',
-      color: '#e6edf3'
+      color: 'var(--text)'
     },
     table: {
       width: '100%',
-      backgroundColor: '#161b22',
-      border: '1px solid #30363d',
+      backgroundColor: 'var(--surface)',
+      border: '1px solid var(--border)',
       borderRadius: 'clamp(8px, 2vw, 12px)',
       overflow: 'hidden'
     },
@@ -202,13 +191,13 @@ const Payroll: React.FC<PayrollProps> = () => {
       display: 'grid',
       gridTemplateColumns: '2fr 1fr 1fr 1fr',
       padding: 'clamp(12px, 2.5vw, 16px) clamp(16px, 3vw, 24px)',
-      backgroundColor: '#0d1117',
-      borderBottom: '1px solid #30363d',
+      backgroundColor: 'var(--bg)',
+      borderBottom: '1px solid var(--border)',
       fontWeight: '500',
       fontSize: 'clamp(10px, 2vw, 13px)',
       textTransform: 'uppercase',
       letterSpacing: '0.06em',
-      color: '#8b949e'
+      color: 'var(--muted)'
     },
     filterRow: {
       display: 'flex',
@@ -220,20 +209,28 @@ const Payroll: React.FC<PayrollProps> = () => {
     searchInput: {
       flex: 1,
       minWidth: '200px',
-      padding: 'clamp(8px, 2vw, 10px) clamp(12px, 3vw, 12px) clamp(8px, 2vw, 10px) clamp(36px, 5vw, 36px)',
-      backgroundColor: '#0d1117',
-      border: '1px solid #30363d',
+      padding: 'clamp(8px, 2vw, 10px) clamp(12px, 3vw, 12px)',
+      backgroundColor: 'var(--bg)',
+      border: '1px solid var(--border)',
       borderRadius: 'clamp(6px, 1.5vw, 8px)',
-      color: '#e6edf3',
+      color: 'var(--text)',
       fontSize: 'clamp(14px, 2.5vw, 16px)',
       outline: 'none'
     }
   };
 
+  if (error) {
+    return (
+      <div style={styles.container} role="alert">
+        <p style={{ color: 'var(--danger)' }}>Payroll could not be calculated. {error}</p>
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div style={styles.container}>
-        <p style={{ color: '#8b949e', fontSize: 'clamp(14px, 2.5vw, 16px)' }}>Loading payroll...</p>
+        <p style={{ color: 'var(--muted)', fontSize: 'clamp(14px, 2.5vw, 16px)' }}>Loading payroll...</p>
       </div>
     );
   }
@@ -243,10 +240,14 @@ const Payroll: React.FC<PayrollProps> = () => {
       <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
         <div>
           <h1 style={styles.title}>Payroll Summary</h1>
-          <p style={{ color: '#8b949e', fontSize: 'clamp(12px, 2.5vw, 14px)', marginTop: 'clamp(4px, 1vw, 8px)' }}>
-            {payroll?.cycleStart} to {payroll?.cycleEnd}
+          <p style={{ color: 'var(--muted)', fontSize: 'clamp(12px, 2.5vw, 14px)', marginTop: 'clamp(4px, 1vw, 8px)' }}>
+            {payroll?.cycleStart} to {payroll?.cycleEnd}. Amounts are this month’s assignments. Nothing is marked paid until a payment is recorded.
           </p>
         </div>
+        <button type="button" className="escc-btn" onClick={() => downloadCsv(`payroll-${payroll?.cycleStart || 'cycle'}.csv`, [
+          ['Name', 'Role', 'Hours', 'Earnings ZAR', 'Status'],
+          ...(payroll?.staff || []).map((member) => [member.fullName, member.role, member.totalHours.toFixed(2), member.totalEarned.toFixed(2), member.paymentStatus]),
+        ])}>Export CSV</button>
       </div>
 
       <div style={styles.summaryGrid}>
@@ -254,13 +255,13 @@ const Payroll: React.FC<PayrollProps> = () => {
           <div style={{ ...styles.statValue, color: '#10B981' }}>
             {formatCurrency(payroll?.summary.totalEarnings || 0)}
           </div>
-          <div style={{ color: '#8b949e', fontSize: 'clamp(10px, 2vw, 12px)', marginTop: 'clamp(4px, 1vw, 8px)' }}>
+          <div style={{ color: 'var(--muted)', fontSize: 'clamp(10px, 2vw, 12px)', marginTop: 'clamp(4px, 1vw, 8px)' }}>
             Total Earnings
           </div>
         </div>
         <div style={styles.statCard}>
           <div style={styles.statValue}>{payroll?.summary.totalHours.toFixed(1)} hrs</div>
-          <div style={{ color: '#8b949e', fontSize: 'clamp(10px, 2vw, 12px)', marginTop: 'clamp(4px, 1vw, 8px)' }}>
+          <div style={{ color: 'var(--muted)', fontSize: 'clamp(10px, 2vw, 12px)', marginTop: 'clamp(4px, 1vw, 8px)' }}>
             Total Hours
           </div>
         </div>
@@ -268,7 +269,7 @@ const Payroll: React.FC<PayrollProps> = () => {
           <div style={{ ...styles.statValue, color: '#F59E0B' }}>
             {formatCurrency(payroll?.summary.pendingAmount || 0)}
           </div>
-          <div style={{ color: '#8b949e', fontSize: 'clamp(10px, 2vw, 12px)', marginTop: 'clamp(4px, 1vw, 8px)' }}>
+          <div style={{ color: 'var(--muted)', fontSize: 'clamp(10px, 2vw, 12px)', marginTop: 'clamp(4px, 1vw, 8px)' }}>
             Pending Payments
           </div>
         </div>
@@ -276,7 +277,6 @@ const Payroll: React.FC<PayrollProps> = () => {
 
       <div style={styles.filterRow}>
         <div style={{ position: 'relative', flex: 1, minWidth: '200px' }}>
-          <Search size={16} style={{ position: 'absolute', left: 'clamp(10px, 2vw, 12px)', top: '50%', transform: 'translateY(-50%)', color: '#8b949e' }} />
           <input
             type="text"
             value={searchQuery}
@@ -291,10 +291,10 @@ const Payroll: React.FC<PayrollProps> = () => {
           onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
           style={{
             padding: 'clamp(8px, 2vw, 10px) clamp(12px, 3vw, 16px)',
-            backgroundColor: '#0d1117',
-            border: '1px solid #30363d',
+            backgroundColor: 'var(--bg)',
+            border: '1px solid var(--border)',
             borderRadius: 'clamp(6px, 1.5vw, 8px)',
-            color: '#e6edf3',
+            color: 'var(--text)',
             fontSize: 'clamp(13px, 2.5vw, 16px)',
             outline: 'none',
             cursor: 'pointer',
@@ -317,7 +317,7 @@ const Payroll: React.FC<PayrollProps> = () => {
           <span>Status</span>
         </div>
         {filteredStaff.length === 0 ? (
-          <p style={{ color: '#8b949e', textAlign: 'center', padding: 'clamp(24px, 5vw, 48px)', fontSize: 'clamp(14px, 2.5vw, 16px)' }}>
+          <p style={{ color: 'var(--muted)', textAlign: 'center', padding: 'clamp(24px, 5vw, 48px)', fontSize: 'clamp(14px, 2.5vw, 16px)' }}>
             No staff match your filters
           </p>
         ) : (
@@ -326,17 +326,17 @@ const Payroll: React.FC<PayrollProps> = () => {
               display: 'grid',
               gridTemplateColumns: '2fr 1fr 1fr 1fr',
               padding: 'clamp(12px, 2.5vw, 16px) clamp(16px, 3vw, 24px)',
-              borderBottom: '1px solid #30363d',
+              borderBottom: '1px solid var(--border)',
               fontSize: 'clamp(13px, 2.5vw, 14px)'
             }}>
               <div>
-                <div style={{ color: '#e6edf3', fontWeight: '500' }}>{staff.fullName}</div>
-                <div style={{ color: '#8b949e', fontSize: 'clamp(11px, 2vw, 12px)' }}>{staff.role}</div>
+                <div style={{ color: 'var(--text)', fontWeight: '500' }}>{staff.fullName}</div>
+                <div style={{ color: 'var(--muted)', fontSize: 'clamp(11px, 2vw, 12px)' }}>{staff.role}</div>
               </div>
-              <div style={{ color: '#e6edf3', alignSelf: 'center' }}>
+              <div style={{ color: 'var(--text)', alignSelf: 'center' }}>
                 {staff.totalHours.toFixed(1)} hrs
               </div>
-              <div style={{ color: '#e6edf3', alignSelf: 'center' }}>
+              <div style={{ color: 'var(--text)', alignSelf: 'center' }}>
                 {formatCurrency(staff.totalEarned)}
               </div>
               <div style={{ alignSelf: 'center' }}>

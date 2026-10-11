@@ -1,7 +1,7 @@
 {
   "name": "@escc/dispatch-agent",
   "version": "1.1.0",
-  "description": "Dispatch Agent — WhatsApp staff dispatch, webhooks, and field notifications",
+  "description": "Dispatch Agent — on-site run sheets and crew briefings",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",

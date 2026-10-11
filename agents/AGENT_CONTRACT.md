@@ -60,7 +60,7 @@ export interface EsccAgent {
 | billing | `quote.create`, `invoice.create`, `invoice.markPaid` |
 | crm | `client.list`, `client.score`, `pipeline.move` |
 | finance | `payroll.summary`, `payment.remind` |
-| dispatch | `dispatch.event`, `dispatch.bulk`, `whatsapp.webhook` |
+| dispatch | `dispatch.event`, `dispatch.bulk`, `dispatch.runsheet` |
 
 ## Versioning
 

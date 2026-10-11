@@ -2,8 +2,17 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
-    <meta name="theme-color" content="#0d1117" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="description" content="Fresh People events staffing command center. Roster, shifts, check-in, and run sheets." />
+    <meta name="theme-color" content="#0a0c10" />
+    <script>
+      try {
+        var t = localStorage.getItem('escc-theme');
+        document.documentElement.dataset.theme = t === 'light' ? 'light' : 'dark';
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta && t === 'light') meta.setAttribute('content', '#f6f3ec');
+      } catch (e) {}
+    </script>
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>ESCC</title>

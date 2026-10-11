@@ -3,7 +3,7 @@ import {
   Users, Plus, Search, Mail, Phone, MapPin, Star, TrendingUp, Calendar,
   Edit, Trash2, X, Save, MessageCircle, ChevronRight, ChevronDown,
   Award, Activity, Briefcase, DollarSign, Filter, MoreVertical,
-  CheckCircle, XCircle, AlertCircle, Eye, Send, Target,
+  CheckCircle, XCircle, AlertCircle, Eye, Target,
   MessageSquare, Edit2, Clock, FileText
 } from 'lucide-react';
 import { Client as BaseClient } from '../types';
@@ -25,7 +25,7 @@ interface ClientEvent {
 
 interface ClientCommunication {
   id: string;
-  type: 'call' | 'email' | 'whatsapp' | 'meeting';
+  type: 'call' | 'email' | 'meeting';
   subject: string;
   date: string;
   outcome: string;
@@ -136,7 +136,7 @@ const ClientsView: React.FC<ClientsViewProps> = ({ onSelectClient }) => {
           status: e.date < todayStr ? 'completed' : 'upcoming',
           revenue: 0,
         })),
-        communicationHistory: client.communicationHistory || buildCommunicationHistory(client),
+        communicationHistory: client.communicationHistory || [],
         notes: client.notes || '',
         address: client.address || '',
         lastContact: client.lastContact || null,
@@ -694,14 +694,12 @@ const ClientsView: React.FC<ClientsViewProps> = ({ onSelectClient }) => {
                       <Phone className="w-4 h-4" />
                     </a>
                     <a
-                      href={`https://wa.me/${client.phone.replace(/\D/g, '')}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="p-2 text-gray-400 hover:text-green-400 transition-colors"
-                      title="WhatsApp Client"
+                      href={`mailto:${client.email || ''}`}
+                      className="p-2 text-gray-400 hover:text-blue-400 transition-colors"
+                      title="Email client"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <Send className="w-4 h-4" />
+                      <Mail className="w-4 h-4" />
                     </a>
                   </>
                 )}
@@ -1091,28 +1089,6 @@ function getLeadScoreReason(client: CRMClient): string {
   if (score >= 80) return 'High-value opportunity with strong revenue history and active engagement.';
   if (score >= 55) return 'Healthy relationship with enough activity to justify proactive follow-up.';
   return 'Needs qualification or reactivation before sales effort is prioritized.';
-}
-
-function buildCommunicationHistory(client: Partial<CRMClient>): ClientCommunication[] {
-  const fallbackDate = client.lastContact || client.createdAt || new Date().toISOString();
-  const contactName = client.contactPerson || client.name || 'Client';
-
-  return [
-    {
-      id: `${client.id || contactName}-last-contact`,
-      type: client.phone ? 'whatsapp' : 'email',
-      subject: `Follow-up with ${contactName}`,
-      date: fallbackDate,
-      outcome: client.status === 'lead' ? 'Qualification pending' : 'Relationship active'
-    },
-    {
-      id: `${client.id || contactName}-brief`,
-      type: 'call',
-      subject: 'Event requirements check-in',
-      date: client.createdAt || fallbackDate,
-      outcome: `${client.eventsBooked || 0} booked event${(client.eventsBooked || 0) === 1 ? '' : 's'} on record`
-    }
-  ];
 }
 
 export default ClientsView;

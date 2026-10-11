@@ -83,21 +83,6 @@ app.get('/api/calendar', async (req, res) => {
   }
 });
 
-// WhatsApp dispatch (mock locally)
-app.post('/api/dispatch-staff', async (req, res) => {
-  const { eventId, staffIds } = req.body || {};
-  if (!eventId || !Array.isArray(staffIds) || staffIds.length === 0) {
-    return res.status(400).json({ success: false, error: 'eventId and staffIds required', dispatched: 0 });
-  }
-  return res.json({
-    success: true,
-    note: 'Local dev: WhatsApp dispatch is mock. Production: api/dispatch-staff.js uses real DB + Meta API.',
-    eventId,
-    dispatched: staffIds.length,
-    details: staffIds.map(id => ({ staffId: id, status: 'mock-sent' })),
-  });
-});
-
 // Google Calendar (empty mock when no SA credentials)
 app.get('/api/calendar/google', (_req, res) => {
   res.json({
@@ -258,5 +243,4 @@ app.listen(PORT, () => {
   console.log(`Events:    GET  /api/events`);
   console.log(`Apple:     GET  /api/calendar/apple`);
   console.log(`Google:    GET  /api/calendar/google`);
-  console.log(`Dispatch:  POST /api/dispatch-staff`);
 });

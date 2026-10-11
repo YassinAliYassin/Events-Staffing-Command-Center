@@ -2,15 +2,17 @@ import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import ErrorBoundary from './components/ErrorBoundary';
-import './index.css';
 import './styles/global.css';
-import './styles/mobile-responsive.css';
+import './shell/shell.css';
 import { syncFromFirestore } from './services/dataStore';
 
-// Initialize Firestore sync on app load
-syncFromFirestore().catch(err => console.warn('Initial Firestore sync failed:', err));
+const startSync = () => {
+  syncFromFirestore().catch(err => console.warn('Initial Firestore sync failed:', err));
+};
+if (typeof requestIdleCallback === 'function') requestIdleCallback(startSync, { timeout: 2500 });
+else setTimeout(startSync, 400);
 
-document.title = 'ESCC';
+document.title = 'ESCC — Fresh People';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
