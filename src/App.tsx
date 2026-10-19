@@ -1449,10 +1449,16 @@ export default function App(){
                   <span>·</span>
                   <span>section <code style={{color:activeAgent.accent}}>{activeAgent.section}</code></span>
                   <span>·</span>
-                  <a href={activeAgent.repo} target="_blank" rel="noreferrer"
-                    style={{color:activeAgent.accent,textDecoration:"none"}}>
-                    {activeAgent.package}
-                  </a>
+                  {activeAgent.planned ? (
+                    <span title="Repo not yet created — planned" style={{color:MUTED,opacity:0.85}}>
+                      {activeAgent.package} <span style={{fontSize:10}}>(planned)</span>
+                    </span>
+                  ) : (
+                    <a href={activeAgent.repo} target="_blank" rel="noreferrer"
+                      style={{color:activeAgent.accent,textDecoration:"none"}}>
+                      {activeAgent.package}
+                    </a>
+                  )}
                   <span style={{marginLeft:"auto",fontSize:11}}>Company {ESCC_COMPANY.name}</span>
                 </div>
               );
