@@ -2,21 +2,26 @@
 
 **Company:** ESCC  
 **Shell:** this repository (Command Center UI + API)  
-**Hub:** [escc](https://github.com/YassinAliYassin/escc)  
+**Hub:** not yet created — this repository is the current hub and home of the shared agent contract  
 **Project board:** [ESCC](https://github.com/users/YassinAliYassin/projects/2)
+
+> Note (2026-10-19): the `escc` hub repo and the eight `escc-*-agent` section
+> repos below do **not** exist yet (all returned HTTP 404 when verified). Treat
+> the section agents as *planned* until those repos are created; today every
+> section lives inside this shell repository under `src/`.
 
 Each admin section is owned by a dedicated agent repository under the ESCC company namespace.
 
-| Tab | Agent | Repository |
-|-----|--------|------------|
-| Dashboard | Executive Intelligence | [escc-executive-agent](https://github.com/YassinAliYassin/escc-executive-agent) |
-| Roster / Add Staff | Staff | [escc-staff-agent](https://github.com/YassinAliYassin/escc-staff-agent) |
-| Timesheets | Timesheet | [escc-timesheet-agent](https://github.com/YassinAliYassin/escc-timesheet-agent) |
-| Calendar | Calendar | [escc-calendar-agent](https://github.com/YassinAliYassin/escc-calendar-agent) |
-| Docs & Billing | Billing | [escc-billing-agent](https://github.com/YassinAliYassin/escc-billing-agent) |
-| Clients | CRM | [escc-crm-agent](https://github.com/YassinAliYassin/escc-crm-agent) |
-| Payroll | Finance | [escc-finance-agent](https://github.com/YassinAliYassin/escc-finance-agent) |
-| Run sheets | Dispatch | [escc-dispatch-agent](https://github.com/YassinAliYassin/escc-dispatch-agent) |
+| Tab | Agent | Repository (planned) |
+|-----|--------|----------------------|
+| Dashboard | Executive Intelligence | `escc-executive-agent` — not yet created |
+| Roster / Add Staff | Staff | `escc-staff-agent` — not yet created |
+| Timesheets | Timesheet | `escc-timesheet-agent` — not yet created |
+| Calendar | Calendar | `escc-calendar-agent` — not yet created |
+| Docs & Billing | Billing | `escc-billing-agent` — not yet created |
+| Clients | CRM | `escc-crm-agent` — not yet created |
+| Payroll | Finance | `escc-finance-agent` — not yet created |
+| Run sheets | Dispatch | `escc-dispatch-agent` — not yet created |
 
 ## In-app catalog
 
@@ -28,9 +33,15 @@ import { ESCC_AGENTS, agentForTab, ESCC_COMPANY } from "./agents/catalog";
 
 ## Contract
 
-All agents implement the shared contract documented in the hub:
+All agents implement the shared contract. The contract document has not been
+published yet — the `escc` hub repo it would live in does not exist
+(`https://github.com/YassinAliYassin/escc/docs/AGENT_CONTRACT.md` → 404 as of
+2026-10-19). Until it is published, the de-facto contract is this repository's
+`src/agents/` interfaces.
 
-https://github.com/YassinAliYassin/escc/blob/main/docs/AGENT_CONTRACT.md
+**Known stale links:** `src/agents/catalog.ts` still hard-codes the planned
+`escc-*-agent` repo URLs (all 404). They are displayed by the in-app agent
+catalog; update them once the repos exist (tracked as ESCC repair item 3).
 
 ## Roadmap
 
